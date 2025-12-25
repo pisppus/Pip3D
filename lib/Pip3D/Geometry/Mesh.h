@@ -138,21 +138,11 @@ namespace pip3D
               isStaticStorage(false)
         {
 
-            static const bool hasPSRAM = psramFound();
-
             const size_t vertexSize = maxVertices * sizeof(Vertex);
             const size_t faceSize = maxFaces * sizeof(Face);
 
-            if (hasPSRAM)
-            {
-                vertices = (Vertex *)heap_caps_aligned_alloc(16, vertexSize, MALLOC_CAP_SPIRAM);
-                faces = (Face *)heap_caps_aligned_alloc(16, faceSize, MALLOC_CAP_SPIRAM);
-            }
-            else
-            {
-                vertices = (Vertex *)heap_caps_aligned_alloc(16, vertexSize, MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL);
-                faces = (Face *)heap_caps_aligned_alloc(16, faceSize, MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL);
-            }
+            vertices = (Vertex *)MemUtils::allocData(vertexSize, 16);
+            faces = (Face *)MemUtils::allocData(faceSize, 16);
 
             if (unlikely(!vertices || !faces))
             {
@@ -210,12 +200,12 @@ namespace pip3D
         {
             if (vertices && !isStaticStorage)
             {
-                heap_caps_free(vertices);
+                MemUtils::freeData(vertices);
                 vertices = nullptr;
             }
             if (faces && !isStaticStorage)
             {
-                heap_caps_free(faces);
+                MemUtils::freeData(faces);
                 faces = nullptr;
             }
             vertexCount = 0;

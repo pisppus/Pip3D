@@ -284,17 +284,13 @@ namespace pip3D
             setRotation(3);
 
             dmaBufferSize = width * 16;
-            dmaBuffer = (uint16_t *)heap_caps_malloc(dmaBufferSize * sizeof(uint16_t), MALLOC_CAP_DMA);
+            dmaBuffer = (uint16_t *)heap_caps_malloc(dmaBufferSize * sizeof(uint16_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
             if (!dmaBuffer)
             {
-                dmaBuffer = (uint16_t *)malloc(dmaBufferSize * sizeof(uint16_t));
-                if (!dmaBuffer)
-                {
-                    LOGE(::pip3D::Debug::LOG_MODULE_RENDER,
-                         "ST7789Driver DMA buffer alloc failed (size=%u)",
-                         (unsigned int)(dmaBufferSize * sizeof(uint16_t)));
-                    return false;
-                }
+                LOGE(::pip3D::Debug::LOG_MODULE_RENDER,
+                     "ST7789Driver DMA buffer alloc failed (size=%u)",
+                     (unsigned int)(dmaBufferSize * sizeof(uint16_t)));
+                return false;
             }
 
             LOGI(::pip3D::Debug::LOG_MODULE_RENDER,
@@ -345,11 +341,7 @@ namespace pip3D
                 {
                     if (swapBuffer)
                         heap_caps_free(swapBuffer);
-                    swapBuffer = (uint16_t *)heap_caps_malloc(chunk * sizeof(uint16_t), MALLOC_CAP_DMA);
-                    if (!swapBuffer)
-                    {
-                        swapBuffer = (uint16_t *)malloc(chunk * sizeof(uint16_t));
-                    }
+                    swapBuffer = (uint16_t *)heap_caps_malloc(chunk * sizeof(uint16_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
                     if (!swapBuffer)
                     {
                         CS_HIGH();
@@ -467,11 +459,7 @@ namespace pip3D
                     {
                         if (swapBuffer)
                             heap_caps_free(swapBuffer);
-                        swapBuffer = (uint16_t *)heap_caps_malloc(totalPixels * sizeof(uint16_t), MALLOC_CAP_DMA);
-                        if (!swapBuffer)
-                        {
-                            swapBuffer = (uint16_t *)malloc(totalPixels * sizeof(uint16_t));
-                        }
+                        swapBuffer = (uint16_t *)heap_caps_malloc(totalPixels * sizeof(uint16_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
                         if (!swapBuffer)
                         {
                             CS_HIGH();
@@ -564,11 +552,7 @@ namespace pip3D
                 }
 
                 size_t bytes = totalPixels * sizeof(uint16_t);
-                swapBuffer = (uint16_t *)heap_caps_aligned_alloc(16, bytes, MALLOC_CAP_DMA);
-                if (!swapBuffer)
-                {
-                    swapBuffer = (uint16_t *)malloc(bytes);
-                }
+                swapBuffer = (uint16_t *)heap_caps_aligned_alloc(16, bytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
                 if (!swapBuffer)
                 {
                     return;
@@ -630,7 +614,7 @@ namespace pip3D
                         heap_caps_free(swapBuffer);
 
                     size_t bytes = requiredPixels * sizeof(uint16_t);
-                    swapBuffer = (uint16_t *)heap_caps_aligned_alloc(16, bytes, MALLOC_CAP_DMA);
+                    swapBuffer = (uint16_t *)heap_caps_aligned_alloc(16, bytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
                     if (!swapBuffer)
                     {
                         LOGE(::pip3D::Debug::LOG_MODULE_RENDER,
@@ -761,11 +745,7 @@ namespace pip3D
                 {
                     if (swapBuffer)
                         heap_caps_free(swapBuffer);
-                    swapBuffer = (uint16_t *)heap_caps_malloc(rowPixels * sizeof(uint16_t), MALLOC_CAP_DMA);
-                    if (!swapBuffer)
-                    {
-                        swapBuffer = (uint16_t *)malloc(rowPixels * sizeof(uint16_t));
-                    }
+                    swapBuffer = (uint16_t *)heap_caps_malloc(rowPixels * sizeof(uint16_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
                     if (!swapBuffer)
                     {
                         CS_HIGH();

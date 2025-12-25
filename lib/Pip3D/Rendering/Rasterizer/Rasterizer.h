@@ -249,8 +249,7 @@ namespace pip3D
                         float z_step = (zb - za) * invDx;
                         float z = za + z_step * (float)(x_start - xa);
 
-                        int16_t yLocal = static_cast<int16_t>(y - offsetY);
-                        size_t index = (size_t)yLocal * width + x_start;
+                        size_t index = (size_t)y * width + x_start;
                         for (int16_t x = x_start; x <= x_end; ++x, ++index)
                         {
                             if (!zBuffer->hasGeometry(x, y) || zBuffer->hasShadow(x, y))

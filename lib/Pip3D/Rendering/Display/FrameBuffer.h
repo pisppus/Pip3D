@@ -41,14 +41,7 @@ namespace pip3D
             size_t bufferSize = config.width * config.height * sizeof(uint16_t);
             bufferSize = (bufferSize + DMA_ALIGNMENT - 1) & ~(DMA_ALIGNMENT - 1);
 
-            if (psramFound())
-            {
-                buffer = (uint16_t *)heap_caps_aligned_alloc(DMA_ALIGNMENT, bufferSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_DMA);
-            }
-            else
-            {
-                buffer = (uint16_t *)heap_caps_aligned_alloc(DMA_ALIGNMENT, bufferSize, MALLOC_CAP_DMA);
-            }
+            buffer = (uint16_t *)heap_caps_aligned_alloc(DMA_ALIGNMENT, bufferSize, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
 
             if (!buffer)
             {

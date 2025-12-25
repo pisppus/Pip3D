@@ -36,14 +36,7 @@ namespace pip3D
                 buffer = nullptr;
             }
 
-            if (psramFound())
-            {
-                buffer = (int16_t *)ps_malloc(BUFFER_SIZE * sizeof(int16_t));
-            }
-            else
-            {
-                buffer = (int16_t *)malloc(BUFFER_SIZE * sizeof(int16_t));
-            }
+            buffer = (int16_t *)malloc(BUFFER_SIZE * sizeof(int16_t));
 
             if (!buffer)
             {
