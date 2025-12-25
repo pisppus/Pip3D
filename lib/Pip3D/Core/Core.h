@@ -4,6 +4,7 @@
 #include "../Math/Math.h"
 #include <Arduino.h>
 #include <SPI.h>
+#include <esp_heap_caps.h>
 #include <cstdlib>
 #include <cstring>
 #include "Debug/Logging.h"
@@ -453,6 +454,36 @@ namespace pip3D
     {
       if (ptr)
         free(ptr);
+    }
+
+    static void *allocData(size_t size, size_t align = 16)
+    {
+      if (size == 0)
+      {
+        return nullptr;
+      }
+
+#ifdef PIP3D_USE_PSRAM
+      if (psramFound())
+      {
+        void *ptr = heap_caps_aligned_alloc(align, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (ptr)
+        {
+          return ptr;
+        }
+      }
+#endif
+
+      return heap_caps_aligned_alloc(align, size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
+
+    static void freeData(void *ptr)
+    {
+      if (!ptr)
+      {
+        return;
+      }
+      heap_caps_free(ptr);
     }
 
     static bool isInPSRAM(void *ptr)
