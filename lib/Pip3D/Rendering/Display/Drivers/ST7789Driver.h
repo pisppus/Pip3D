@@ -737,7 +737,10 @@ namespace pip3D
 
             for (int16_t row = 0; row < h; row++)
             {
-                uint16_t *rowPtr = buffer + ((y_start + row) * width + x_start);
+                // In partial update mode, the source buffer is treated as a
+                // tightly packed rectangle of size w x h starting at (0, 0).
+                // Each row is contiguous and has exactly w pixels.
+                uint16_t *rowPtr = buffer + ((size_t)row * (size_t)w);
 
                 size_t rowPixels = (size_t)w;
 

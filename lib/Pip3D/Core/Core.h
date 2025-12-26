@@ -37,6 +37,29 @@ namespace pip3D
         : width(w), height(h), cs(cs_), dc(dc_), rst(rst_) {}
   };
 
+  // Global screen configuration (physical display resolution)
+  static constexpr uint16_t SCREEN_WIDTH = 320;
+  static constexpr uint16_t SCREEN_HEIGHT = 240;
+
+  // Banded rendering configuration: number of horizontal bands and band height
+  static constexpr uint16_t SCREEN_BAND_COUNT = 2;
+  static constexpr uint16_t SCREEN_BAND_HEIGHT = SCREEN_HEIGHT / SCREEN_BAND_COUNT;
+
+  // Per-frame band state used by the renderer and rasterizer.
+  // currentBandOffsetY: top Y coordinate (in full-screen space) of the active band.
+  // currentBandHeight:  height of the active band in pixels.
+  __attribute__((always_inline)) inline int16_t &currentBandOffsetY()
+  {
+    static int16_t offsetY = 0;
+    return offsetY;
+  }
+
+  __attribute__((always_inline)) inline int16_t &currentBandHeight()
+  {
+    static int16_t h = SCREEN_HEIGHT;
+    return h;
+  }
+
   struct alignas(2) Color
   {
     uint16_t rgb565;
