@@ -14,6 +14,13 @@ static Plane *g_platform = nullptr;
 static Cube *g_benchCube = nullptr;
 static Sphere *g_benchSphere = nullptr;
 
+// Simple physics world: cube falling into water
+static PhysicsWorld g_physics;
+static RigidBody g_groundBody;
+static RigidBody g_cubeBody;
+static const float g_waterSurfaceY = 0.5f;
+static const float g_waterSize = 20.0f;
+
 static uint32_t g_lastMs = 0;
 static float g_time = 0.0f;
 static Vector3 quatToEulerDegrees(const Quaternion &q)
@@ -41,8 +48,8 @@ static Vector3 quatToEulerDegrees(const Quaternion &q)
 static void initCamera(Renderer &r)
 {
   Camera &cam = r.getCamera();
-  cam.position = Vector3(0.0f, 4.0f, -8.0f);
-  cam.target = Vector3(0.0f, 0.5f, 0.0f);
+  cam.position = Vector3(0.0f, 7.0f, -8.0f);
+  cam.target = Vector3(0.0f, 1.0f, 0.0f);
   cam.up = Vector3(0.0f, 1.0f, 0.0f);
   cam.setPerspective(60.0f, 0.1f, 80.0f);
   cam.markDirty();
@@ -55,35 +62,68 @@ static void initScene(Renderer &r)
     g_platform = new Plane(20.0f, 20.0f, 1, Color::fromRGB888(100, 100, 100));
   g_platform->setPosition(0.0f, 0.0f, 0.0f);
 
-  // Benchmark cube
+  // Benchmark cube (slightly larger and higher above ground)
+  const float cubeSize = 1.2f;
   if (!g_benchCube)
-    g_benchCube = new Cube(1.5f, Color::fromRGB888(200, 160, 80));
-  g_benchCube->setPosition(-2.0f, 0.75f, 0.0f);
+    g_benchCube = new Cube(cubeSize, Color::fromRGB888(200, 160, 80));
+  g_benchCube->setPosition(0.0f, cubeSize * 2.0f, 0.0f);
   g_benchCube->setRotation(0.0f, 0.0f, 0.0f);
 
-  // Benchmark sphere
-  const float sphereRadius = 0.75f;
+  // Benchmark sphere (larger and slightly lifted)
+  const float sphereRadius = 1.0f;
   if (!g_benchSphere)
     g_benchSphere = new Sphere(sphereRadius, Color::fromRGB888(160, 200, 255));
-  g_benchSphere->setPosition(2.0f, sphereRadius, 0.0f);
+  g_benchSphere->setPosition(2.0f, sphereRadius * 1.2f, 0.0f);
   g_benchSphere->setRotation(0.0f, 0.0f, 0.0f);
 
   r.setSkyboxWithLighting(SKYBOX_DAY);
   r.setShadowsEnabled(true);
   r.setShadowPlaneY(0.0f);
   r.setBackfaceCullingEnabled(true);
+
+  // Physics setup: ground + dynamic cube + water buoyancy zone
+  g_physics.setFixedTimeStep(1.0f / 60.0f);
+
+  // Static ground body slightly below Y=0 so its top matches the visual platform
+  g_groundBody.setBox(Vector3(20.0f, 0.5f, 20.0f));
+  g_groundBody.setPosition(Vector3(0.0f, -0.25f, 0.0f));
+  g_groundBody.setStatic(true);
+  g_groundBody.setMaterial(PhysicsMaterial(0.8f, 0.0f));
+  g_physics.addBody(&g_groundBody);
+
+  // Dynamic cube body that will fall into the water
+  g_cubeBody.setBox(Vector3(cubeSize, cubeSize, cubeSize));
+  g_cubeBody.setPosition(Vector3(0.0f, cubeSize * 3.0f, 0.0f));
+  g_cubeBody.setMaterial(PhysicsMaterial(0.6f, 0.0f));
+  g_cubeBody.setCanSleep(true);
+  g_cubeBody.wakeUp();
+  g_physics.addBody(&g_cubeBody);
+
+  // Water volume for buoyancy: large pool centered at origin
+  {
+    AABB waterBounds(Vector3(-g_waterSize * 0.5f, -5.0f, -g_waterSize * 0.5f),
+                     Vector3( g_waterSize * 0.5f,  5.0f,  g_waterSize * 0.5f));
+    const float waterDensity = 1.5f;
+    const float waterDragL = 2.0f;
+    const float waterDragA = 2.0f;
+    g_physics.addBuoyancyZone(BuoyancyZone(waterBounds, g_waterSurfaceY, waterDensity, waterDragL, waterDragA));
+  }
 }
 
 static void updateScene(Renderer &r, float dt)
 {
   g_time += dt;
 
-  // Simple cube rotation on place
+  // Step physics world (cube falling into water)
+  g_physics.updateFixed(dt);
+
+  // Sync visual cube with physics body
   if (g_benchCube)
   {
-    float rotY = fmodf(g_time * 90.0f, 360.0f);       // deg/sec
-    float rotZ = fmodf(g_time * 45.0f, 360.0f);
-    g_benchCube->setRotation(0.0f, rotY, rotZ);
+    const Vector3 &p = g_cubeBody.position;
+    g_benchCube->setPosition(p.x, p.y, p.z);
+    Vector3 euler = quatToEulerDegrees(g_cubeBody.orientation);
+    g_benchCube->setRotation(euler.x, euler.y, euler.z);
   }
 
   // Sphere rotates and slowly orbits around its initial position
@@ -118,6 +158,9 @@ static void renderScene(Renderer &r)
     r.drawMesh(g_benchSphere);
     r.drawMeshShadow(g_benchSphere);
   }
+
+  // Water surface at y ~= 0.5 spanning the platform
+  r.drawWater(0.5f, 20.0f, Color::fromRGB888(40, 100, 180), 0.45f, g_time);
 }
 
 static void drawHud(Renderer &r)

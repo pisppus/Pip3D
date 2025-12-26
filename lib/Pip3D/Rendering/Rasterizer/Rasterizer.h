@@ -148,21 +148,24 @@ namespace pip3D
                         float z_step = (zb - za) * invDx;
                         float z = za + z_step * (float)(x_start - xa);
 
+                        int32_t depthStep = static_cast<int32_t>(z_step * depthScale);
+                        int32_t depth = static_cast<int32_t>(z * depthScale);
+
                         int16_t yLocal = static_cast<int16_t>(y - offsetY);
                         size_t index = (size_t)yLocal * width + x_start;
                         for (int16_t x = x_start; x <= x_end; ++x, ++index)
                         {
                             if (!zBuffer->hasGeometry(x, y) || zBuffer->hasShadow(x, y))
                             {
-                                z += z_step;
+                                depth += depthStep;
                                 continue;
                             }
 
                             int16_t storedDepth = zBuffer->getRawDepth(x, y);
-                            int16_t shadowDepth = (int16_t)(z * depthScale);
+                            int16_t shadowDepth = static_cast<int16_t>(depth);
                             if (shadowDepth > storedDepth)
                             {
-                                z += z_step;
+                                depth += depthStep;
                                 continue;
                             }
 
@@ -178,7 +181,7 @@ namespace pip3D
                             frameBuffer[index] = (r << 11) | (g << 5) | b;
                             zBuffer->markShadow(x, y);
 
-                            z += z_step;
+                            depth += depthStep;
                         }
                     }
 
@@ -249,20 +252,23 @@ namespace pip3D
                         float z_step = (zb - za) * invDx;
                         float z = za + z_step * (float)(x_start - xa);
 
+                        int32_t depthStep = static_cast<int32_t>(z_step * depthScale);
+                        int32_t depth = static_cast<int32_t>(z * depthScale);
+
                         size_t index = (size_t)y * width + x_start;
                         for (int16_t x = x_start; x <= x_end; ++x, ++index)
                         {
                             if (!zBuffer->hasGeometry(x, y) || zBuffer->hasShadow(x, y))
                             {
-                                z += z_step;
+                                depth += depthStep;
                                 continue;
                             }
 
                             int16_t storedDepth = zBuffer->getRawDepth(x, y);
-                            int16_t shadowDepth = (int16_t)(z * depthScale);
+                            int16_t shadowDepth = static_cast<int16_t>(depth);
                             if (shadowDepth > storedDepth)
                             {
-                                z += z_step;
+                                depth += depthStep;
                                 continue;
                             }
 
@@ -278,7 +284,7 @@ namespace pip3D
                             frameBuffer[index] = (r << 11) | (g << 5) | b;
                             zBuffer->markShadow(x, y);
 
-                            z += z_step;
+                            depth += depthStep;
                         }
                     }
 
@@ -302,6 +308,8 @@ namespace pip3D
         {
             const int16_t width = config.width;
             const int16_t height = config.height;
+
+            const float depthScale = 32767.0f;
 
             if (!frameBuffer || !zBuffer)
                 return;
@@ -425,50 +433,53 @@ namespace pip3D
                         float g = ga + g_step * offset;
                         float b = ba + b_step * offset;
 
+                        int32_t depthStep = static_cast<int32_t>(z_step * depthScale);
+                        int32_t depth = static_cast<int32_t>(z * depthScale);
+
                         size_t index = (size_t)y * width + x_start;
                         uint16_t span = (uint16_t)(x_end - x_start + 1);
                         int16_t x = x_start;
 
                         while (span >= 4)
                         {
-                            if (zBuffer->testAndSet(x, y, z))
+                            if (zBuffer->testAndSet(x, y, depth))
                             {
                                 frameBuffer[index] = Shading::applyDithering(r, g, b, x, y);
                             }
-                            z += z_step;
+                            depth += depthStep;
                             r += r_step;
                             g += g_step;
                             b += b_step;
                             index++;
                             x++;
 
-                            if (zBuffer->testAndSet(x, y, z))
+                            if (zBuffer->testAndSet(x, y, depth))
                             {
                                 frameBuffer[index] = Shading::applyDithering(r, g, b, x, y);
                             }
-                            z += z_step;
+                            depth += depthStep;
                             r += r_step;
                             g += g_step;
                             b += b_step;
                             index++;
                             x++;
 
-                            if (zBuffer->testAndSet(x, y, z))
+                            if (zBuffer->testAndSet(x, y, depth))
                             {
                                 frameBuffer[index] = Shading::applyDithering(r, g, b, x, y);
                             }
-                            z += z_step;
+                            depth += depthStep;
                             r += r_step;
                             g += g_step;
                             b += b_step;
                             index++;
                             x++;
 
-                            if (zBuffer->testAndSet(x, y, z))
+                            if (zBuffer->testAndSet(x, y, depth))
                             {
                                 frameBuffer[index] = Shading::applyDithering(r, g, b, x, y);
                             }
-                            z += z_step;
+                            depth += depthStep;
                             r += r_step;
                             g += g_step;
                             b += b_step;
@@ -480,11 +491,11 @@ namespace pip3D
 
                         while (span > 0)
                         {
-                            if (zBuffer->testAndSet(x, y, z))
+                            if (zBuffer->testAndSet(x, y, depth))
                             {
                                 frameBuffer[index] = Shading::applyDithering(r, g, b, x, y);
                             }
-                            z += z_step;
+                            depth += depthStep;
                             r += r_step;
                             g += g_step;
                             b += b_step;
@@ -578,50 +589,53 @@ namespace pip3D
                         float g = ga + g_step * offset;
                         float b = ba + b_step * offset;
 
+                        int32_t depthStep = static_cast<int32_t>(z_step * depthScale);
+                        int32_t depth = static_cast<int32_t>(z * depthScale);
+
                         size_t index = (size_t)y * width + x_start;
                         uint16_t span = (uint16_t)(x_end - x_start + 1);
                         int16_t x = x_start;
 
                         while (span >= 4)
                         {
-                            if (zBuffer->testAndSet(x, y, z))
+                            if (zBuffer->testAndSet(x, y, depth))
                             {
                                 frameBuffer[index] = Shading::applyDithering(r, g, b, x, y);
                             }
-                            z += z_step;
+                            depth += depthStep;
                             r += r_step;
                             g += g_step;
                             b += b_step;
                             index++;
                             x++;
 
-                            if (zBuffer->testAndSet(x, y, z))
+                            if (zBuffer->testAndSet(x, y, depth))
                             {
                                 frameBuffer[index] = Shading::applyDithering(r, g, b, x, y);
                             }
-                            z += z_step;
+                            depth += depthStep;
                             r += r_step;
                             g += g_step;
                             b += b_step;
                             index++;
                             x++;
 
-                            if (zBuffer->testAndSet(x, y, z))
+                            if (zBuffer->testAndSet(x, y, depth))
                             {
                                 frameBuffer[index] = Shading::applyDithering(r, g, b, x, y);
                             }
-                            z += z_step;
+                            depth += depthStep;
                             r += r_step;
                             g += g_step;
                             b += b_step;
                             index++;
                             x++;
 
-                            if (zBuffer->testAndSet(x, y, z))
+                            if (zBuffer->testAndSet(x, y, depth))
                             {
                                 frameBuffer[index] = Shading::applyDithering(r, g, b, x, y);
                             }
-                            z += z_step;
+                            depth += depthStep;
                             r += r_step;
                             g += g_step;
                             b += b_step;
@@ -633,11 +647,11 @@ namespace pip3D
 
                         while (span > 0)
                         {
-                            if (zBuffer->testAndSet(x, y, z))
+                            if (zBuffer->testAndSet(x, y, depth))
                             {
                                 frameBuffer[index] = Shading::applyDithering(r, g, b, x, y);
                             }
-                            z += z_step;
+                            depth += depthStep;
                             r += r_step;
                             g += g_step;
                             b += b_step;
@@ -751,7 +765,11 @@ namespace pip3D
                     {
                         float z_step = (xb - xa) != 0 ? (zb - za) / (xb - xa) : 0;
                         float z = za + z_step * (x_start - xa);
-                        zBuffer->testAndSetScanline(y, x_start, x_end, z, z_step, frameBuffer, color);
+
+                        const float depthScale = 32767.0f;
+                        int32_t depthStep = static_cast<int32_t>(z_step * depthScale);
+                        int32_t depthStart = static_cast<int32_t>(z * depthScale);
+                        zBuffer->testAndSetScanline(y, x_start, x_end, depthStart, depthStep, frameBuffer, color);
                     }
 
                     ax += dax_step;
@@ -797,7 +815,11 @@ namespace pip3D
                     {
                         float z_step = (xb - xa) != 0 ? (zb - za) / (xb - xa) : 0;
                         float z = za + z_step * (x_start - xa);
-                        zBuffer->testAndSetScanline(y, x_start, x_end, z, z_step, frameBuffer, color);
+
+                        const float depthScale = 32767.0f;
+                        int32_t depthStep = static_cast<int32_t>(z_step * depthScale);
+                        int32_t depthStart = static_cast<int32_t>(z * depthScale);
+                        zBuffer->testAndSetScanline(y, x_start, x_end, depthStart, depthStep, frameBuffer, color);
                     }
 
                     ax += dax_step;

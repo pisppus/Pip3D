@@ -66,7 +66,7 @@ namespace pip3D
             }
         }
 
-        __attribute__((always_inline, hot)) inline bool testAndSet(uint16_t x, uint16_t y, float z)
+        __attribute__((always_inline, hot)) inline bool testAndSet(uint16_t x, uint16_t y, int32_t depth)
         {
             if (x >= WIDTH || y >= HEIGHT)
             {
@@ -79,14 +79,14 @@ namespace pip3D
                 return false;
             }
 
-            int16_t depth = (int16_t)(z * MAX_DEPTH);
+            int16_t d = static_cast<int16_t>(depth);
             size_t index = y * WIDTH + x;
             int16_t stored = buffer[index];
             int16_t currentDepth = stored & ~SHADOW_FLAG;
 
-            if (depth < currentDepth)
+            if (d < currentDepth)
             {
-                buffer[index] = static_cast<int16_t>((stored & SHADOW_FLAG) | depth);
+                buffer[index] = static_cast<int16_t>((stored & SHADOW_FLAG) | d);
                 return true;
             }
             return false;
@@ -175,7 +175,7 @@ namespace pip3D
         }
 
         __attribute__((always_inline, hot)) inline void testAndSetScanline(uint16_t y, uint16_t x_start, uint16_t x_end,
-                                                                           float z_start, float z_step,
+                                                                           int32_t depthStart, int32_t depthStep,
                                                                            uint16_t *frameBuffer, uint16_t color)
         {
             if (y >= HEIGHT)
@@ -217,9 +217,7 @@ namespace pip3D
             int16_t *buf = buffer + index;
             uint16_t *fb = frameBuffer + index;
 
-            const float depthScale = static_cast<float>(MAX_DEPTH);
-            int32_t depth = static_cast<int32_t>(z_start * depthScale);
-            int32_t depthStep = static_cast<int32_t>(z_step * depthScale);
+            int32_t depth = depthStart;
 
             uint16_t count = countTotal;
 
