@@ -18,12 +18,6 @@ static constexpr float INV_255 = 1.0f / 255.0f;
 static constexpr float SCALE_255 = 255.0f;
 static constexpr float EPSILON_SQ = 1e-12f;
 
-static constexpr float POSITION_Q_MIN = -32.0f;
-static constexpr float POSITION_Q_MAX = 32.0f;
-static constexpr float POSITION_Q_RANGE = POSITION_Q_MAX - POSITION_Q_MIN;
-static constexpr float POSITION_Q_ENCODE_SCALE = 65535.0f / POSITION_Q_RANGE;
-static constexpr float POSITION_Q_DECODE_SCALE = POSITION_Q_RANGE / 65535.0f;
-
 namespace pip3D
 {
 
@@ -78,7 +72,7 @@ namespace pip3D
 
     struct Vertex
     {
-        uint16_t px, py, pz;
+        int16_t px, py, pz;
         PackedNormal normal;
 
         MESH_FORCE_INLINE Vertex() : px(0), py(0), pz(0), normal() {}
@@ -128,6 +122,8 @@ namespace pip3D
 
         bool isStaticStorage;
 
+        float qScale;
+
         mutable MeshCache cache;
 
     public:
@@ -135,7 +131,7 @@ namespace pip3D
             : vertexCount(0), faceCount(0), maxVertices(maxVerts), maxFaces(maxFcs),
               position(0, 0, 0), rotation(0, 0, 0), scale(1, 1, 1),
               meshColor(color), visible(true), castShadows(true), transformDirty(true),
-              isStaticStorage(false)
+              isStaticStorage(false), qScale(1.0f)
         {
 
             const size_t vertexSize = maxVertices * sizeof(Vertex);
@@ -171,29 +167,44 @@ namespace pip3D
               maxVertices(vertCount), maxFaces(faceCountIn),
               position(0, 0, 0), rotation(0, 0, 0), scale(1, 1, 1),
               meshColor(color), visible(true), castShadows(true), transformDirty(true),
-              isStaticStorage(staticStorage)
+              isStaticStorage(staticStorage), qScale(1.0f)
         {
             cache.transform.identity();
         }
 
-        MESH_FORCE_INLINE static uint16_t quantizeCoord(float x)
+        MESH_FORCE_INLINE void autoScale(float size)
         {
-            float clamped = fminf(fmaxf(x, POSITION_Q_MIN), POSITION_Q_MAX);
-            float q = (clamped - POSITION_Q_MIN) * POSITION_Q_ENCODE_SCALE + 0.5f;
-            return static_cast<uint16_t>(q);
+            if (size <= 0.0f)
+            {
+                qScale = 1.0f;
+                return;
+            }
+            const float half = size * 0.5f;
+            const float denom = 32767.0f;
+            qScale = half / denom;
         }
 
-        MESH_FORCE_INLINE static float dequantizeCoord(uint16_t q)
+        MESH_FORCE_INLINE int16_t quantizeCoord(float x) const
         {
-            return POSITION_Q_MIN + static_cast<float>(q) * POSITION_Q_DECODE_SCALE;
+            if (qScale <= 0.0f)
+            {
+                return 0;
+            }
+            float q = x / qScale;
+            float clamped = fminf(fmaxf(q, -32768.0f), 32767.0f);
+            if (clamped >= 0.0f)
+                clamped += 0.5f;
+            else
+                clamped -= 0.5f;
+            return static_cast<int16_t>(clamped);
         }
 
         MESH_PURE MESH_FORCE_INLINE Vector3 decodePosition(const Vertex &v) const
         {
             return Vector3(
-                dequantizeCoord(v.px),
-                dequantizeCoord(v.py),
-                dequantizeCoord(v.pz));
+                static_cast<float>(v.px) * qScale,
+                static_cast<float>(v.py) * qScale,
+                static_cast<float>(v.pz) * qScale);
         }
 
         MESH_COLD_PATH void cleanup()
