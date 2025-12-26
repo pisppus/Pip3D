@@ -157,6 +157,22 @@ namespace pip3D
             return static_cast<int16_t>(stored & ~SHADOW_FLAG);
         }
 
+        // Accessors used by optimized skybox rendering pass.
+        __attribute__((always_inline)) inline const int16_t *getBufferPtr() const
+        {
+            return buffer;
+        }
+
+        static __attribute__((always_inline)) inline int16_t clearDepthValue()
+        {
+            return CLEAR_DEPTH;
+        }
+
+        static __attribute__((always_inline)) inline int16_t shadowFlagMask()
+        {
+            return SHADOW_FLAG;
+        }
+
         __attribute__((always_inline)) inline void markShadow(uint16_t x, uint16_t y)
         {
             if (x >= WIDTH || y >= HEIGHT || !buffer)

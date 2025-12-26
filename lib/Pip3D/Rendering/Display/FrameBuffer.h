@@ -3,6 +3,7 @@
 
 #include "../../Core/Core.h"
 #include "Drivers/ST7789Driver.h"
+#include "ZBuffer.h"
 
 namespace pip3D
 {
@@ -71,14 +72,10 @@ namespace pip3D
                 return;
             }
 
-            if (useSkybox && skybox.enabled)
-            {
-                renderSkybox();
-            }
-            else
-            {
-                fastClear();
-            }
+            // Do not clear color buffer here.
+            // Z-buffer is cleared separately in Renderer::beginFrame,
+            // and the skybox/background will be drawn at the end of the
+            // frame only where there is no geometry.
         }
 
     private:
@@ -139,6 +136,84 @@ namespace pip3D
         }
 
     public:
+        template <uint16_t WIDTH, uint16_t HEIGHT>
+        __attribute__((always_inline)) inline void drawSkyboxWhereEmpty(const ZBuffer<WIDTH, HEIGHT> &zbuf)
+        {
+            if (unlikely(!buffer))
+            {
+                LOGE(::pip3D::Debug::LOG_MODULE_RENDER,
+                     "FrameBuffer::drawSkyboxWhereEmpty called with null buffer");
+                return;
+            }
+
+            const int16_t *zb = zbuf.getBufferPtr();
+            if (unlikely(!zb))
+            {
+                LOGE(::pip3D::Debug::LOG_MODULE_RENDER,
+                     "FrameBuffer::drawSkyboxWhereEmpty called with null z-buffer");
+                return;
+            }
+
+            const uint16_t fbWidth = config.width;
+            const uint16_t fbHeight = config.height;
+
+            // ZBuffer dimensions must match framebuffer dimensions.
+            if (fbWidth != WIDTH || fbHeight != HEIGHT)
+            {
+                LOGW(::pip3D::Debug::LOG_MODULE_RENDER,
+                     "FrameBuffer::drawSkyboxWhereEmpty size mismatch (fb=%ux%u, zb=%ux%u)",
+                     static_cast<unsigned int>(fbWidth),
+                     static_cast<unsigned int>(fbHeight),
+                     static_cast<unsigned int>(WIDTH),
+                     static_cast<unsigned int>(HEIGHT));
+            }
+
+            const int16_t clearDepth = ZBuffer<WIDTH, HEIGHT>::clearDepthValue();
+            const int16_t shadowMask = ZBuffer<WIDTH, HEIGHT>::shadowFlagMask();
+
+            for (uint16_t y = 0; y < fbHeight; ++y)
+            {
+                Color lineColor;
+                if (useSkybox && skybox.enabled)
+                {
+                    lineColor = skybox.getColorAtY(y, fbHeight);
+                }
+                else
+                {
+                    lineColor = clearColor;
+                }
+
+                uint16_t color1 = lineColor.rgb565;
+                uint16_t color2 = color1;
+
+                if (useSkybox && skybox.enabled)
+                {
+                    // Slight per-line dithering, similar to renderSkybox().
+                    uint16_t r = (color1 >> 11) & 0x1F;
+                    uint16_t g = (color1 >> 5) & 0x3F;
+                    uint16_t b = color1 & 0x1F;
+                    uint16_t darker = ((r > 0 ? r - 1 : 0) << 11) |
+                                      ((g > 0 ? g - 1 : 0) << 5) |
+                                      (b > 0 ? b - 1 : 0);
+                    color2 = (y & 1) ? darker : color1;
+                }
+
+                uint16_t *row = buffer + static_cast<size_t>(y) * fbWidth;
+                size_t zbIndex = static_cast<size_t>(y) * WIDTH;
+
+                for (uint16_t x = 0; x < fbWidth; ++x, ++zbIndex)
+                {
+                    int16_t stored = zb[zbIndex];
+                    int16_t depthNoShadow = static_cast<int16_t>(stored & ~shadowMask);
+                    if (depthNoShadow == clearDepth)
+                    {
+                        // Alternate between base and slightly darker color for a subtle pattern.
+                        row[x] = (x & 1u) ? color2 : color1;
+                    }
+                }
+            }
+        }
+
         __attribute__((always_inline)) inline void endFrame()
         {
             if (unlikely(!buffer || !display))

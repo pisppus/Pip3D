@@ -18,7 +18,7 @@ namespace pip3D
                                        uint16_t shadowColor,
                                        uint8_t alpha,
                                        uint16_t *frameBuffer,
-                                       ZBuffer<320, 240> *zBuffer,
+                                       ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
                                        const DisplayConfig &config,
                                        bool softEdges = true,
                                        int16_t offsetY = 0,
@@ -303,7 +303,7 @@ namespace pip3D
                                                                                             float r1, float g1, float b1,
                                                                                             float r2, float g2, float b2,
                                                                                             uint16_t *frameBuffer,
-                                                                                            ZBuffer<320, 240> *zBuffer,
+                                                                                            ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
                                                                                             const DisplayConfig &config)
         {
             const int16_t width = config.width;
@@ -680,7 +680,7 @@ namespace pip3D
                                  int16_t x2, int16_t y2, float z2,
                                  uint16_t color,
                                  uint16_t *frameBuffer,
-                                 ZBuffer<320, 240> *zBuffer,
+                                 ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
                                  const DisplayConfig &config)
         {
             const int16_t width = config.width;

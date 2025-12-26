@@ -139,7 +139,7 @@ static void updateScene(Renderer &r, float dt)
   r.setMainDirectionalLight(lightDir, Color::WHITE, 1.2f);
 }
 
-static void renderScene(Renderer &r)
+static void renderWorld(Renderer &r)
 {
   if (g_platform)
   {
@@ -158,7 +158,10 @@ static void renderScene(Renderer &r)
     r.drawMesh(g_benchSphere);
     r.drawMeshShadow(g_benchSphere);
   }
+}
 
+static void renderWater(Renderer &r)
+{
   // Water surface at y ~= 0.5 spanning the platform
   r.drawWater(0.5f, 20.0f, Color::fromRGB888(40, 100, 180), 0.45f, g_time);
 }
@@ -233,9 +236,27 @@ void loop()
 
   r.getCamera().markDirty();
 
-  r.beginFrame();
+  // Update simulation once per frame.
   updateScene(r, dt);
-  renderScene(r);
-  drawHud(r);
-  r.endFrame();
+
+  // Render in two vertical bands using a smaller 320x120 framebuffer
+  // and depth buffer reused for each band.
+  for (int band = 0; band < SCREEN_BAND_COUNT; ++band)
+  {
+    r.beginFrameBand(band);
+
+    // 1) Opaque world geometry (fills ZBuffer for current band)
+    renderWorld(r);
+    // 2) Skybox only where Z is empty (behind geometry in this band)
+    r.drawSkyboxBackground();
+    // 3) Transparent water overlay for this band
+    renderWater(r);
+    // 4) HUD on top of everything (only needs to be drawn once, in the first band)
+    if (band == 0)
+    {
+      drawHud(r);
+    }
+
+    r.endFrameBand(band);
+  }
 }
