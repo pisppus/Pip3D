@@ -9,6 +9,17 @@
 #include <esp_heap_caps.h>
 #include "../../../Core/Core.h"
 #include "DisplayConfig.h"
+#include "DisplayDriverBase.h"
+
+#ifndef TFT_MOSI
+#define TFT_MOSI 7
+#endif
+#ifndef TFT_MISO
+#define TFT_MISO -1
+#endif
+#ifndef TFT_SCLK
+#define TFT_SCLK 17
+#endif
 
 namespace pip3D
 {
@@ -33,7 +44,7 @@ namespace pip3D
     static constexpr size_t DMA_CHUNK_PIXELS = DMA_CHUNK_SIZE / 2;
     static constexpr size_t SMALL_BUFFER_THRESHOLD = 2046;
 
-    class alignas(16) ST7789Driver
+    class alignas(16) ST7789Driver : public DisplayDriverBase
     {
     private:
         spi_device_handle_t spi_device;
@@ -161,7 +172,7 @@ namespace pip3D
             CS_HIGH();
         }
 
-        bool init(const LCD &config = LCD())
+        bool init(const LCD &config = LCD()) override
         {
             if (dmaBuffer)
             {
@@ -222,9 +233,9 @@ namespace pip3D
             }
 
             spi_bus_config_t buscfg = {};
-            buscfg.mosi_io_num = 7;
-            buscfg.miso_io_num = -1;
-            buscfg.sclk_io_num = 17;
+            buscfg.mosi_io_num = TFT_MOSI;
+            buscfg.miso_io_num = TFT_MISO;
+            buscfg.sclk_io_num = TFT_SCLK;
             buscfg.quadwp_io_num = -1;
             buscfg.quadhd_io_num = -1;
             buscfg.max_transfer_sz = 320 * 240 * 2 + 8;
@@ -594,7 +605,7 @@ namespace pip3D
             asyncInFlight = true;
         }
 
-        __attribute__((hot)) void pushImage(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t *buffer)
+        __attribute__((hot)) void pushImage(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t *buffer) override
         {
             if (x == 0 && y == 0 && w == width && h == height)
             {
@@ -849,8 +860,8 @@ namespace pip3D
             sendCmdData(ST7789_MADCTL, &madctl, 1);
         }
 
-        __attribute__((always_inline)) inline uint16_t getWidth() const { return width; }
-        __attribute__((always_inline)) inline uint16_t getHeight() const { return height; }
+        __attribute__((always_inline)) inline uint16_t getWidth() const override { return width; }
+        __attribute__((always_inline)) inline uint16_t getHeight() const override { return height; }
     };
 
 }

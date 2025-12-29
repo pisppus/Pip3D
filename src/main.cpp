@@ -1,55 +1,32 @@
 #include <Arduino.h>
 #include <math.h>
+
+#define TFT_MOSI 11
+#define TFT_MISO -1
+#define TFT_SCLK 12
+
 #include "Pip3D.h"
 
 using namespace pip3D;
 
 static const int8_t TFT_CS_PIN = 10;
 static const int8_t TFT_DC_PIN = 9;
-static const int8_t TFT_RST_PIN = 8;
+static const int8_t TFT_RST_PIN = -1;
 static const int8_t TFT_BL_PIN = 4;
 
-// Simple benchmark scene: platform + one cube and one sphere
-static Plane *g_platform = nullptr;
-static Cube *g_benchCube = nullptr;
-static Sphere *g_benchSphere = nullptr;
-
-// Simple physics world: cube falling into water
-static PhysicsWorld g_physics;
-static RigidBody g_groundBody;
-static RigidBody g_cubeBody;
-static const float g_waterSurfaceY = 0.5f;
-static const float g_waterSize = 20.0f;
+// Simple demo scene: ground plane + rotating cube and sphere
+static Plane *g_ground = nullptr;
+static Cube *g_cube = nullptr;
+static Sphere *g_sphere = nullptr;
 
 static uint32_t g_lastMs = 0;
 static float g_time = 0.0f;
-static Vector3 quatToEulerDegrees(const Quaternion &q)
-{
-  float ysqr = q.y * q.y;
-
-  float t0 = 2.0f * (q.w * q.x + q.y * q.z);
-  float t1 = 1.0f - 2.0f * (q.x * q.x + ysqr);
-  float roll = atan2f(t0, t1);
-
-  float t2 = 2.0f * (q.w * q.y - q.z * q.x);
-  if (t2 > 1.0f)
-    t2 = 1.0f;
-  if (t2 < -1.0f)
-    t2 = -1.0f;
-  float pitch = asinf(t2);
-
-  float t3 = 2.0f * (q.w * q.z + q.x * q.y);
-  float t4 = 1.0f - 2.0f * (ysqr + q.z * q.z);
-  float yaw = atan2f(t3, t4);
-
-  return Vector3(roll * RAD2DEG, pitch * RAD2DEG, yaw * RAD2DEG);
-}
 
 static void initCamera(Renderer &r)
 {
   Camera &cam = r.getCamera();
-  cam.position = Vector3(0.0f, 7.0f, -8.0f);
-  cam.target = Vector3(0.0f, 1.0f, 0.0f);
+  cam.position = Vector3(0.0f, 6.0f, -10.0f);
+  cam.target = Vector3(0.0f, 1.5f, 0.0f);
   cam.up = Vector3(0.0f, 1.0f, 0.0f);
   cam.setPerspective(60.0f, 0.1f, 80.0f);
   cam.markDirty();
@@ -57,83 +34,59 @@ static void initCamera(Renderer &r)
 
 static void initScene(Renderer &r)
 {
-  // Ground platform
-  if (!g_platform)
-    g_platform = new Plane(20.0f, 20.0f, 1, Color::fromRGB888(100, 100, 100));
-  g_platform->setPosition(0.0f, 0.0f, 0.0f);
+  // Ground plane
+  if (!g_ground)
+    g_ground = new Plane(20.0f, 20.0f, 1, Color::fromRGB888(100, 100, 100));
+  g_ground->setPosition(0.0f, 0.0f, 0.0f);
 
-  // Benchmark cube (slightly larger and higher above ground)
-  const float cubeSize = 1.2f;
-  if (!g_benchCube)
-    g_benchCube = new Cube(cubeSize, Color::fromRGB888(200, 160, 80));
-  g_benchCube->setPosition(0.0f, cubeSize * 2.0f, 0.0f);
-  g_benchCube->setRotation(0.0f, 0.0f, 0.0f);
+  // Rotating cube at the center
+  const float cubeSize = 1.5f;
+  if (!g_cube)
+    g_cube = new Cube(cubeSize, Color::fromRGB888(220, 180, 80));
+  g_cube->setPosition(-1.5f, cubeSize * 1.2f, 0.0f);
+  g_cube->setRotation(0.0f, 0.0f, 0.0f);
 
-  // Benchmark sphere (larger and slightly lifted)
+  // Rotating sphere orbiting around the cube
   const float sphereRadius = 1.0f;
-  if (!g_benchSphere)
-    g_benchSphere = new Sphere(sphereRadius, Color::fromRGB888(160, 200, 255));
-  g_benchSphere->setPosition(2.0f, sphereRadius * 1.2f, 0.0f);
-  g_benchSphere->setRotation(0.0f, 0.0f, 0.0f);
+  if (!g_sphere)
+    g_sphere = new Sphere(sphereRadius, Color::fromRGB888(150, 200, 255));
+  g_sphere->setPosition(2.0f, sphereRadius * 1.5f, 0.0f);
+  g_sphere->setRotation(0.0f, 0.0f, 0.0f);
 
   r.setSkyboxWithLighting(SKYBOX_DAY);
   r.setShadowsEnabled(true);
   r.setShadowPlaneY(0.0f);
   r.setBackfaceCullingEnabled(true);
-
-  // Physics setup: ground + dynamic cube + water buoyancy zone
-  g_physics.setFixedTimeStep(1.0f / 60.0f);
-
-  // Static ground body slightly below Y=0 so its top matches the visual platform
-  g_groundBody.setBox(Vector3(20.0f, 0.5f, 20.0f));
-  g_groundBody.setPosition(Vector3(0.0f, -0.25f, 0.0f));
-  g_groundBody.setStatic(true);
-  g_groundBody.setMaterial(PhysicsMaterial(0.8f, 0.0f));
-  g_physics.addBody(&g_groundBody);
-
-  // Dynamic cube body that will fall into the water
-  g_cubeBody.setBox(Vector3(cubeSize, cubeSize, cubeSize));
-  g_cubeBody.setPosition(Vector3(0.0f, cubeSize * 3.0f, 0.0f));
-  g_cubeBody.setMaterial(PhysicsMaterial(0.6f, 0.0f));
-  g_cubeBody.setCanSleep(true);
-  g_cubeBody.wakeUp();
-  g_physics.addBody(&g_cubeBody);
-
-  // Water volume for buoyancy: large pool centered at origin
-  {
-    AABB waterBounds(Vector3(-g_waterSize * 0.5f, -5.0f, -g_waterSize * 0.5f),
-                     Vector3( g_waterSize * 0.5f,  5.0f,  g_waterSize * 0.5f));
-    const float waterDensity = 1.5f;
-    const float waterDragL = 2.0f;
-    const float waterDragA = 2.0f;
-    g_physics.addBuoyancyZone(BuoyancyZone(waterBounds, g_waterSurfaceY, waterDensity, waterDragL, waterDragA));
-  }
 }
 
 static void updateScene(Renderer &r, float dt)
 {
+  (void)r;
   g_time += dt;
 
-  // Step physics world (cube falling into water)
-  g_physics.updateFixed(dt);
-
-  // Sync visual cube with physics body
-  if (g_benchCube)
+  // Cube spins around its own axes
+  if (g_cube)
   {
-    const Vector3 &p = g_cubeBody.position;
-    g_benchCube->setPosition(p.x, p.y, p.z);
-    Vector3 euler = quatToEulerDegrees(g_cubeBody.orientation);
-    g_benchCube->setRotation(euler.x, euler.y, euler.z);
+    float rotY = fmodf(g_time * 45.0f, 360.0f);
+    float rotX = fmodf(g_time * 30.0f, 360.0f);
+    g_cube->setRotation(rotX, rotY, 0.0f);
   }
 
-  // Sphere rotates and slowly orbits around its initial position
-  if (g_benchSphere)
+  // Sphere orbits around the origin and spins a bit
+  if (g_sphere)
   {
-    float rotX = fmodf(g_time * 60.0f, 360.0f);
-    float rotY = fmodf(g_time * 30.0f, 360.0f);
-    g_benchSphere->setRotation(rotX, rotY, 0.0f);
+    float orbitRadius = 3.0f;
+    float orbitSpeed = 0.7f;
+    float angle = g_time * orbitSpeed;
+    float x = cosf(angle) * orbitRadius;
+    float z = sinf(angle) * orbitRadius;
+    g_sphere->setPosition(x, 1.5f, z);
+
+    float rotY = fmodf(g_time * 60.0f, 360.0f);
+    g_sphere->setRotation(0.0f, rotY, 0.0f);
   }
 
+  // Static main directional light
   Vector3 lightDir(-0.6f, -1.0f, -0.4f);
   lightDir.normalize();
   r.setMainDirectionalLight(lightDir, Color::WHITE, 1.2f);
@@ -141,29 +94,23 @@ static void updateScene(Renderer &r, float dt)
 
 static void renderWorld(Renderer &r)
 {
-  if (g_platform)
+  if (g_ground)
   {
-    r.drawMesh(g_platform);
-    r.drawMeshShadow(g_platform);
+    r.drawMesh(g_ground);
+    r.drawMeshShadow(g_ground);
   }
 
-  if (g_benchCube)
+  if (g_cube)
   {
-    r.drawMesh(g_benchCube);
-    r.drawMeshShadow(g_benchCube);
+    r.drawMesh(g_cube);
+    r.drawMeshShadow(g_cube);
   }
 
-  if (g_benchSphere)
+  if (g_sphere)
   {
-    r.drawMesh(g_benchSphere);
-    r.drawMeshShadow(g_benchSphere);
+    r.drawMesh(g_sphere);
+    r.drawMeshShadow(g_sphere);
   }
-}
-
-static void renderWater(Renderer &r)
-{
-  // Water surface at y ~= 0.5 spanning the platform
-  r.drawWater(0.5f, 20.0f, Color::fromRGB888(40, 100, 180), 0.45f, g_time);
 }
 
 static void drawHud(Renderer &r)
@@ -212,7 +159,7 @@ void setup()
 {
   Serial.begin(115200);
 
-  Renderer &r = begin3D(320, 240, TFT_CS_PIN, TFT_DC_PIN, TFT_RST_PIN, TFT_BL_PIN, 80000000);
+  Renderer &r = begin3D(480, 320, TFT_CS_PIN, TFT_DC_PIN, TFT_RST_PIN, TFT_BL_PIN, 60000000);
   (void)r;
 
   initCamera(renderer());
@@ -236,11 +183,10 @@ void loop()
 
   r.getCamera().markDirty();
 
-  // Update simulation once per frame.
+  // Update simple demo scene once per frame.
   updateScene(r, dt);
 
-  // Render in two vertical bands using a smaller 320x120 framebuffer
-  // and depth buffer reused for each band.
+  // Render in bands, reusing the depth buffer for each band.
   for (int band = 0; band < SCREEN_BAND_COUNT; ++band)
   {
     r.beginFrameBand(band);
@@ -249,9 +195,7 @@ void loop()
     renderWorld(r);
     // 2) Skybox only where Z is empty (behind geometry in this band)
     r.drawSkyboxBackground();
-    // 3) Transparent water overlay for this band
-    renderWater(r);
-    // 4) HUD on top of everything (only needs to be drawn once, in the first band)
+    // 3) HUD on top of everything (only needs to be drawn once, in the first band)
     if (band == 0)
     {
       drawHud(r);

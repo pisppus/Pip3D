@@ -38,8 +38,8 @@ namespace pip3D
   };
 
   // Global screen configuration (physical display resolution)
-  static constexpr uint16_t SCREEN_WIDTH = 320;
-  static constexpr uint16_t SCREEN_HEIGHT = 240;
+  static constexpr uint16_t SCREEN_WIDTH = 480;
+  static constexpr uint16_t SCREEN_HEIGHT = 320;
 
   // Banded rendering configuration: number of horizontal bands and band height
   static constexpr uint16_t SCREEN_BAND_COUNT = 2;
