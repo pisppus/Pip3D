@@ -19,6 +19,9 @@
 #include "Rasterizer/Rasterizer.h"
 #include "Rasterizer/Shading.h"
 #include "Display/FrameBuffer.h"
+#include "Display/Drivers/DisplayDriverBase.h"
+#include "Display/Drivers/ST7789Driver.h"
+#include "Display/Drivers/ILI9488Driver.h"
 #include "HUD/HudRenderer.h"
 #include "SceneRendering/Culling.h"
 #include "SceneRendering/MeshRenderer.h"
@@ -48,7 +51,7 @@ namespace pip3D
 
         FrameBuffer framebuffer;
         ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer;
-        ST7789Driver *display;
+        DisplayDriverBase *display;
 
         // Full screen configuration (320x240) separate from banded framebuffer config
         DisplayConfig screenConfig;
@@ -176,11 +179,11 @@ namespace pip3D
 
             if (!display)
             {
-                display = new ST7789Driver();
+                display = new ILI9488Driver();
                 if (!display)
                 {
                     LOGE(::pip3D::Debug::LOG_MODULE_RENDER,
-                         "Renderer::init: failed to allocate ST7789Driver");
+                         "Renderer::init: failed to allocate ILI9488Driver");
                     return false;
                 }
             }
