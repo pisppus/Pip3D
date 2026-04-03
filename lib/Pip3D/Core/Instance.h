@@ -31,6 +31,10 @@ namespace pip3D
         mutable Vector3 cachedWorldCenter;
         mutable float cachedWorldRadius;
         mutable bool boundsDirty;
+        mutable Vector3 *cachedWorldVertices;
+        mutable Vector3 *cachedScreenVertices;
+        mutable uint16_t cachedProjectionCapacity;
+        mutable uint32_t cachedProjectionFrameStamp;
 
         size_t managerIndex;
 
@@ -46,9 +50,27 @@ namespace pip3D
               visible(true),
               transformDirty(true),
               boundsDirty(true),
+              cachedWorldVertices(nullptr),
+              cachedScreenVertices(nullptr),
+              cachedProjectionCapacity(0),
+              cachedProjectionFrameStamp(0),
               managerIndex((size_t)-1)
         {
             localTransform.identity();
+        }
+
+        ~MeshInstance()
+        {
+            if (cachedWorldVertices)
+            {
+                MemUtils::freeData(cachedWorldVertices);
+                cachedWorldVertices = nullptr;
+            }
+            if (cachedScreenVertices)
+            {
+                MemUtils::freeData(cachedScreenVertices);
+                cachedScreenVertices = nullptr;
+            }
         }
 
         void reset(Mesh *mesh)
@@ -61,6 +83,7 @@ namespace pip3D
             visible = true;
             transformDirty = true;
             boundsDirty = true;
+            cachedProjectionFrameStamp = 0;
             localTransform.identity();
         }
 
@@ -68,6 +91,7 @@ namespace pip3D
         {
             sourceMesh = mesh;
             transformDirty = boundsDirty = true;
+            cachedProjectionFrameStamp = 0;
         }
         Mesh *getMesh() const { return sourceMesh; }
 
@@ -75,6 +99,7 @@ namespace pip3D
         {
             position = pos;
             transformDirty = boundsDirty = true;
+            cachedProjectionFrameStamp = 0;
         }
         void setPosition(float x, float y, float z)
         {
@@ -85,17 +110,20 @@ namespace pip3D
         {
             rotation = rot;
             transformDirty = boundsDirty = true;
+            cachedProjectionFrameStamp = 0;
         }
         void setEuler(float pitch, float yaw, float roll)
         {
             rotation = Quaternion::fromEuler(pitch * DEG2RAD, yaw * DEG2RAD, roll * DEG2RAD);
             transformDirty = boundsDirty = true;
+            cachedProjectionFrameStamp = 0;
         }
 
         void setScale(const Vector3 &scl)
         {
             scale = scl;
             transformDirty = boundsDirty = true;
+            cachedProjectionFrameStamp = 0;
         }
         void setScale(float uniform)
         {
@@ -111,6 +139,7 @@ namespace pip3D
             rotation = rotation * deltaRot;
             transformDirty = true;
             boundsDirty = true;
+            cachedProjectionFrameStamp = 0;
         }
 
         void setColor(const Color &c) { instanceColor = c; }
@@ -200,6 +229,54 @@ namespace pip3D
             updateTransform();
             return localTransform;
         }
+
+        bool ensureProjectionCache(uint16_t required) const
+        {
+            if (required == 0)
+                return false;
+
+            if (cachedProjectionCapacity >= required && cachedWorldVertices && cachedScreenVertices)
+                return true;
+
+            if (cachedWorldVertices)
+            {
+                MemUtils::freeData(cachedWorldVertices);
+                cachedWorldVertices = nullptr;
+            }
+            if (cachedScreenVertices)
+            {
+                MemUtils::freeData(cachedScreenVertices);
+                cachedScreenVertices = nullptr;
+            }
+
+            cachedWorldVertices = static_cast<Vector3 *>(MemUtils::allocData(static_cast<size_t>(required) * sizeof(Vector3), 16));
+            cachedScreenVertices = static_cast<Vector3 *>(MemUtils::allocData(static_cast<size_t>(required) * sizeof(Vector3), 16));
+
+            if (!cachedWorldVertices || !cachedScreenVertices)
+            {
+                if (cachedWorldVertices)
+                {
+                    MemUtils::freeData(cachedWorldVertices);
+                    cachedWorldVertices = nullptr;
+                }
+                if (cachedScreenVertices)
+                {
+                    MemUtils::freeData(cachedScreenVertices);
+                    cachedScreenVertices = nullptr;
+                }
+                cachedProjectionCapacity = 0;
+                return false;
+            }
+
+            cachedProjectionCapacity = required;
+            cachedProjectionFrameStamp = 0;
+            return true;
+        }
+
+        Vector3 *getCachedWorldVertices() const { return cachedWorldVertices; }
+        Vector3 *getCachedScreenVertices() const { return cachedScreenVertices; }
+        uint32_t getCachedProjectionFrameStamp() const { return cachedProjectionFrameStamp; }
+        void setCachedProjectionFrameStamp(uint32_t stamp) const { cachedProjectionFrameStamp = stamp; }
 
         MeshInstance *at(float x, float y, float z)
         {

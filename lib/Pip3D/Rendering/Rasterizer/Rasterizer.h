@@ -12,9 +12,134 @@ namespace pip3D
     class Rasterizer
     {
     public:
-        static void fillShadowTriangle(int16_t x0, int16_t y0, float z0,
-                                       int16_t x1, int16_t y1, float z1,
-                                       int16_t x2, int16_t y2, float z2,
+        static void accumulateShadowTriangle(float x0, float y0, float z0,
+                                             float x1, float y1, float z1,
+                                             float x2, float y2, float z2,
+                                             int16_t *shadowDepthBuffer,
+                                             const DisplayConfig &config)
+        {
+            const int16_t width = config.width;
+            const int16_t height = config.height;
+            const int16_t clearDepth = ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::clearDepthValue();
+
+            if (!shadowDepthBuffer)
+                return;
+
+            if (y0 > y1)
+            {
+                std::swap(x0, x1);
+                std::swap(y0, y1);
+                std::swap(z0, z1);
+            }
+            if (y1 > y2)
+            {
+                std::swap(x1, x2);
+                std::swap(y1, y2);
+                std::swap(z1, z2);
+            }
+            if (y0 > y1)
+            {
+                std::swap(x0, x1);
+                std::swap(y0, y1);
+                std::swap(z0, z1);
+            }
+
+            if (y0 == y2)
+                return;
+
+            float dy1 = y1 - y0;
+            float dy2 = y2 - y0;
+            if (fabsf(dy1) < 1e-6f && fabsf(dy2) < 1e-6f)
+                return;
+            const float depthScale = 32767.0f;
+
+            auto rasterHalf = [&](float xa0, float ya0, float za0,
+                                  float xa1, float ya1, float za1,
+                                  float xb0, float yb0, float zb0,
+                                  float xb1, float yb1, float zb1,
+                                  int startY, int endYExclusive)
+            {
+                float dya = ya1 - ya0;
+                float dyb = yb1 - yb0;
+                if (fabsf(dya) < 1e-6f || fabsf(dyb) < 1e-6f)
+                    return;
+
+                float invDya = 1.0f / dya;
+                float invDyb = 1.0f / dyb;
+
+                for (int y = startY; y < endYExclusive; ++y)
+                {
+                    if (y < 0 || y >= height)
+                        continue;
+
+                    float sampleY = static_cast<float>(y) + 0.5f;
+                    float tA = (sampleY - ya0) * invDya;
+                    float tB = (sampleY - yb0) * invDyb;
+
+                    float leftX = xa0 + (xa1 - xa0) * tA;
+                    float rightX = xb0 + (xb1 - xb0) * tB;
+                    float leftZ = za0 + (za1 - za0) * tA;
+                    float rightZ = zb0 + (zb1 - zb0) * tB;
+
+                    if (leftX > rightX)
+                    {
+                        std::swap(leftX, rightX);
+                        std::swap(leftZ, rightZ);
+                    }
+
+                    int16_t xStart = static_cast<int16_t>(ceilf(leftX));
+                    int16_t xEnd = static_cast<int16_t>(ceilf(rightX)) - 1;
+                    if (xStart < 0)
+                        xStart = 0;
+                    if (xEnd >= width)
+                        xEnd = width - 1;
+                    if (xStart > xEnd)
+                        continue;
+
+                    float dx = rightX - leftX;
+                    float zStep = fabsf(dx) > 1e-6f ? (rightZ - leftZ) / dx : 0.0f;
+                    float z = leftZ + zStep * ((static_cast<float>(xStart) + 0.5f) - leftX);
+                    int32_t depth = static_cast<int32_t>(z * depthScale);
+                    int32_t depthStep = static_cast<int32_t>(zStep * depthScale);
+
+                    int16_t *row = shadowDepthBuffer + static_cast<size_t>(y) * width;
+                    for (int16_t x = xStart; x <= xEnd; ++x)
+                    {
+                        int16_t shadowDepth = static_cast<int16_t>(depth);
+                        if (row[x] == clearDepth || shadowDepth < row[x])
+                            row[x] = shadowDepth;
+                        depth += depthStep;
+                    }
+                }
+            };
+
+            int startTop = static_cast<int>(ceilf(y0 - 0.5f));
+            int endTopExclusive = static_cast<int>(ceilf(y1 - 0.5f));
+            int startBottom = static_cast<int>(ceilf(y1 - 0.5f));
+            int endBottomExclusive = static_cast<int>(ceilf(y2 - 0.5f));
+
+            if (fabsf(y1 - y0) > 1e-6f)
+            {
+                rasterHalf(x0, y0, z0,
+                           x1, y1, z1,
+                           x0, y0, z0,
+                           x2, y2, z2,
+                           startTop, endTopExclusive);
+            }
+
+            if (fabsf(y2 - y1) > 1e-6f)
+            {
+                rasterHalf(x1, y1, z1,
+                           x2, y2, z2,
+                           x0, y0, z0,
+                           x2, y2, z2,
+                           startBottom, endBottomExclusive);
+            }
+        }
+
+        static void fillShadowTriangle(float x0, float y0, float z0,
+                                       float x1, float y1, float z1,
+                                       float x2, float y2, float z2,
                                        uint16_t shadowColor,
                                        uint8_t alpha,
                                        uint16_t *frameBuffer,
@@ -25,15 +150,7 @@ namespace pip3D
                                        int16_t bandHeight = -1)
         {
             const int16_t width = config.width;
-            int16_t height = config.height;
-
-            if (bandHeight <= 0 || bandHeight > height)
-            {
-                bandHeight = height;
-            }
-
-            const int16_t bandStartY = offsetY;
-            const int16_t bandEndY = offsetY + bandHeight - 1;
+            const int16_t height = config.height;
 
             if (!frameBuffer || !zBuffer)
                 return;
@@ -59,240 +176,141 @@ namespace pip3D
 
             if (y0 == y2)
                 return;
-            if (x0 == x1 && x1 == x2)
+            if (fabsf(x0 - x1) < 1e-6f && fabsf(x1 - x2) < 1e-6f)
                 return;
 
             const uint16_t sr = (shadowColor >> 11) & 0x1F;
             const uint16_t sg = (shadowColor >> 5) & 0x3F;
             const uint16_t sb = shadowColor & 0x1F;
 
-            int16_t dy1 = y1 - y0;
-            int16_t dy2 = y2 - y0;
-
-            if (dy1 == 0 && dy2 == 0)
-                return;
-
-            float dax_step = 0.0f;
-            float dbx_step = 0.0f;
-            float daz_step = 0.0f;
-            float dbz_step = 0.0f;
-
-            if (dy1)
-            {
-                float invDy1 = 1.0f / dy1;
-                dax_step = (float)(x1 - x0) * invDy1;
-                daz_step = (z1 - z0) * invDy1;
-            }
-            if (dy2)
-            {
-                float invDy2 = 1.0f / dy2;
-                dbx_step = (float)(x2 - x0) * invDy2;
-                dbz_step = (z2 - z0) * invDy2;
-            }
-
-            float ax = x0, bx = x0;
-            float az = z0, bz = z0;
-
             const float depthScale = 32767.0f;
-
-            if (dy1)
+            const int16_t clearDepth = ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::clearDepthValue();
+            const int16_t shadowMask = ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::shadowFlagMask();
+            const int16_t invShadowMask = static_cast<int16_t>(~shadowMask);
+            const int16_t *__restrict__ zbBaseConst = zBuffer->getBufferPtr();
+            int16_t *__restrict__ zbBase = const_cast<int16_t *>(zbBaseConst);
+            auto rasterHalf = [&](float xa0, float ya0, float za0,
+                                  float xa1, float ya1, float za1,
+                                  float xb0, float yb0, float zb0,
+                                  float xb1, float yb1, float zb1,
+                                  int startY, int endYExclusive)
             {
-                for (int16_t y = y0; y <= y1; ++y)
-                {
-                    if (unlikely(y < bandStartY || y > bandEndY))
-                    {
-                        ax += dax_step;
-                        az += daz_step;
-                        bx += dbx_step;
-                        bz += dbz_step;
-                        continue;
-                    }
+                float dya = ya1 - ya0;
+                float dyb = yb1 - yb0;
+                if (fabsf(dya) < 1e-6f || fabsf(dyb) < 1e-6f)
+                    return;
 
-                    int16_t xa = (int16_t)(ax + 0.5f);
-                    int16_t xb = (int16_t)(bx + 0.5f);
-                    float za = az;
-                    float zb = bz;
-                    if (xa > xb)
+                float invDya = 1.0f / dya;
+                float invDyb = 1.0f / dyb;
+
+                for (int y = startY; y < endYExclusive; ++y)
+                {
+                    if (y < 0 || y >= height)
+                        continue;
+
+                    float sampleY = static_cast<float>(y) + 0.5f;
+                    float tA = (sampleY - ya0) * invDya;
+                    float tB = (sampleY - yb0) * invDyb;
+
+                    float xaf = xa0 + (xa1 - xa0) * tA;
+                    float xbf = xb0 + (xb1 - xb0) * tB;
+                    float za = za0 + (za1 - za0) * tA;
+                    float zb = zb0 + (zb1 - zb0) * tB;
+
+                    if (xaf > xbf)
                     {
-                        std::swap(xa, xb);
+                        std::swap(xaf, xbf);
                         std::swap(za, zb);
                     }
 
-                    int16_t x_start_src = (xa < 0) ? 0 : xa;
-                    int16_t x_end_src = (xb >= width) ? width - 1 : xb;
+                    int16_t xStart = static_cast<int16_t>(ceilf(xaf));
+                    int16_t xEnd = static_cast<int16_t>(ceilf(xbf)) - 1;
+                    if (xStart < 0)
+                        xStart = 0;
+                    if (xEnd >= width)
+                        xEnd = width - 1;
+                    if (xStart > xEnd)
+                        continue;
 
-                    if (x_start_src <= x_end_src && x_start_src < width && x_end_src >= 0)
+                    uint8_t edgeAlpha = alpha;
+                    if (softEdges)
                     {
-                        int16_t x_start = x_start_src;
-                        int16_t x_end = x_end_src;
-                        if (x_start > 0)
-                            --x_start;
-                        if (x_end < width - 1)
-                            ++x_end;
-
-                        uint8_t edgeAlpha = alpha;
-                        if (softEdges)
-                        {
-                            float edgeDist = 1.0f;
-                            if (y == y0 || y == y2)
-                                edgeDist = 0.5f;
-                            if (x_start_src == xa || x_end_src == xb)
-                                edgeDist *= 0.7f;
-                            edgeAlpha = (uint8_t)(alpha * edgeDist);
-                        }
-
-                        const uint16_t invEdgeAlpha = 255 - edgeAlpha;
-
-                        float dx = (float)(xb - xa);
-                        float invDx = dx != 0.0f ? 1.0f / dx : 0.0f;
-                        float z_step = (zb - za) * invDx;
-                        float z = za + z_step * (float)(x_start - xa);
-
-                        int32_t depthStep = static_cast<int32_t>(z_step * depthScale);
-                        int32_t depth = static_cast<int32_t>(z * depthScale);
-
-                        int16_t yLocal = static_cast<int16_t>(y - offsetY);
-                        size_t index = (size_t)yLocal * width + x_start;
-                        for (int16_t x = x_start; x <= x_end; ++x, ++index)
-                        {
-                            if (!zBuffer->hasGeometry(x, y) || zBuffer->hasShadow(x, y))
-                            {
-                                depth += depthStep;
-                                continue;
-                            }
-
-                            int16_t storedDepth = zBuffer->getRawDepth(x, y);
-                            int16_t shadowDepth = static_cast<int16_t>(depth);
-                            if (shadowDepth > storedDepth)
-                            {
-                                depth += depthStep;
-                                continue;
-                            }
-
-                            uint16_t bgColor = frameBuffer[index];
-                            uint16_t br = (bgColor >> 11) & 0x1F;
-                            uint16_t bg = (bgColor >> 5) & 0x3F;
-                            uint16_t bb = bgColor & 0x1F;
-
-                            uint16_t r = (br * invEdgeAlpha + sr * edgeAlpha) >> 8;
-                            uint16_t g = (bg * invEdgeAlpha + sg * edgeAlpha) >> 8;
-                            uint16_t b = (bb * invEdgeAlpha + sb * edgeAlpha) >> 8;
-
-                            frameBuffer[index] = (r << 11) | (g << 5) | b;
-                            zBuffer->markShadow(x, y);
-
-                            depth += depthStep;
-                        }
+                        float edgeDist = 1.0f;
+                        if (fabsf(sampleY - y0) < 0.51f || fabsf(sampleY - y2) < 0.51f)
+                            edgeDist = 0.5f;
+                        edgeAlpha = static_cast<uint8_t>(alpha * edgeDist);
                     }
 
-                    ax += dax_step;
-                    az += daz_step;
-                    bx += dbx_step;
-                    bz += dbz_step;
+                    const uint16_t invEdgeAlpha = 255 - edgeAlpha;
+                    float dx = xbf - xaf;
+                    float zStep = fabsf(dx) > 1e-6f ? (zb - za) / dx : 0.0f;
+                    float z = za + zStep * ((static_cast<float>(xStart) + 0.5f) - xaf);
+
+                    int32_t depth = static_cast<int32_t>(z * depthScale);
+                    int32_t depthStep = static_cast<int32_t>(zStep * depthScale);
+
+                    int16_t yLocal = static_cast<int16_t>(y - offsetY);
+                    size_t index = static_cast<size_t>(yLocal) * width + xStart;
+                    int16_t *__restrict__ zbRow = zbBase + static_cast<size_t>(y) * width;
+
+                    for (int16_t x = xStart; x <= xEnd; ++x, ++index)
+                    {
+                        const int16_t stored = zbRow[x];
+                        const int16_t depthNoShadow = static_cast<int16_t>(stored & invShadowMask);
+                        if (depthNoShadow == clearDepth || (stored & shadowMask) != 0)
+                        {
+                            depth += depthStep;
+                            continue;
+                        }
+
+                        const int16_t shadowDepth = static_cast<int16_t>(depth);
+                        const int16_t frontTolerance = 40 + (depthNoShadow >> 10);
+                        const int16_t backTolerance = 10 + (depthNoShadow >> 11);
+                        const int16_t depthDelta = static_cast<int16_t>(depthNoShadow - shadowDepth);
+                        if (depthDelta < -backTolerance || depthDelta > frontTolerance)
+                        {
+                            depth += depthStep;
+                            continue;
+                        }
+
+                        uint16_t bgColor = frameBuffer[index];
+                        uint16_t br = (bgColor >> 11) & 0x1F;
+                        uint16_t bg = (bgColor >> 5) & 0x3F;
+                        uint16_t bb = bgColor & 0x1F;
+
+                        uint16_t r = (br * invEdgeAlpha + sr * edgeAlpha) >> 8;
+                        uint16_t g = (bg * invEdgeAlpha + sg * edgeAlpha) >> 8;
+                        uint16_t b = (bb * invEdgeAlpha + sb * edgeAlpha) >> 8;
+
+                        frameBuffer[index] = static_cast<uint16_t>((r << 11) | (g << 5) | b);
+                        zbRow[x] = static_cast<int16_t>(stored | shadowMask);
+
+                        depth += depthStep;
+                    }
                 }
+            };
+
+            int startTop = static_cast<int>(ceilf(y0 - 0.5f));
+            int endTopExclusive = static_cast<int>(ceilf(y1 - 0.5f));
+            int startBottom = static_cast<int>(ceilf(y1 - 0.5f));
+            int endBottomExclusive = static_cast<int>(ceilf(y2 - 0.5f));
+
+            if (fabsf(y1 - y0) > 1e-6f)
+            {
+                rasterHalf(x0, y0, z0,
+                           x1, y1, z1,
+                           x0, y0, z0,
+                           x2, y2, z2,
+                           startTop, endTopExclusive);
             }
 
-            dy1 = y2 - y1;
-            if (dy1)
+            if (fabsf(y2 - y1) > 1e-6f)
             {
-                float invDy1 = 1.0f / dy1;
-                dax_step = (float)(x2 - x1) * invDy1;
-                daz_step = (z2 - z1) * invDy1;
-                ax = x1;
-                az = z1;
-
-                for (int16_t y = y1 + 1; y <= y2; ++y)
-                {
-                    if (y < bandStartY || y > bandEndY)
-                    {
-                        ax += dax_step;
-                        az += daz_step;
-                        bx += dbx_step;
-                        bz += dbz_step;
-                        continue;
-                    }
-
-                    int16_t xa = (int16_t)(ax + 0.5f);
-                    int16_t xb = (int16_t)(bx + 0.5f);
-                    float za = az;
-                    float zb = bz;
-                    if (xa > xb)
-                    {
-                        std::swap(xa, xb);
-                        std::swap(za, zb);
-                    }
-
-                    int16_t x_start_src = (xa < 0) ? 0 : xa;
-                    int16_t x_end_src = (xb >= width) ? width - 1 : xb;
-
-                    if (x_start_src <= x_end_src && x_start_src < width && x_end_src >= 0)
-                    {
-                        int16_t x_start = x_start_src;
-                        int16_t x_end = x_end_src;
-                        if (x_start > 0)
-                            --x_start;
-                        if (x_end < width - 1)
-                            ++x_end;
-
-                        uint8_t edgeAlpha = alpha;
-                        if (softEdges)
-                        {
-                            float edgeDist = 1.0f;
-                            if (y == y0 || y == y2)
-                                edgeDist = 0.5f;
-                            if (x_start_src == xa || x_end_src == xb)
-                                edgeDist *= 0.7f;
-                            edgeAlpha = (uint8_t)(alpha * edgeDist);
-                        }
-
-                        const uint16_t invEdgeAlpha = 255 - edgeAlpha;
-
-                        float dx = (float)(xb - xa);
-                        float invDx = dx != 0.0f ? 1.0f / dx : 0.0f;
-                        float z_step = (zb - za) * invDx;
-                        float z = za + z_step * (float)(x_start - xa);
-
-                        int32_t depthStep = static_cast<int32_t>(z_step * depthScale);
-                        int32_t depth = static_cast<int32_t>(z * depthScale);
-
-                        size_t index = (size_t)y * width + x_start;
-                        for (int16_t x = x_start; x <= x_end; ++x, ++index)
-                        {
-                            if (!zBuffer->hasGeometry(x, y) || zBuffer->hasShadow(x, y))
-                            {
-                                depth += depthStep;
-                                continue;
-                            }
-
-                            int16_t storedDepth = zBuffer->getRawDepth(x, y);
-                            int16_t shadowDepth = static_cast<int16_t>(depth);
-                            if (shadowDepth > storedDepth)
-                            {
-                                depth += depthStep;
-                                continue;
-                            }
-
-                            uint16_t bgColor = frameBuffer[index];
-                            uint16_t br = (bgColor >> 11) & 0x1F;
-                            uint16_t bg = (bgColor >> 5) & 0x3F;
-                            uint16_t bb = bgColor & 0x1F;
-
-                            uint16_t r = (br * invEdgeAlpha + sr * edgeAlpha) >> 8;
-                            uint16_t g = (bg * invEdgeAlpha + sg * edgeAlpha) >> 8;
-                            uint16_t b = (bb * invEdgeAlpha + sb * edgeAlpha) >> 8;
-
-                            frameBuffer[index] = (r << 11) | (g << 5) | b;
-                            zBuffer->markShadow(x, y);
-
-                            depth += depthStep;
-                        }
-                    }
-
-                    ax += dax_step;
-                    az += daz_step;
-                    bx += dbx_step;
-                    bz += dbz_step;
-                }
+                rasterHalf(x1, y1, z1,
+                           x2, y2, z2,
+                           x0, y0, z0,
+                           x2, y2, z2,
+                           startBottom, endBottomExclusive);
             }
         }
 
@@ -400,34 +418,38 @@ namespace pip3D
                         continue;
                     }
 
-                    int16_t xa = (int16_t)(ax + 0.5f);
-                    int16_t xb = (int16_t)(bx + 0.5f);
+                    float xaf = ax;
+                    float xbf = bx;
                     float za = az, zb = bz;
                     float ra = ar, ga = ag, ba = ab;
                     float rb = br, gb = bg, bb2 = bb;
 
-                    if (xa > xb)
+                    if (xaf > xbf)
                     {
-                        std::swap(xa, xb);
+                        std::swap(xaf, xbf);
                         std::swap(za, zb);
                         std::swap(ra, rb);
                         std::swap(ga, gb);
                         std::swap(ba, bb2);
                     }
 
-                    int16_t x_start = (xa < 0) ? 0 : xa;
-                    int16_t x_end = (xb >= width) ? width - 1 : xb;
+                    int16_t x_start = static_cast<int16_t>(ceilf(xaf));
+                    int16_t x_end = static_cast<int16_t>(ceilf(xbf)) - 1;
+                    if (x_start < 0)
+                        x_start = 0;
+                    if (x_end >= width)
+                        x_end = width - 1;
 
                     if (x_start <= x_end && x_start < width && x_end >= 0)
                     {
-                        float dx = (float)(xb - xa);
+                        float dx = xbf - xaf;
                         float invDx = dx != 0.0f ? 1.0f / dx : 0.0f;
                         float z_step = (zb - za) * invDx;
                         float r_step = (rb - ra) * invDx;
                         float g_step = (gb - ga) * invDx;
                         float b_step = (bb2 - ba) * invDx;
 
-                        float offset = (float)(x_start - xa);
+                        float offset = (float)x_start - xaf;
                         float z = za + z_step * offset;
                         float r = ra + r_step * offset;
                         float g = ga + g_step * offset;
@@ -556,34 +578,38 @@ namespace pip3D
                         continue;
                     }
 
-                    int16_t xa = (int16_t)(ax + 0.5f);
-                    int16_t xb = (int16_t)(bx + 0.5f);
+                    float xaf = ax;
+                    float xbf = bx;
                     float za = az, zb = bz;
                     float ra = ar, ga = ag, ba = ab;
                     float rb = br, gb = bg, bb2 = bb;
 
-                    if (xa > xb)
+                    if (xaf > xbf)
                     {
-                        std::swap(xa, xb);
+                        std::swap(xaf, xbf);
                         std::swap(za, zb);
                         std::swap(ra, rb);
                         std::swap(ga, gb);
                         std::swap(ba, bb2);
                     }
 
-                    int16_t x_start = (xa < 0) ? 0 : xa;
-                    int16_t x_end = (xb >= width) ? width - 1 : xb;
+                    int16_t x_start = static_cast<int16_t>(ceilf(xaf));
+                    int16_t x_end = static_cast<int16_t>(ceilf(xbf)) - 1;
+                    if (x_start < 0)
+                        x_start = 0;
+                    if (x_end >= width)
+                        x_end = width - 1;
 
                     if (x_start <= x_end && x_start < width && x_end >= 0)
                     {
-                        float dx = (float)(xb - xa);
+                        float dx = xbf - xaf;
                         float invDx = dx != 0.0f ? 1.0f / dx : 0.0f;
                         float z_step = (zb - za) * invDx;
                         float r_step = (rb - ra) * invDx;
                         float g_step = (gb - ga) * invDx;
                         float b_step = (bb2 - ba) * invDx;
 
-                        float offset = (float)(x_start - xa);
+                        float offset = (float)x_start - xaf;
                         float z = za + z_step * offset;
                         float r = ra + r_step * offset;
                         float g = ga + g_step * offset;
@@ -675,9 +701,9 @@ namespace pip3D
             }
         }
 
-        static void fillTriangle(int16_t x0, int16_t y0, float z0,
-                                 int16_t x1, int16_t y1, float z1,
-                                 int16_t x2, int16_t y2, float z2,
+        static void fillTriangle(float x0, float y0, float z0,
+                                 float x1, float y1, float z1,
+                                 float x2, float y2, float z2,
                                  uint16_t color,
                                  uint16_t *frameBuffer,
                                  ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
@@ -712,121 +738,95 @@ namespace pip3D
             if (x0 == x1 && x1 == x2)
                 return;
 
-            int16_t dy1 = y1 - y0;
-            int16_t dy2 = y2 - y0;
+            float dy1 = y1 - y0;
+            float dy2 = y2 - y0;
 
-            if (dy1 == 0 && dy2 == 0)
+            if (fabsf(dy1) < 1e-6f && fabsf(dy2) < 1e-6f)
                 return;
+            const float depthScale = 32767.0f;
 
-            float dax_step = 0, dbx_step = 0;
-            float dz1_step = 0, dz2_step = 0;
-
-            if (dy1)
+            auto rasterHalf = [&](float xa0, float ya0, float za0,
+                                  float xa1, float ya1, float za1,
+                                  float xb0, float yb0, float zb0,
+                                  float xb1, float yb1, float zb1,
+                                  int startY, int endYExclusive)
             {
-                dax_step = (float)(x1 - x0) / dy1;
-                dz1_step = (z1 - z0) / dy1;
-            }
-            if (dy2)
-            {
-                dbx_step = (float)(x2 - x0) / dy2;
-                dz2_step = (z2 - z0) / dy2;
-            }
+                float dya = ya1 - ya0;
+                float dyb = yb1 - yb0;
+                if (fabsf(dya) < 1e-6f || fabsf(dyb) < 1e-6f)
+                    return;
 
-            float ax = x0, bx = x0;
-            float az = z0, bz = z0;
+                float invDya = 1.0f / dya;
+                float invDyb = 1.0f / dyb;
 
-            if (dy1)
-            {
-                for (int16_t y = y0; y <= y1; y++)
+                for (int y = startY; y < endYExclusive; ++y)
                 {
                     if (y < 0 || y >= height)
-                    {
-                        ax += dax_step;
-                        az += dz1_step;
-                        bx += dbx_step;
-                        bz += dz2_step;
                         continue;
-                    }
 
-                    int16_t xa = (int16_t)(ax + 0.5f);
-                    int16_t xb = (int16_t)(bx + 0.5f);
-                    float za = az, zb = bz;
+                    float sampleY = static_cast<float>(y) + 0.5f;
 
-                    if (xa > xb)
+                    float tA = (sampleY - ya0) * invDya;
+                    float tB = (sampleY - yb0) * invDyb;
+
+                    float xaf = xa0 + (xa1 - xa0) * tA;
+                    float xbf = xb0 + (xb1 - xb0) * tB;
+                    float za = za0 + (za1 - za0) * tA;
+                    float zb = zb0 + (zb1 - zb0) * tB;
+
+                    if (xaf > xbf)
                     {
-                        std::swap(xa, xb);
+                        std::swap(xaf, xbf);
                         std::swap(za, zb);
                     }
 
-                    int16_t x_start = (xa < 0) ? 0 : xa;
-                    int16_t x_end = (xb >= width) ? width - 1 : xb;
+                    int16_t x_start = static_cast<int16_t>(ceilf(xaf));
+                    int16_t x_end = static_cast<int16_t>(ceilf(xbf)) - 1;
+                    if (x_start < 0)
+                        x_start = 0;
+                    if (x_end >= width)
+                        x_end = width - 1;
 
-                    if (x_start <= x_end && x_start < width && x_end >= 0)
+                    if (x_start <= x_end)
                     {
-                        float z_step = (xb - xa) != 0 ? (zb - za) / (xb - xa) : 0;
-                        float z = za + z_step * (x_start - xa);
+                        float dx = xbf - xaf;
+                        float z_step = fabsf(dx) > 1e-6f ? (zb - za) / dx : 0.0f;
+                        float z = za + z_step * ((static_cast<float>(x_start) + 0.5f) - xaf);
 
-                        const float depthScale = 32767.0f;
                         int32_t depthStep = static_cast<int32_t>(z_step * depthScale);
                         int32_t depthStart = static_cast<int32_t>(z * depthScale);
-                        zBuffer->testAndSetScanline(y, x_start, x_end, depthStart, depthStep, frameBuffer, color);
+                        zBuffer->testAndSetScanline(static_cast<uint16_t>(y),
+                                                    static_cast<uint16_t>(x_start),
+                                                    static_cast<uint16_t>(x_end),
+                                                    depthStart,
+                                                    depthStep,
+                                                    frameBuffer,
+                                                    color);
                     }
-
-                    ax += dax_step;
-                    az += dz1_step;
-                    bx += dbx_step;
-                    bz += dz2_step;
                 }
+            };
+
+            int startTop = static_cast<int>(ceilf(y0 - 0.5f));
+            int endTopExclusive = static_cast<int>(ceilf(y1 - 0.5f));
+            int startBottom = static_cast<int>(ceilf(y1 - 0.5f));
+            int endBottomExclusive = static_cast<int>(ceilf(y2 - 0.5f));
+
+            if (fabsf(y1 - y0) > 1e-6f)
+            {
+                rasterHalf(x0, y0, z0,
+                           x1, y1, z1,
+                           x0, y0, z0,
+                           x2, y2, z2,
+                           startTop, endTopExclusive);
             }
 
-            dy1 = y2 - y1;
-            if (dy1)
+            if (fabsf(y2 - y1) > 1e-6f)
             {
-                dax_step = (float)(x2 - x1) / dy1;
-                dz1_step = (z2 - z1) / dy1;
-                ax = x1;
-                az = z1;
-
-                for (int16_t y = y1 + 1; y <= y2; y++)
-                {
-                    if (y < 0 || y >= height)
-                    {
-                        ax += dax_step;
-                        az += dz1_step;
-                        bx += dbx_step;
-                        bz += dz2_step;
-                        continue;
-                    }
-
-                    int16_t xa = (int16_t)(ax + 0.5f);
-                    int16_t xb = (int16_t)(bx + 0.5f);
-                    float za = az, zb = bz;
-
-                    if (xa > xb)
-                    {
-                        std::swap(xa, xb);
-                        std::swap(za, zb);
-                    }
-
-                    int16_t x_start = (xa < 0) ? 0 : xa;
-                    int16_t x_end = (xb >= width) ? width - 1 : xb;
-
-                    if (x_start <= x_end && x_start < width && x_end >= 0)
-                    {
-                        float z_step = (xb - xa) != 0 ? (zb - za) / (xb - xa) : 0;
-                        float z = za + z_step * (x_start - xa);
-
-                        const float depthScale = 32767.0f;
-                        int32_t depthStep = static_cast<int32_t>(z_step * depthScale);
-                        int32_t depthStart = static_cast<int32_t>(z * depthScale);
-                        zBuffer->testAndSetScanline(y, x_start, x_end, depthStart, depthStep, frameBuffer, color);
-                    }
-
-                    ax += dax_step;
-                    az += dz1_step;
-                    bx += dbx_step;
-                    bz += dz2_step;
-                }
+                rasterHalf(x1, y1, z1,
+                           x2, y2, z2,
+                           x0, y0, z0,
+                           x2, y2, z2,
+                           startBottom, endBottomExclusive);
             }
         }
     };

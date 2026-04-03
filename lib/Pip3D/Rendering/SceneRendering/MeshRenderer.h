@@ -54,6 +54,11 @@ namespace pip3D
             if (maxY < bandTop || minY >= bandBottom)
                 return;
 
+            float minX = fminf(p0.x, fminf(p1.x, p2.x));
+            float maxX = fmaxf(p0.x, fmaxf(p1.x, p2.x));
+            if (maxX < 0.0f || minX >= static_cast<float>(viewport.width))
+                return;
+
             Vector3 lp0 = p0;
             Vector3 lp1 = p1;
             Vector3 lp2 = p2;
@@ -64,7 +69,8 @@ namespace pip3D
             Vector3 edge1 = v1 - v0;
             Vector3 edge2 = v2 - v0;
             Vector3 normal = edge1.cross(edge2);
-            Vector3 viewDir = camera.position - v0;
+            Vector3 fragPos = (v0 + v1 + v2) * (1.0f / 3.0f);
+            Vector3 viewDir = camera.position - fragPos;
 
             if (camera.projectionType == PERSPECTIVE)
             {
@@ -73,7 +79,6 @@ namespace pip3D
             }
             normal.normalize();
             viewDir.normalize();
-            Vector3 fragPos = (v0 + v1 + v2) * (1.0f / 3.0f);
 
             float finalR, finalG, finalB;
             Shading::calculateLighting(fragPos, normal, viewDir,
@@ -81,11 +86,11 @@ namespace pip3D
                                        baseR, baseG, baseB,
                                        finalR, finalG, finalB);
 
-            uint16_t shadedColor = Shading::applyDithering(finalR, finalG, finalB, (int16_t)lp0.x, (int16_t)lp0.y);
+            uint16_t shadedColor = Shading::quantizeColor(finalR, finalG, finalB);
 
-            Rasterizer::fillTriangle((int16_t)lp0.x, (int16_t)lp0.y, lp0.z,
-                                     (int16_t)lp1.x, (int16_t)lp1.y, lp1.z,
-                                     (int16_t)lp2.x, (int16_t)lp2.y, lp2.z,
+            Rasterizer::fillTriangle(lp0.x, lp0.y, lp0.z,
+                                     lp1.x, lp1.y, lp1.z,
+                                     lp2.x, lp2.y, lp2.z,
                                      shadedColor,
                                      framebuffer.getBuffer(),
                                      zBuffer,
@@ -315,6 +320,36 @@ namespace pip3D
         }
 
     public:
+        static void drawTriangle3D_Preprojected(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2,
+                                                const Vector3 &p0, const Vector3 &p1, const Vector3 &p2,
+                                                uint16_t color,
+                                                const Camera &camera,
+                                                const Viewport &viewport,
+                                                const Matrix4x4 &viewProjMatrix,
+                                                FrameBuffer &framebuffer,
+                                                ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+                                                const Light *lights,
+                                                int activeLightCount,
+                                                bool backfaceCullingEnabled,
+                                                uint32_t &statsTrianglesTotal,
+                                                uint32_t &statsTrianglesBackfaceCulled)
+        {
+            float baseR;
+            float baseG;
+            float baseB;
+            decodeColorToFloat(color, baseR, baseG, baseB);
+
+            drawTriangle3D_Clipped_Preprojected(v0, v1, v2,
+                                                p0, p1, p2,
+                                                baseR, baseG, baseB,
+                                                camera, viewport, viewProjMatrix,
+                                                framebuffer, zBuffer,
+                                                lights, activeLightCount,
+                                                backfaceCullingEnabled,
+                                                statsTrianglesTotal,
+                                                statsTrianglesBackfaceCulled);
+        }
+
         static void drawTriangle3D(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2,
                                    uint16_t color,
                                    const Camera &camera,
@@ -378,43 +413,30 @@ namespace pip3D
                 return;
             }
 
-            uint16_t maxIndex = 0;
-            for (uint16_t i = 0; i < faceCount; ++i)
-            {
-                const Face &face = mesh->face(i);
-                if (face.v0 > maxIndex)
-                    maxIndex = face.v0;
-                if (face.v1 > maxIndex)
-                    maxIndex = face.v1;
-                if (face.v2 > maxIndex)
-                    maxIndex = face.v2;
-            }
-
-            const uint16_t vertexCountUsed = static_cast<uint16_t>(maxIndex + 1);
-            const size_t vertexBufferSize = static_cast<size_t>(vertexCountUsed) * sizeof(Vector3);
-
-            Vector3 *worldVerts = (Vector3 *)MemUtils::allocAligned(vertexBufferSize, 16);
-            if (!worldVerts)
-            {
+            const uint16_t vertexCountUsed = mesh->numVertices();
+            if (!mesh->ensureProjectionCache(vertexCountUsed))
                 return;
-            }
 
-            Vector3 *screenVerts = (Vector3 *)MemUtils::allocAligned(vertexBufferSize, 16);
-            if (!screenVerts)
-            {
-                MemUtils::freeAligned(worldVerts);
-                return;
-            }
+            const Vector3 *localVerts = nullptr;
+            if (mesh->ensureDecodedVertexCache())
+                localVerts = mesh->getCachedLocalVertices();
 
+            Vector3 *worldVerts = mesh->getCachedWorldVertices();
+            Vector3 *screenVerts = mesh->getCachedScreenVertices();
+            const uint32_t frameStamp = currentFrameStamp();
             const Matrix4x4 &meshTransform = mesh->getTransform();
 
-            for (uint16_t i = 0; i < vertexCountUsed; ++i)
+            if (mesh->getCachedProjectionFrameStamp() != frameStamp)
             {
-                const Vertex &v = mesh->vert(i);
-                Vector3 localPos = mesh->decodePosition(v);
-                Vector3 worldPos = meshTransform.transformNoDiv(localPos);
-                worldVerts[i] = worldPos;
-                screenVerts[i] = CameraController::project(worldPos, viewProjMatrix, viewport);
+                for (uint16_t i = 0; i < vertexCountUsed; ++i)
+                {
+                    Vector3 localPos = localVerts ? localVerts[i] : mesh->decodePosition(mesh->vert(i));
+                    Vector3 worldPos = meshTransform.transformNoDiv(localPos);
+                    worldVerts[i] = worldPos;
+                    screenVerts[i] = CameraController::project(worldPos, viewProjMatrix, viewport);
+                }
+
+                mesh->setCachedProjectionFrameStamp(frameStamp);
             }
 
             for (uint16_t i = 0; i < faceCount; ++i)
@@ -432,19 +454,38 @@ namespace pip3D
                 const Vector3 &p1 = screenVerts[i1];
                 const Vector3 &p2 = screenVerts[i2];
 
+                float minY = fminf(p0.y, fminf(p1.y, p2.y));
+                float maxY = fmaxf(p0.y, fmaxf(p1.y, p2.y));
+                if (maxY < currentBandOffsetY() || minY >= currentBandOffsetY() + currentBandHeight())
+                    continue;
+
+                float minX = fminf(p0.x, fminf(p1.x, p2.x));
+                float maxX = fmaxf(p0.x, fmaxf(p1.x, p2.x));
+                if (maxX < 0.0f || minX >= static_cast<float>(viewport.width))
+                    continue;
+
                 statsTrianglesTotal++;
                 if (backfaceCullingEnabled)
                 {
-                    // 2D screen-space backface culling using winding order.
-                    // Screen Y grows downward, so front-facing triangles have
-                    // negative signed area in this coordinate system.
-                    float x0 = p0.x, y0 = p0.y;
-                    float x1 = p1.x, y1 = p1.y;
-                    float x2 = p2.x, y2 = p2.y;
-                    float area2 = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
+                    Vector3 faceNormal = (v1 - v0).cross(v2 - v0);
+                    float normalLenSq = faceNormal.lengthSquared();
+                    if (normalLenSq <= 1e-10f)
+                    {
+                        statsTrianglesBackfaceCulled++;
+                        continue;
+                    }
 
-                    // Cull backfacing or degenerate triangles
-                    if (area2 >= 0.0f)
+                    float facing = 0.0f;
+                    if (camera.projectionType == PERSPECTIVE || camera.projectionType == FISHEYE)
+                    {
+                        facing = faceNormal.dot(camera.position - v0);
+                    }
+                    else
+                    {
+                        facing = faceNormal.dot(camera.forward() * -1.0f);
+                    }
+
+                    if (facing <= 0.0f)
                     {
                         statsTrianglesBackfaceCulled++;
                         continue;
@@ -461,9 +502,6 @@ namespace pip3D
                                                     statsTrianglesTotal,
                                                     statsTrianglesBackfaceCulled);
             }
-
-            MemUtils::freeAligned(screenVerts);
-            MemUtils::freeAligned(worldVerts);
         }
     };
 }

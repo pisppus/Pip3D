@@ -5,6 +5,18 @@
 #include "Drivers/DisplayDriverBase.h"
 #include "ZBuffer.h"
 
+// Кроссплатформенный префетч: на GCC/Clang используем __builtin_prefetch,
+// на MSVC и прочих платформах оставляем пустым no-op.
+#if defined(__GNUC__) || defined(__clang__)
+#ifndef PIP3D_PREFETCH
+#define PIP3D_PREFETCH(ptr) __builtin_prefetch((ptr), 0, 0)
+#endif
+#else
+#ifndef PIP3D_PREFETCH
+#define PIP3D_PREFETCH(ptr) ((void)0)
+#endif
+#endif
+
 namespace pip3D
 {
     class __attribute__((aligned(16))) FrameBuffer
@@ -249,7 +261,7 @@ namespace pip3D
 
                 for (; x < width16; x += 16)
                 {
-                    __builtin_prefetch(&zbRow[x + 16], 0, 0);
+                    PIP3D_PREFETCH(&zbRow[x + 16]);
                     
                     const int16_t d0 = zbRow[x] & invShadowMask;
                     const int16_t d1 = zbRow[x + 1] & invShadowMask;

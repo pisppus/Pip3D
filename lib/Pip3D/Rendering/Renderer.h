@@ -20,8 +20,12 @@
 #include "Rasterizer/Shading.h"
 #include "Display/FrameBuffer.h"
 #include "Display/Drivers/DisplayDriverBase.h"
+#if defined(PIP3D_PC)
+#include "Display/Drivers/PcDisplayDriver.h"
+#else
 #include "Display/Drivers/ST7789Driver.h"
 #include "Display/Drivers/ILI9488Driver.h"
+#endif
 #include "HUD/HudRenderer.h"
 #include "SceneRendering/Culling.h"
 #include "SceneRendering/MeshRenderer.h"
@@ -111,6 +115,27 @@ namespace pip3D
         // Current band index for banded rendering (0..BAND_COUNT-1)
         int currentBandIndex;
 
+        bool shouldRenderShadowForBounds(const Vector3 &center, float radius) const
+        {
+            if (!shadowsEnabled || radius <= 0.0f)
+                return false;
+
+            const Camera &cam = cameras[activeCameraIndex];
+            if (cam.projectionType != PERSPECTIVE)
+                return true;
+
+            Vector3 toCenter = center - cam.position;
+            float distSq = toCenter.lengthSquared();
+            if (distSq <= 1e-6f)
+                return true;
+
+            float distForward = toCenter.dot(cam.forward());
+            if (distForward <= cam.nearPlane * 0.25f)
+                return false;
+
+            return true;
+        }
+
     public:
         Renderer() : zBuffer(nullptr),
                      display(nullptr),
@@ -179,11 +204,22 @@ namespace pip3D
 
             if (!display)
             {
-                display = new ILI9488Driver();
+#if defined(PIP3D_PC)
+                display = createPcDisplayDriver();
+#else
+                const bool useSt7789 =
+                    ((cfg.width == 320 && cfg.height == 240) ||
+                     (cfg.width == 240 && cfg.height == 320));
+
+                if (useSt7789)
+                    display = new ST7789Driver();
+                else
+                    display = new ILI9488Driver();
+#endif
                 if (!display)
                 {
                     LOGE(::pip3D::Debug::LOG_MODULE_RENDER,
-                         "Renderer::init: failed to allocate ILI9488Driver");
+                         "Renderer::init: failed to allocate display driver");
                     return false;
                 }
             }
@@ -312,6 +348,7 @@ namespace pip3D
             // Only once per full frame, on the first band
             if (bandIndex == 0)
             {
+                currentFrameStamp()++;
                 perfCounter.begin();
 
                 for (int i = 0; i < MAX_WORLD_DIRTY_INSTANCES; ++i)
@@ -636,7 +673,10 @@ namespace pip3D
 
         Color getLightColor() const { return LightManager::getLightColor(lights, activeLightCount); }
 
-        void setShadowsEnabled(bool enabled) { shadowsEnabled = enabled; }
+        void setShadowsEnabled(bool enabled)
+        {
+            shadowsEnabled = enabled;
+        }
         bool getShadowsEnabled() const { return shadowsEnabled; }
         void setBackfaceCullingEnabled(bool enabled) { backfaceCullingEnabled = enabled; }
         bool getBackfaceCullingEnabled() const { return backfaceCullingEnabled; }
@@ -790,25 +830,85 @@ namespace pip3D
                 addDirtyFromSphere(instance, center, radius);
             }
 
-            const Matrix4x4 &worldTransform = instance->transform();
             const uint16_t instColor565 = instance->color().rgb565;
+            const uint16_t vertexCountUsed = mesh->numVertices();
+            if (!instance->ensureProjectionCache(vertexCountUsed))
+                return;
+
+            const Vector3 *localVerts = nullptr;
+            if (mesh->ensureDecodedVertexCache())
+                localVerts = mesh->getCachedLocalVertices();
+
+            Vector3 *worldVerts = instance->getCachedWorldVertices();
+            Vector3 *screenVerts = instance->getCachedScreenVertices();
+            const uint32_t frameStamp = currentFrameStamp();
+            const Matrix4x4 &worldTransform = instance->transform();
+
+            if (instance->getCachedProjectionFrameStamp() != frameStamp)
+            {
+                for (uint16_t i = 0; i < vertexCountUsed; ++i)
+                {
+                    Vector3 local = localVerts ? localVerts[i] : mesh->decodePosition(mesh->vert(i));
+                    Vector3 world = worldTransform.transformNoDiv(local);
+                    worldVerts[i] = world;
+                    screenVerts[i] = CameraController::project(world, viewProjMatrix, viewport);
+                }
+
+                instance->setCachedProjectionFrameStamp(frameStamp);
+            }
 
             for (uint16_t i = 0; i < mesh->numFaces(); i++)
             {
                 const Face &face = mesh->face(i);
-                const Vertex &vert0 = mesh->vert(face.v0);
-                const Vertex &vert1 = mesh->vert(face.v1);
-                const Vertex &vert2 = mesh->vert(face.v2);
+                const Vector3 &v0 = worldVerts[face.v0];
+                const Vector3 &v1 = worldVerts[face.v1];
+                const Vector3 &v2 = worldVerts[face.v2];
+                const Vector3 &p0 = screenVerts[face.v0];
+                const Vector3 &p1 = screenVerts[face.v1];
+                const Vector3 &p2 = screenVerts[face.v2];
 
-                Vector3 local0 = mesh->decodePosition(vert0);
-                Vector3 local1 = mesh->decodePosition(vert1);
-                Vector3 local2 = mesh->decodePosition(vert2);
+                float minY = fminf(p0.y, fminf(p1.y, p2.y));
+                float maxY = fmaxf(p0.y, fmaxf(p1.y, p2.y));
+                if (maxY < currentBandOffsetY() || minY >= currentBandOffsetY() + currentBandHeight())
+                    continue;
 
-                Vector3 v0 = worldTransform.transformNoDiv(local0);
-                Vector3 v1 = worldTransform.transformNoDiv(local1);
-                Vector3 v2 = worldTransform.transformNoDiv(local2);
+                float minX = fminf(p0.x, fminf(p1.x, p2.x));
+                float maxX = fmaxf(p0.x, fmaxf(p1.x, p2.x));
+                if (maxX < 0.0f || minX >= static_cast<float>(viewport.width))
+                    continue;
 
-                drawTriangle3D(v0, v1, v2, instColor565);
+                statsTrianglesTotal++;
+                if (backfaceCullingEnabled)
+                {
+                    Vector3 faceNormal = (v1 - v0).cross(v2 - v0);
+                    float normalLenSq = faceNormal.lengthSquared();
+                    if (normalLenSq <= 1e-10f)
+                    {
+                        statsTrianglesBackfaceCulled++;
+                        continue;
+                    }
+
+                    float facing = faceNormal.dot(cam.position - v0);
+                    if (facing <= 0.0f)
+                    {
+                        statsTrianglesBackfaceCulled++;
+                        continue;
+                    }
+                }
+
+                MeshRenderer::drawTriangle3D_Preprojected(v0, v1, v2,
+                                                          p0, p1, p2,
+                                                          instColor565,
+                                                          cameras[activeCameraIndex],
+                                                          viewport,
+                                                          viewProjMatrix,
+                                                          framebuffer,
+                                                          zBuffer,
+                                                          lights.data(),
+                                                          activeLightCount,
+                                                          backfaceCullingEnabled,
+                                                          statsTrianglesTotal,
+                                                          statsTrianglesBackfaceCulled);
             }
         }
 
@@ -845,6 +945,11 @@ namespace pip3D
 
         void drawMeshShadow(Mesh *mesh)
         {
+            if (!mesh || !mesh->getCastShadows())
+                return;
+            if (!shouldRenderShadowForBounds(mesh->center(), mesh->radius()))
+                return;
+
             ShadowRenderer::drawMeshShadow(mesh,
                                            shadowsEnabled,
                                            shadowSettings,
@@ -859,6 +964,14 @@ namespace pip3D
         }
         void drawMeshInstanceShadow(MeshInstance *instance)
         {
+            if (!instance || !instance->isVisible())
+                return;
+            Mesh *mesh = instance->getMesh();
+            if (!mesh || !mesh->getCastShadows())
+                return;
+            if (!shouldRenderShadowForBounds(instance->center(), instance->radius()))
+                return;
+
             ShadowRenderer::drawMeshInstanceShadow(instance,
                                                    shadowsEnabled,
                                                    shadowSettings,

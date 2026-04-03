@@ -1,6 +1,12 @@
 #include "Logging.h"
+
+#if defined(PIP3D_PC)
+#include "../Core.h" // для micros() и базовых типов
+#include <cstdio>
+#else
 #include <Arduino.h>
 #include <stdio.h>
+#endif
 
 #if ENABLE_LOGGING
 
@@ -205,6 +211,7 @@ namespace pip3D
                 return;
             if (!g_state.initialized)
                 init(g_state.level, g_state.modules, g_state.timestamps);
+            char prefix[64] = {0};
             if (g_state.timestamps)
             {
                 uint32_t now = micros();
@@ -212,6 +219,11 @@ namespace pip3D
                 uint32_t ms = dt / 1000u;
                 uint32_t s = ms / 1000u;
                 uint16_t msRem = static_cast<uint16_t>(ms % 1000u);
+#if defined(PIP3D_PC)
+                std::snprintf(prefix, sizeof(prefix), "[%lu.%03u] ",
+                              static_cast<unsigned long>(s),
+                              static_cast<unsigned int>(msRem));
+#else
                 Serial.print('[');
                 Serial.print(static_cast<unsigned long>(s));
                 Serial.print('.');
@@ -221,17 +233,34 @@ namespace pip3D
                     Serial.print('0');
                 Serial.print(static_cast<unsigned long>(msRem));
                 Serial.print("] ");
+#endif
             }
-            Serial.print(levelToString(level));
-            Serial.print(' ');
-            Serial.print(moduleToString(module));
-            Serial.print(": ");
+
+            const char *lvlStr = levelToString(level);
+            const char *modStr = moduleToString(module);
+
             char buffer[256];
             va_list args;
             va_start(args, fmt);
             vsnprintf(buffer, sizeof(buffer), fmt, args);
             va_end(args);
+
+#if defined(PIP3D_PC)
+            if (g_state.timestamps)
+            {
+                std::printf("%s%s %s: %s\n", prefix, lvlStr, modStr, buffer);
+            }
+            else
+            {
+                std::printf("%s %s: %s\n", lvlStr, modStr, buffer);
+            }
+#else
+            Serial.print(lvlStr);
+            Serial.print(' ');
+            Serial.print(modStr);
+            Serial.print(": ");
             Serial.println(buffer);
+#endif
         }
 
     }

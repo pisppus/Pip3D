@@ -2,12 +2,110 @@
 #define CORE_H
 
 #include "../Math/Math.h"
+
+#if defined(PIP3D_PC)
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <chrono>
+#include <limits>
+#if defined(_MSC_VER)
+#include <malloc.h>
+#endif
+#else
 #include <Arduino.h>
 #include <SPI.h>
 #include <esp_heap_caps.h>
 #include <cstdlib>
 #include <cstring>
+#endif
+
 #include "Debug/Logging.h"
+
+#if defined(PIP3D_PC)
+
+// Простые заглушки Arduino/ESP-функций для десктопа.
+
+inline uint32_t micros()
+{
+  using namespace std::chrono;
+  static const high_resolution_clock::time_point start = high_resolution_clock::now();
+  const auto now = high_resolution_clock::now();
+  auto us = duration_cast<microseconds>(now - start).count();
+  if (us < 0)
+    us = 0;
+  const uint64_t maxu32 = std::numeric_limits<uint32_t>::max();
+  if (static_cast<uint64_t>(us) > maxu32)
+  {
+    us = static_cast<int64_t>(static_cast<uint64_t>(us) % maxu32);
+  }
+  return static_cast<uint32_t>(us);
+}
+
+inline uint32_t millis()
+{
+  return micros() / 1000u;
+}
+
+inline long random(long minVal, long maxVal)
+{
+  if (maxVal <= minVal)
+    return minVal;
+  const unsigned long range = static_cast<unsigned long>(maxVal - minVal);
+  const unsigned long r = static_cast<unsigned long>(std::rand());
+  return minVal + static_cast<long>(r % range);
+}
+
+inline bool psramFound()
+{
+  return false;
+}
+
+inline void *ps_malloc(size_t size)
+{
+  return std::malloc(size);
+}
+
+#ifndef MALLOC_CAP_DMA
+#define MALLOC_CAP_DMA 0
+#define MALLOC_CAP_INTERNAL 0
+#define MALLOC_CAP_SPIRAM 0
+#define MALLOC_CAP_8BIT 0
+#endif
+
+inline void *heap_caps_aligned_alloc(size_t align, size_t size, unsigned int)
+{
+#if defined(_MSC_VER)
+  return _aligned_malloc(size, align);
+#else
+  // C++17 aligned_alloc требует size кратным align.
+  const size_t alignedSize = (size + align - 1u) / align * align;
+  return std::aligned_alloc(align, alignedSize);
+#endif
+}
+
+inline void *heap_caps_malloc(size_t size, unsigned int)
+{
+  // Для единообразия под Windows тоже используем _aligned_malloc,
+  // чтобы heap_caps_free мог всегда вызывать _aligned_free.
+#if defined(_MSC_VER)
+  const size_t align = 16u;
+  return _aligned_malloc(size, align);
+#else
+  return std::malloc(size);
+#endif
+}
+
+inline void heap_caps_free(void *ptr)
+{
+#if defined(_MSC_VER)
+  _aligned_free(ptr);
+#else
+  std::free(ptr);
+#endif
+}
+
+#endif // PIP3D_PC
 
 namespace pip3D
 {
@@ -18,16 +116,26 @@ namespace pip3D
     return value < min_val ? min_val : (value > max_val ? max_val : value);
   }
 
+// Branch prediction hints: используем __builtin_expect только там, где он есть.
+#if defined(__GNUC__) || defined(__clang__)
 #ifndef likely
 #define likely(x) __builtin_expect(!!(x), 1)
 #endif
 #ifndef unlikely
 #define unlikely(x) __builtin_expect(!!(x), 0)
 #endif
+#else
+#ifndef likely
+#define likely(x) (x)
+#endif
+#ifndef unlikely
+#define unlikely(x) (x)
+#endif
+#endif
 
   struct alignas(16) Display
   {
-    uint16_t width = 240, height = 320;
+    uint16_t width = 320, height = 240;
     int8_t cs = 10, dc = 9, rst = 8, bl = -1;
     uint32_t spi_freq = 80000000;
 
@@ -38,8 +146,8 @@ namespace pip3D
   };
 
   // Global screen configuration (physical display resolution)
-  static constexpr uint16_t SCREEN_WIDTH = 480;
-  static constexpr uint16_t SCREEN_HEIGHT = 320;
+  static constexpr uint16_t SCREEN_WIDTH = 320;
+  static constexpr uint16_t SCREEN_HEIGHT = 240;
 
   // Banded rendering configuration: number of horizontal bands and band height
   static constexpr uint16_t SCREEN_BAND_COUNT = 2;
@@ -58,6 +166,12 @@ namespace pip3D
   {
     static int16_t h = SCREEN_HEIGHT;
     return h;
+  }
+
+  __attribute__((always_inline)) inline uint32_t &currentFrameStamp()
+  {
+    static uint32_t frameStamp = 0;
+    return frameStamp;
   }
 
   struct alignas(2) Color
@@ -438,7 +552,7 @@ namespace pip3D
   struct alignas(8) Viewport
   {
     int16_t x = 0, y = 0;
-    uint16_t width = 240, height = 320;
+    uint16_t width = 320, height = 240;
 
     Viewport() = default;
     Viewport(int16_t x_, int16_t y_, uint16_t w_, uint16_t h_) : x(x_), y(y_), width(w_), height(h_) {}
@@ -455,9 +569,32 @@ namespace pip3D
 
   struct MemUtils
   {
-    static size_t getFreeHeap() { return ESP.getFreeHeap(); }
-    static size_t getFreePSRAM() { return ESP.getFreePsram(); }
-    static size_t getLargestFreeBlock() { return ESP.getMaxAllocHeap(); }
+    static size_t getFreeHeap()
+    {
+#if defined(PIP3D_PC)
+      return 0;
+#else
+      return ESP.getFreeHeap();
+#endif
+    }
+
+    static size_t getFreePSRAM()
+    {
+#if defined(PIP3D_PC)
+      return 0;
+#else
+      return ESP.getFreePsram();
+#endif
+    }
+
+    static size_t getLargestFreeBlock()
+    {
+#if defined(PIP3D_PC)
+      return 0;
+#else
+      return ESP.getMaxAllocHeap();
+#endif
+    }
 
     static void *allocAligned(size_t size, size_t align = 4)
     {
@@ -511,7 +648,12 @@ namespace pip3D
 
     static bool isInPSRAM(void *ptr)
     {
+#if defined(PIP3D_PC)
+      (void)ptr;
+      return false;
+#else
       return ((uint32_t)ptr >= 0x3F800000 && (uint32_t)ptr < 0x3FC00000);
+#endif
     }
   };
 
@@ -519,8 +661,8 @@ namespace pip3D
   {
     static constexpr uint32_t CORE_FREQ = 240000000;
     static constexpr uint32_t SPI_FREQ = 80000000;
-    static constexpr uint16_t DEFAULT_WIDTH = 240;
-    static constexpr uint16_t DEFAULT_HEIGHT = 320;
+    static constexpr uint16_t DEFAULT_WIDTH = 320;
+    static constexpr uint16_t DEFAULT_HEIGHT = 240;
     static constexpr float DEFAULT_FOV = 60.0f;
     static constexpr float EPSILON = 1e-6f;
 

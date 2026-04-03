@@ -2,7 +2,12 @@
 #define FONT_H
 
 #include "../Core/Core.h"
+#if !defined(PIP3D_PC)
 #include <Arduino.h>
+#else
+#include <stdint.h>
+#include <cstring>
+#endif
 
 namespace pip3D
 {
