@@ -1,8 +1,13 @@
 #ifndef TIMEUTILS_H
 #define TIMEUTILS_H
 
-#include <Arduino.h>
 #include <stdint.h>
+
+#if defined(PIP3D_PC)
+#include "../Core/Core.h" // micros() stub
+#else
+#include <Arduino.h>
+#endif
 
 namespace pip3D
 {

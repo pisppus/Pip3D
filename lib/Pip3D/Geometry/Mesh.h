@@ -3,9 +3,13 @@
 
 #include "../Math/Math.h"
 #include "../Core/Core.h"
+
+#if !defined(PIP3D_PC)
 #include <esp_heap_caps.h>
 #include <esp_attr.h>
 #include <soc/cpu.h>
+#endif
+
 #include <string.h>
 
 #define MESH_SIMD_ALIGN __attribute__((aligned(16)))
@@ -125,13 +129,23 @@ namespace pip3D
         float qScale;
 
         mutable MeshCache cache;
+        mutable Vector3 *cachedLocalVertices;
+        mutable uint16_t cachedLocalVertexCapacity;
+        mutable bool cachedLocalVerticesValid;
+        mutable Vector3 *cachedWorldVertices;
+        mutable Vector3 *cachedScreenVertices;
+        mutable uint16_t cachedProjectionCapacity;
+        mutable uint32_t cachedProjectionFrameStamp;
 
     public:
         MESH_HOT_PATH Mesh(uint16_t maxVerts = 64, uint16_t maxFcs = 128, const Color &color = Color::WHITE)
             : vertexCount(0), faceCount(0), maxVertices(maxVerts), maxFaces(maxFcs),
               position(0, 0, 0), rotation(0, 0, 0), scale(1, 1, 1),
               meshColor(color), visible(true), castShadows(true), transformDirty(true),
-              isStaticStorage(false), qScale(1.0f)
+              isStaticStorage(false), qScale(1.0f),
+              cachedLocalVertices(nullptr), cachedLocalVertexCapacity(0), cachedLocalVerticesValid(false),
+              cachedWorldVertices(nullptr), cachedScreenVertices(nullptr),
+              cachedProjectionCapacity(0), cachedProjectionFrameStamp(0)
         {
 
             const size_t vertexSize = maxVertices * sizeof(Vertex);
@@ -167,7 +181,10 @@ namespace pip3D
               maxVertices(vertCount), maxFaces(faceCountIn),
               position(0, 0, 0), rotation(0, 0, 0), scale(1, 1, 1),
               meshColor(color), visible(true), castShadows(true), transformDirty(true),
-              isStaticStorage(staticStorage), qScale(1.0f)
+              isStaticStorage(staticStorage), qScale(1.0f),
+              cachedLocalVertices(nullptr), cachedLocalVertexCapacity(0), cachedLocalVerticesValid(false),
+              cachedWorldVertices(nullptr), cachedScreenVertices(nullptr),
+              cachedProjectionCapacity(0), cachedProjectionFrameStamp(0)
         {
             cache.transform.identity();
         }
@@ -177,11 +194,13 @@ namespace pip3D
             if (size <= 0.0f)
             {
                 qScale = 1.0f;
+                cachedLocalVerticesValid = false;
                 return;
             }
             const float half = size * 0.5f;
             const float denom = 32767.0f;
             qScale = half / denom;
+            cachedLocalVerticesValid = false;
         }
 
         MESH_FORCE_INLINE int16_t quantizeCoord(float x) const
@@ -219,11 +238,30 @@ namespace pip3D
                 MemUtils::freeData(faces);
                 faces = nullptr;
             }
+            if (cachedLocalVertices)
+            {
+                MemUtils::freeData(cachedLocalVertices);
+                cachedLocalVertices = nullptr;
+            }
+            if (cachedWorldVertices)
+            {
+                MemUtils::freeData(cachedWorldVertices);
+                cachedWorldVertices = nullptr;
+            }
+            if (cachedScreenVertices)
+            {
+                MemUtils::freeData(cachedScreenVertices);
+                cachedScreenVertices = nullptr;
+            }
             vertexCount = 0;
             faceCount = 0;
             maxVertices = 0;
             maxFaces = 0;
             cache.boundsValid = false;
+            cachedLocalVertexCapacity = 0;
+            cachedLocalVerticesValid = false;
+            cachedProjectionCapacity = 0;
+            cachedProjectionFrameStamp = 0;
         }
 
         MESH_COLD_PATH virtual ~Mesh()
@@ -259,6 +297,7 @@ namespace pip3D
             v.normal.data = 0;
 
             cache.boundsValid = false;
+            cachedLocalVerticesValid = false;
             return vertexCount++;
         }
 
@@ -338,17 +377,14 @@ namespace pip3D
 
             const Vertex *__restrict vertPtr = vertices;
             const Face *__restrict facePtr = faces;
-
-            const size_t positionSize = vertexCount * sizeof(Vector3);
-            Vector3 *vertexPositions = (Vector3 *)heap_caps_aligned_alloc(16, positionSize, MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL);
-
-            if (vertexPositions)
+            const Vector3 *vertexPositions = nullptr;
+            if (ensureDecodedVertexCache())
             {
                 for (uint16_t i = 0; i < vertexCount; i++)
                 {
                     vertexNormals[i] = Vector3(0.0f, 0.0f, 0.0f);
-                    vertexPositions[i] = decodePosition(vertPtr[i]);
                 }
+                vertexPositions = getCachedLocalVertices();
 
                 for (uint16_t f = 0; f < faceCount; f++)
                 {
@@ -370,8 +406,6 @@ namespace pip3D
                         vertexNormals[face.v2] += normal;
                     }
                 }
-
-                heap_caps_free(vertexPositions);
             }
             else
             {
@@ -455,6 +489,7 @@ namespace pip3D
         }
 
         MESH_PURE MESH_FORCE_INLINE Vector3 pos() const { return position; }
+        MESH_PURE MESH_FORCE_INLINE Vector3 rot() const { return rotation; }
 
         MESH_HOT_PATH void calculateBoundingSphere()
         {
@@ -467,11 +502,13 @@ namespace pip3D
             }
 
             Vector3 center(0, 0, 0);
-            const Vertex *__restrict vPtr = vertices;
+            const Vector3 *localVerts = nullptr;
+            if (ensureDecodedVertexCache())
+                localVerts = getCachedLocalVertices();
 
             for (uint16_t i = 0; i < vertexCount; i++)
             {
-                center += decodePosition(vPtr[i]);
+                center += localVerts ? localVerts[i] : decodePosition(vertices[i]);
             }
 
             float invCount = 1.0f / vertexCount;
@@ -480,7 +517,7 @@ namespace pip3D
             float maxDistSq = 0;
             for (uint16_t i = 0; i < vertexCount; i++)
             {
-                Vector3 diff = decodePosition(vPtr[i]) - center;
+                Vector3 diff = (localVerts ? localVerts[i] : decodePosition(vertices[i])) - center;
                 float distSq = diff.lengthSquared();
                 if (distSq > maxDistSq)
                     maxDistSq = distSq;
@@ -564,8 +601,10 @@ namespace pip3D
                 return Vector3();
             }
             updateTransform();
-            const Vertex &v = vertices[index];
-            Vector3 local = decodePosition(v);
+            const Vector3 *localVerts = nullptr;
+            if (ensureDecodedVertexCache())
+                localVerts = getCachedLocalVertices();
+            Vector3 local = localVerts ? localVerts[index] : decodePosition(vertices[index]);
             return cache.transform.transformNoDiv(local);
         }
 
@@ -588,9 +627,11 @@ namespace pip3D
         {
             vertexCount = faceCount = 0;
             cache.boundsValid = false;
+            cachedLocalVerticesValid = false;
         }
 
         MESH_PURE MESH_FORCE_INLINE uint16_t numFaces() const { return faceCount; }
+        MESH_PURE MESH_FORCE_INLINE uint16_t numVertices() const { return vertexCount; }
         MESH_PURE MESH_FORCE_INLINE const Face &face(uint16_t i) const { return faces[i]; }
         MESH_PURE MESH_FORCE_INLINE const Vertex &vert(uint16_t i) const { return vertices[i]; }
         MESH_PURE MESH_FORCE_INLINE Color color() const { return meshColor; }
@@ -607,6 +648,92 @@ namespace pip3D
             updateTransform();
             return cache.transform;
         }
+
+        bool ensureProjectionCache(uint16_t required) const
+        {
+            if (required == 0)
+                return false;
+
+            if (cachedProjectionCapacity >= required && cachedWorldVertices && cachedScreenVertices)
+                return true;
+
+            if (cachedWorldVertices)
+            {
+                MemUtils::freeData(cachedWorldVertices);
+                cachedWorldVertices = nullptr;
+            }
+            if (cachedScreenVertices)
+            {
+                MemUtils::freeData(cachedScreenVertices);
+                cachedScreenVertices = nullptr;
+            }
+
+            cachedWorldVertices = static_cast<Vector3 *>(MemUtils::allocData(static_cast<size_t>(required) * sizeof(Vector3), 16));
+            cachedScreenVertices = static_cast<Vector3 *>(MemUtils::allocData(static_cast<size_t>(required) * sizeof(Vector3), 16));
+
+            if (!cachedWorldVertices || !cachedScreenVertices)
+            {
+                if (cachedWorldVertices)
+                {
+                    MemUtils::freeData(cachedWorldVertices);
+                    cachedWorldVertices = nullptr;
+                }
+                if (cachedScreenVertices)
+                {
+                    MemUtils::freeData(cachedScreenVertices);
+                    cachedScreenVertices = nullptr;
+                }
+                cachedProjectionCapacity = 0;
+                return false;
+            }
+
+            cachedProjectionCapacity = required;
+            cachedProjectionFrameStamp = 0;
+            return true;
+        }
+
+        bool ensureDecodedVertexCache() const
+        {
+            if (vertexCount == 0)
+                return false;
+
+            if ((!cachedLocalVertices || cachedLocalVertexCapacity < vertexCount))
+            {
+                if (cachedLocalVertices)
+                {
+                    MemUtils::freeData(cachedLocalVertices);
+                    cachedLocalVertices = nullptr;
+                }
+
+                cachedLocalVertices = static_cast<Vector3 *>(MemUtils::allocData(static_cast<size_t>(vertexCount) * sizeof(Vector3), 16));
+                if (!cachedLocalVertices)
+                {
+                    cachedLocalVertexCapacity = 0;
+                    cachedLocalVerticesValid = false;
+                    return false;
+                }
+
+                cachedLocalVertexCapacity = vertexCount;
+                cachedLocalVerticesValid = false;
+            }
+
+            if (!cachedLocalVerticesValid)
+            {
+                for (uint16_t i = 0; i < vertexCount; ++i)
+                {
+                    cachedLocalVertices[i] = decodePosition(vertices[i]);
+                }
+                cachedLocalVerticesValid = true;
+            }
+
+            return true;
+        }
+
+        MESH_FORCE_INLINE const Vector3 *getCachedLocalVertices() const { return cachedLocalVertices; }
+        MESH_FORCE_INLINE Vector3 *getCachedWorldVertices() const { return cachedWorldVertices; }
+        MESH_FORCE_INLINE Vector3 *getCachedScreenVertices() const { return cachedScreenVertices; }
+        MESH_FORCE_INLINE uint32_t getCachedProjectionFrameStamp() const { return cachedProjectionFrameStamp; }
+        MESH_FORCE_INLINE void setCachedProjectionFrameStamp(uint32_t stamp) const { cachedProjectionFrameStamp = stamp; }
     };
 
 }

@@ -333,8 +333,14 @@ namespace pip3D
     {
     public:
         Capsule(float radius = 1.0f, float height = 2.0f, uint8_t segments = 12, uint8_t rings = 6, const Color &color = Color::WHITE)
-            : Mesh((segments ? segments : 3) * (rings < 2 ? 2 : rings) + 2,
-                   (segments ? segments : 3) * ((rings < 2 ? 2 : rings) + 1) * 2,
+            : Mesh(2 + (segments ? segments : 3) *
+                           (((rings ? rings : 1) > 1 ? ((rings ? rings : 1) - 1) : 0) * 2 +
+                            (((height - 2.0f * radius) > 0.0001f) ? 2 : 1)),
+                   (segments ? segments : 3) *
+                       ((((rings ? rings : 1) > 1 ? ((rings ? rings : 1) - 1) : 0) * 2 +
+                         (((height - 2.0f * radius) > 0.0001f) ? 2 : 1) - 1) *
+                            2 +
+                        2),
                    color)
         {
             const float size = (height > radius * 2.0f) ? height : radius * 2.0f;
@@ -351,55 +357,94 @@ namespace pip3D
 
             constexpr float two = 2.0f;
             constexpr float half = 0.5f;
-            const float cylinderHeight = height - two * radius;
+            const float cylinderHeight = fmaxf(0.0f, height - two * radius);
             const float halfCyl = cylinderHeight * half;
             uint8_t segs = segments ? segments : 3;
-            uint8_t ringCount = rings < 2 ? 2 : rings;
-            uint8_t halfRings = ringCount / 2;
+            uint8_t hemiRings = rings ? rings : 1;
+            const bool hasCylinder = cylinderHeight > 0.0001f;
+
+            uint16_t ringRows = 0;
             const uint16_t topPole = addVertex(Vector3(0, halfCyl + radius, 0));
-            for (uint8_t ring = 1; ring <= halfRings; ring++)
+
+            for (uint8_t ring = 1; ring < hemiRings; ++ring)
             {
                 constexpr float piHalf = PI * 0.5f;
-                const float phi = piHalf * ring / halfRings;
+                const float phi = piHalf * ring / hemiRings;
                 const float y = halfCyl + radius * FastMath::fastCos(phi);
                 const float r = radius * FastMath::fastSin(phi);
-                for (uint8_t seg = 0; seg < segs; seg++)
+                for (uint8_t seg = 0; seg < segs; ++seg)
                 {
                     const float theta = TWO_PI * seg / segs;
                     addVertex(Vector3(r * FastMath::fastCos(theta), y, r * FastMath::fastSin(theta)));
                 }
+                ++ringRows;
             }
-            for (uint8_t ring = 1; ring <= halfRings; ring++)
+
+            const float topSeamY = halfCyl;
+            for (uint8_t seg = 0; seg < segs; ++seg)
+            {
+                const float theta = TWO_PI * seg / segs;
+                addVertex(Vector3(radius * FastMath::fastCos(theta), topSeamY, radius * FastMath::fastSin(theta)));
+            }
+            ++ringRows;
+
+            if (hasCylinder)
+            {
+                const float bottomSeamY = -halfCyl;
+                for (uint8_t seg = 0; seg < segs; ++seg)
+                {
+                    const float theta = TWO_PI * seg / segs;
+                    addVertex(Vector3(radius * FastMath::fastCos(theta), bottomSeamY, radius * FastMath::fastSin(theta)));
+                }
+                ++ringRows;
+            }
+
+            for (int ring = static_cast<int>(hemiRings) - 1; ring >= 1; --ring)
             {
                 constexpr float piHalf = PI * 0.5f;
-                const float phi = piHalf * ring / halfRings;
+                const float phi = piHalf * ring / hemiRings;
                 const float y = -halfCyl - radius * FastMath::fastCos(phi);
                 const float r = radius * FastMath::fastSin(phi);
-                for (uint8_t seg = 0; seg < segs; seg++)
+                for (uint8_t seg = 0; seg < segs; ++seg)
                 {
                     const float theta = TWO_PI * seg / segs;
                     addVertex(Vector3(r * FastMath::fastCos(theta), y, r * FastMath::fastSin(theta)));
                 }
+                ++ringRows;
             }
+
             const uint16_t bottomPole = addVertex(Vector3(0, -halfCyl - radius, 0));
-            for (uint8_t seg = 0; seg < segs; seg++)
+            if (ringRows == 0)
+            {
+                finalize();
+                return;
+            }
+
+            const uint16_t firstRingStart = 1;
+            for (uint8_t seg = 0; seg < segs; ++seg)
             {
                 const uint16_t next = (seg + 1) % segs;
-                addFace(topPole, 1 + seg, 1 + next);
+                addFace(topPole, firstRingStart + seg, firstRingStart + next);
             }
-            for (uint8_t ring = 0; ring < ringCount - 1; ring++)
+
+            for (uint16_t ring = 0; ring < ringRows - 1; ++ring)
             {
-                for (uint8_t seg = 0; seg < segs; seg++)
+                const uint16_t currRow = 1 + ring * segs;
+                const uint16_t nextRow = currRow + segs;
+                for (uint8_t seg = 0; seg < segs; ++seg)
                 {
                     const uint16_t next = (seg + 1) % segs;
-                    const uint16_t curr = 1 + ring * segs + seg, currNext = 1 + ring * segs + next;
-                    const uint16_t below = 1 + (ring + 1) * segs + seg, belowNext = 1 + (ring + 1) * segs + next;
+                    const uint16_t curr = currRow + seg;
+                    const uint16_t currNext = currRow + next;
+                    const uint16_t below = nextRow + seg;
+                    const uint16_t belowNext = nextRow + next;
                     addFace(curr, below, currNext);
                     addFace(currNext, below, belowNext);
                 }
             }
-            const uint16_t lastRingStart = 1 + (ringCount - 1) * segs;
-            for (uint8_t seg = 0; seg < segs; seg++)
+
+            const uint16_t lastRingStart = 1 + (ringRows - 1) * segs;
+            for (uint8_t seg = 0; seg < segs; ++seg)
             {
                 const uint16_t next = (seg + 1) % segs;
                 addFace(bottomPole, lastRingStart + next, lastRingStart + seg);

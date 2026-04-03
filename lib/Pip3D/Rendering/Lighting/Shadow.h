@@ -43,7 +43,7 @@ namespace pip3D
         ShadowSettings()
             : enabled(true), shadowColor(Color::fromRGB888(20, 20, 30)),
               shadowOpacity(0.7f),
-              shadowOffset(0.01f), softEdges(true), plane(Vector3(0, 1, 0), 0)
+              shadowOffset(0.0025f), softEdges(true), plane(Vector3(0, 1, 0), 0)
         {
         }
     };

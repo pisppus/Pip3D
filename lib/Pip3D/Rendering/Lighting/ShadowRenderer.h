@@ -18,6 +18,38 @@ namespace pip3D
     class ShadowRenderer
     {
     private:
+        __attribute__((always_inline)) static inline bool isFiniteProjectedPoint(const Vector3 &p)
+        {
+            return isfinite(p.x) && isfinite(p.y) && isfinite(p.z);
+        }
+
+        __attribute__((always_inline)) static inline bool isShadowProjectionReasonable(const Vector3 &p0,
+                                                                                       const Vector3 &p1,
+                                                                                       const Vector3 &p2,
+                                                                                       const Viewport &viewport)
+        {
+            if (!isFiniteProjectedPoint(p0) || !isFiniteProjectedPoint(p1) || !isFiniteProjectedPoint(p2))
+                return false;
+
+            float minX = fminf(p0.x, fminf(p1.x, p2.x));
+            float maxX = fmaxf(p0.x, fmaxf(p1.x, p2.x));
+            float minY = fminf(p0.y, fminf(p1.y, p2.y));
+            float maxY = fmaxf(p0.y, fmaxf(p1.y, p2.y));
+
+            const float maxReasonableWidth = static_cast<float>(viewport.width) * 2.5f;
+            const float maxReasonableHeight = static_cast<float>(viewport.height) * 2.5f;
+
+            if ((maxX - minX) > maxReasonableWidth || (maxY - minY) > maxReasonableHeight)
+                return false;
+
+            if (maxX < -static_cast<float>(viewport.width) || minX > static_cast<float>(viewport.width) * 2.0f)
+                return false;
+            if (maxY < -static_cast<float>(viewport.height) || minY > static_cast<float>(viewport.height) * 2.0f)
+                return false;
+
+            return true;
+        }
+
         __attribute__((always_inline)) static inline void computeShadowColorAndAlpha(
             const ShadowSettings &shadowSettings,
             uint16_t &shadowColorOut,
@@ -77,7 +109,7 @@ namespace pip3D
 
             const float planeY = -plane.d / plane.normal.y;
             const float offsetY = shadowSettings.shadowOffset;
-            const float depthBias = 0.005f;
+            const float depthBias = 0.0015f;
             Vector3 dirNorm;
             if (light.type == LIGHT_DIRECTIONAL)
             {
@@ -86,13 +118,44 @@ namespace pip3D
             }
             const Vector3 lightPos = light.position;
 
+            const uint16_t vertexCount = mesh->numVertices();
+            const Vector3 *localVerts = nullptr;
+            if (mesh->ensureDecodedVertexCache())
+                localVerts = mesh->getCachedLocalVertices();
+            Vector3 *worldVerts = nullptr;
+            const uint32_t frameStamp = currentFrameStamp();
+            if (mesh->ensureProjectionCache(vertexCount))
+            {
+                worldVerts = mesh->getCachedWorldVertices();
+                if (mesh->getCachedProjectionFrameStamp() != frameStamp)
+                {
+                    const Matrix4x4 &meshTransform = mesh->getTransform();
+                    for (uint16_t vi = 0; vi < vertexCount; ++vi)
+                    {
+                        Vector3 localPos = localVerts ? localVerts[vi] : mesh->decodePosition(mesh->vert(vi));
+                        worldVerts[vi] = meshTransform.transformNoDiv(localPos);
+                    }
+                }
+            }
+
             for (uint16_t i = 0; i < mesh->numFaces(); i++)
             {
                 const Face &face = mesh->face(i);
-
-                Vector3 v0 = mesh->vertex(face.v0);
-                Vector3 v1 = mesh->vertex(face.v1);
-                Vector3 v2 = mesh->vertex(face.v2);
+                Vector3 v0;
+                Vector3 v1;
+                Vector3 v2;
+                if (worldVerts)
+                {
+                    v0 = worldVerts[face.v0];
+                    v1 = worldVerts[face.v1];
+                    v2 = worldVerts[face.v2];
+                }
+                else
+                {
+                    v0 = mesh->vertex(face.v0);
+                    v1 = mesh->vertex(face.v1);
+                    v2 = mesh->vertex(face.v2);
+                }
 
                 float d0 = plane.normal.x * v0.x + plane.normal.y * v0.y + plane.normal.z * v0.z + plane.d;
                 float d1 = plane.normal.x * v1.x + plane.normal.y * v1.y + plane.normal.z * v1.z + plane.d;
@@ -177,6 +240,9 @@ namespace pip3D
                 Vector3 p1 = CameraController::project(sv1, viewProjMatrix, viewport);
                 Vector3 p2 = CameraController::project(sv2, viewProjMatrix, viewport);
 
+                if (!isShadowProjectionReasonable(p0, p1, p2, viewport))
+                    continue;
+
                 if (camera.projectionType == PERSPECTIVE)
                 {
                     if (p0.z <= 0.0f && p1.z <= 0.0f && p2.z <= 0.0f)
@@ -210,7 +276,7 @@ namespace pip3D
                                                framebuffer.getBuffer(),
                                                zBuffer,
                                                framebuffer.getConfig(),
-                                               shadowSettings.softEdges);
+                                               false);
             }
 
             backfaceCullingEnabled = oldCulling;
@@ -261,7 +327,7 @@ namespace pip3D
 
             const float planeY = -plane.d / plane.normal.y;
             const float offsetY = shadowSettings.shadowOffset;
-            const float depthBias = 0.005f;
+            const float depthBias = 0.0015f;
             Vector3 dirNorm;
             if (light.type == LIGHT_DIRECTIONAL)
             {
@@ -270,22 +336,52 @@ namespace pip3D
             }
 
             const Vector3 lightPos = light.position;
+            const uint16_t vertexCount = mesh->numVertices();
+            const Vector3 *localVerts = nullptr;
+            if (mesh->ensureDecodedVertexCache())
+                localVerts = mesh->getCachedLocalVertices();
+            Vector3 *worldVerts = nullptr;
+            const uint32_t frameStamp = currentFrameStamp();
+            if (instance->ensureProjectionCache(vertexCount))
+            {
+                worldVerts = instance->getCachedWorldVertices();
+                if (instance->getCachedProjectionFrameStamp() != frameStamp)
+                {
+                    const Matrix4x4 &worldTransform = instance->transform();
+                    for (uint16_t vi = 0; vi < vertexCount; ++vi)
+                    {
+                        Vector3 local = localVerts ? localVerts[vi] : mesh->decodePosition(mesh->vert(vi));
+                        worldVerts[vi] = worldTransform.transformNoDiv(local);
+                    }
+                }
+            }
 
             for (uint16_t i = 0; i < mesh->numFaces(); i++)
             {
                 const Face &face = mesh->face(i);
+                Vector3 v0;
+                Vector3 v1;
+                Vector3 v2;
+                if (worldVerts)
+                {
+                    v0 = worldVerts[face.v0];
+                    v1 = worldVerts[face.v1];
+                    v2 = worldVerts[face.v2];
+                }
+                else
+                {
+                    const Vertex &vert0 = mesh->vert(face.v0);
+                    const Vertex &vert1 = mesh->vert(face.v1);
+                    const Vertex &vert2 = mesh->vert(face.v2);
 
-                const Vertex &vert0 = mesh->vert(face.v0);
-                const Vertex &vert1 = mesh->vert(face.v1);
-                const Vertex &vert2 = mesh->vert(face.v2);
+                    Vector3 local0 = localVerts ? localVerts[face.v0] : mesh->decodePosition(vert0);
+                    Vector3 local1 = localVerts ? localVerts[face.v1] : mesh->decodePosition(vert1);
+                    Vector3 local2 = localVerts ? localVerts[face.v2] : mesh->decodePosition(vert2);
 
-                Vector3 local0 = mesh->decodePosition(vert0);
-                Vector3 local1 = mesh->decodePosition(vert1);
-                Vector3 local2 = mesh->decodePosition(vert2);
-
-                Vector3 v0 = worldTransform.transformNoDiv(local0);
-                Vector3 v1 = worldTransform.transformNoDiv(local1);
-                Vector3 v2 = worldTransform.transformNoDiv(local2);
+                    v0 = worldTransform.transformNoDiv(local0);
+                    v1 = worldTransform.transformNoDiv(local1);
+                    v2 = worldTransform.transformNoDiv(local2);
+                }
 
                 float d0 = plane.normal.x * v0.x + plane.normal.y * v0.y + plane.normal.z * v0.z + plane.d;
                 float d1 = plane.normal.x * v1.x + plane.normal.y * v1.y + plane.normal.z * v1.z + plane.d;
@@ -371,6 +467,9 @@ namespace pip3D
                 Vector3 p1 = CameraController::project(sv1, viewProjMatrix, viewport);
                 Vector3 p2 = CameraController::project(sv2, viewProjMatrix, viewport);
 
+                if (!isShadowProjectionReasonable(p0, p1, p2, viewport))
+                    continue;
+
                 if (camera.projectionType == PERSPECTIVE)
                 {
                     if (p0.z <= 0.0f && p1.z <= 0.0f && p2.z <= 0.0f)
@@ -380,15 +479,31 @@ namespace pip3D
                     p2.z -= depthBias;
                 }
 
-                Rasterizer::fillShadowTriangle(p0.x, p0.y, p0.z,
-                                               p1.x, p1.y, p1.z,
-                                               p2.x, p2.y, p2.z,
+                int16_t bandTop = currentBandOffsetY();
+                int16_t bandH = currentBandHeight();
+                int16_t bandBottom = static_cast<int16_t>(bandTop + bandH);
+
+                float minY = fminf(p0.y, fminf(p1.y, p2.y));
+                float maxY = fmaxf(p0.y, fmaxf(p1.y, p2.y));
+                if (maxY < bandTop || minY >= bandBottom)
+                    continue;
+
+                Vector3 lp0 = p0;
+                Vector3 lp1 = p1;
+                Vector3 lp2 = p2;
+                lp0.y -= (float)bandTop;
+                lp1.y -= (float)bandTop;
+                lp2.y -= (float)bandTop;
+
+                Rasterizer::fillShadowTriangle((int16_t)lp0.x, (int16_t)lp0.y, lp0.z,
+                                               (int16_t)lp1.x, (int16_t)lp1.y, lp1.z,
+                                               (int16_t)lp2.x, (int16_t)lp2.y, lp2.z,
                                                shadowColor,
                                                baseAlpha,
                                                framebuffer.getBuffer(),
                                                zBuffer,
                                                framebuffer.getConfig(),
-                                               shadowSettings.softEdges);
+                                               false);
             }
 
             backfaceCullingEnabled = oldCulling;

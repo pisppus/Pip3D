@@ -246,6 +246,19 @@ namespace pip3D
 
             return (rc << 11) | (gc << 5) | bc;
         }
+
+        __attribute__((always_inline)) static inline uint16_t quantizeColor(float r, float g, float b)
+        {
+            int ir = static_cast<int>(r * 31.0f + 0.5f);
+            int ig = static_cast<int>(g * 63.0f + 0.5f);
+            int ib = static_cast<int>(b * 31.0f + 0.5f);
+
+            uint16_t rc = (ir > 31) ? 31 : ((ir < 0) ? 0 : ir);
+            uint16_t gc = (ig > 63) ? 63 : ((ig < 0) ? 0 : ig);
+            uint16_t bc = (ib > 31) ? 31 : ((ib < 0) ? 0 : ib);
+
+            return static_cast<uint16_t>((rc << 11) | (gc << 5) | bc);
+        }
     };
 
 }

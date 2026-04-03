@@ -4,13 +4,6 @@
 #include "../Math/Math.h"
 #include <cmath>
 
-#ifndef likely
-#define likely(x) __builtin_expect(!!(x), 1)
-#endif
-#ifndef unlikely
-#define unlikely(x) __builtin_expect(!!(x), 0)
-#endif
-
 namespace pip3D
 {
 
@@ -61,7 +54,7 @@ namespace pip3D
     float fisheyeStrength;
 
     CameraConfig config;
-    mutable CameraAnimation anim;
+    CameraAnimation anim;
 
     struct Cache
     {
@@ -97,7 +90,7 @@ namespace pip3D
 
     const Matrix4x4 &getViewMatrix() const
     {
-      if (unlikely(cache.flags.viewDirty))
+      if (cache.flags.viewDirty)
       {
         cache.view.lookAt(position, target, up);
         cache.flags.viewDirty = false;
@@ -108,14 +101,14 @@ namespace pip3D
 
     const Matrix4x4 &getProjectionMatrix(float aspect) const
     {
-      if (unlikely(cache.flags.projDirty))
+      if (cache.flags.projDirty)
       {
         updateProjectionMatrix(aspect);
       }
       else
       {
         const float absAspectDiff = fabsf(aspect - cache.lastAspect);
-        if (unlikely(absAspectDiff > config.aspectEps))
+        if (absAspectDiff > config.aspectEps)
         {
           updateProjectionMatrix(aspect);
         }
@@ -126,25 +119,25 @@ namespace pip3D
     void markDirty() { setAllDirty(); }
 
   private:
-    __attribute__((always_inline)) inline void setAllDirty() const
+    void setAllDirty()
     {
       cache.flags = {true, true, true, true, true};
     }
 
-    __attribute__((always_inline)) inline void invalidateView() const
+    void invalidateView()
     {
       cache.flags.viewDirty = true;
       cache.flags.vpDirty = true;
       cache.flags.vectorsDirty = true;
     }
 
-    __attribute__((always_inline)) inline void invalidateProjection() const
+    void invalidateProjection()
     {
       cache.flags.projDirty = true;
       cache.flags.vpDirty = true;
     }
 
-    __attribute__((always_inline)) inline void invalidateOrtho() const
+    void invalidateOrtho()
     {
       cache.flags.orthoDirty = true;
       invalidateProjection();
@@ -152,26 +145,29 @@ namespace pip3D
 
     void updateProjectionMatrix(float aspect) const
     {
-      if (likely(projectionType == PERSPECTIVE))
+      switch (projectionType)
       {
+      case PERSPECTIVE:
         cache.proj.setPerspective(fov, aspect, nearPlane, farPlane);
-      }
-      else if (projectionType == FISHEYE)
-      {
+        break;
+      case FISHEYE:
         setFisheyeProjection(aspect);
-      }
-      else
-      {
+        break;
+      case ORTHOGRAPHIC:
+      default:
         if (cache.flags.orthoDirty)
         {
           cache.halfW = orthoWidth * 0.5f;
           cache.halfH = orthoHeight * 0.5f;
           cache.flags.orthoDirty = false;
         }
-        const float aspectFactor = fmaxf(1.0f, aspect);
-        const float adjW = cache.halfW * aspectFactor;
-        const float adjH = cache.halfH / aspectFactor;
-        cache.proj.setOrthographic(-adjW, adjW, -adjH, adjH, nearPlane, farPlane);
+        {
+          const float aspectFactor = fmaxf(1.0f, aspect);
+          const float adjW = cache.halfW * aspectFactor;
+          const float adjH = cache.halfH / aspectFactor;
+          cache.proj.setOrthographic(-adjW, adjW, -adjH, adjH, nearPlane, farPlane);
+        }
+        break;
       }
       cache.flags.projDirty = false;
       cache.lastAspect = aspect;
@@ -216,12 +212,28 @@ namespace pip3D
   private:
     void updateVectors() const
     {
-      if (unlikely(cache.flags.vectorsDirty))
+      if (cache.flags.vectorsDirty)
       {
         cache.cachedForward = target - position;
-        cache.cachedForward.normalize();
+        if (cache.cachedForward.length() < 1e-6f)
+        {
+          cache.cachedForward = Vector3(0, 0, 1);
+        }
+        else
+        {
+          cache.cachedForward.normalize();
+        }
+
         cache.cachedRight = cache.cachedForward.cross(up);
+        if (cache.cachedRight.length() < 1e-6f)
+        {
+          const Vector3 altUp = (fabsf(cache.cachedForward.y) < 0.999f)
+                                    ? Vector3(0, 1, 0)
+                                    : Vector3(1, 0, 0);
+          cache.cachedRight = cache.cachedForward.cross(altUp);
+        }
         cache.cachedRight.normalize();
+
         cache.flags.vectorsDirty = false;
       }
     }
@@ -229,13 +241,13 @@ namespace pip3D
   public:
     __attribute__((always_inline)) inline const Vector3 &forward() const
     {
-      if (unlikely(cache.flags.vectorsDirty))
+      if (cache.flags.vectorsDirty)
         updateVectors();
       return cache.cachedForward;
     }
     __attribute__((always_inline)) inline const Vector3 &right() const
     {
-      if (unlikely(cache.flags.vectorsDirty))
+      if (cache.flags.vectorsDirty)
         updateVectors();
       return cache.cachedRight;
     }
@@ -249,7 +261,7 @@ namespace pip3D
       Vector3 delta;
       if (forwardAmount != 0.0f || rightAmount != 0.0f)
       {
-        if (unlikely(cache.flags.vectorsDirty))
+        if (cache.flags.vectorsDirty)
           updateVectors();
         delta = cache.cachedForward * forwardAmount + cache.cachedRight * rightAmount;
         if (upAmount != 0.0f)
@@ -291,7 +303,7 @@ namespace pip3D
 
     void rotateRad(float yawRad, float pitchRad)
     {
-      if (unlikely(cache.flags.vectorsDirty))
+      if (cache.flags.vectorsDirty)
         updateVectors();
 
       const Vector3 &fwd = cache.cachedForward;
@@ -338,7 +350,7 @@ namespace pip3D
 
     const Matrix4x4 &getViewProjectionMatrix(float aspect) const
     {
-      if (unlikely(cache.flags.vpDirty))
+      if (cache.flags.vpDirty)
       {
         const Matrix4x4 &view = getViewMatrix();
         const Matrix4x4 &proj = getProjectionMatrix(aspect);
@@ -403,11 +415,15 @@ namespace pip3D
       float st = t;
       switch (anim.type)
       {
+      case CameraAnimation::LINEAR:
+        break;
       case CameraAnimation::SMOOTH:
         st = t * t * (3 - 2 * t);
         break;
       case CameraAnimation::EASE:
         st = t < 0.5f ? 2 * t * t : 1 - 2 * (1 - t) * (1 - t);
+        break;
+      default:
         break;
       }
 
@@ -441,8 +457,6 @@ namespace pip3D
       cache.proj.m[0] *= factor;
       cache.proj.m[5] *= factor;
     }
-
-  public:
   };
 
   class FreeCam : public Camera

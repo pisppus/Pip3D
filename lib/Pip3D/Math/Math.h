@@ -3,7 +3,35 @@
 
 #include <math.h>
 #include <stdint.h>
+#include <cstring>
+
+#if defined(ARDUINO)
 #include <Arduino.h>
+#else
+// Определения, совместимые с Arduino, для десктопных сборок
+#ifndef DEG_TO_RAD
+#define DEG_TO_RAD 0.017453292519943295769f
+#endif
+#ifndef RAD_TO_DEG
+#define RAD_TO_DEG 57.295779513082320876f
+#endif
+#ifndef TWO_PI
+#define TWO_PI 6.2831853071795864769f
+#endif
+#ifndef PI
+#define PI 3.14159265358979323846f
+#endif
+#endif
+
+// GCC-style атрибуты и квалификатор __restrict__ на MSVC не поддерживаются, делаем их пустыми.
+#if defined(_MSC_VER)
+#ifndef __attribute__
+#define __attribute__(x)
+#endif
+#ifndef __restrict__
+#define __restrict__
+#endif
+#endif
 
 namespace pip3D
 {
