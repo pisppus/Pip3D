@@ -1,0 +1,55 @@
+{
+  "name": "PipCore",
+  "version": "0.1.0",
+  "description": "Low-level embedded platform, display, sprite, WiFi, and OTA core for ESP32 firmware projects.",
+  "keywords": [
+    "esp32",
+    "display",
+    "graphics",
+    "driver",
+    "st7789",
+    "ili9488",
+    "wifi",
+    "ota"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pisppus/pipKit.git"
+  },
+  "authors": [
+    {
+      "name": "Pisppus",
+      "email": "pisppus@gmail.com",
+      "maintainer": true
+    }
+  ],
+  "license": "MIT",
+  "frameworks": [
+    "arduino"
+  ],
+  "platforms": [
+    "espressif32"
+  ],
+  "headers": "PipCore.hpp",
+  "build": {
+    "srcFilter": [
+      "+<Network/Wifi.cpp>",
+      "+<Update/Ota.cpp>",
+      "+<Displays/ST7789/Display.cpp>",
+      "+<Displays/ST7789/Driver.cpp>",
+      "+<Displays/ILI9488/Display.cpp>",
+      "+<Displays/ILI9488/Driver.cpp>",
+      "+<Platforms/ESP32/Platform.cpp>",
+      "+<Platforms/ESP32/Services/Core.cpp>",
+      "+<Platforms/ESP32/Services/Prefs.cpp>",
+      "+<Platforms/ESP32/Services/Wifi.cpp>",
+      "+<Platforms/ESP32/Services/Ota/Common.cpp>",
+      "+<Platforms/ESP32/Services/Ota/Http.cpp>",
+      "+<Platforms/ESP32/Services/Ota/Manifest.cpp>",
+      "+<Platforms/ESP32/Services/Ota/Service.cpp>",
+      "+<Platforms/ESP32/Services/Ota/Update.cpp>",
+      "+<Platforms/ESP32/Transports/St7789Spi.cpp>",
+      "+<Platforms/ESP32/Transports/Ili9488Spi.cpp>"
+    ]
+  }
+}

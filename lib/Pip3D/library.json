@@ -1,9 +1,14 @@
 {
   "name": "Pip3D",
   "build": {
+    "flags": [
+      "-I.",
+      "-IPip3D"
+    ],
     "srcFilter": [
-      "+<*>",
-      "-<Editor/>"
+      "+<PipCore/>",
+      "+<Pip3D/>",
+      "-<Pip3D/Editor/>"
     ]
   }
 }
