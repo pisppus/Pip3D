@@ -1,0 +1,21 @@
+#pragma once
+
+#ifndef PIPCORE_ENABLE_PREFS
+#define PIPCORE_ENABLE_PREFS 0
+#endif
+
+#ifndef PIPCORE_ENABLE_WIFI
+#define PIPCORE_ENABLE_WIFI 0
+#endif
+
+#ifndef PIPCORE_ENABLE_OTA
+#define PIPCORE_ENABLE_OTA 0
+#endif
+
+#ifndef PIPCORE_OTA_PROJECT_URL
+#define PIPCORE_OTA_PROJECT_URL PIPGUI_OTA_PROJECT_URL
+#endif
+
+#ifndef PIPGUI_SIM_SCALE
+#define PIPGUI_SIM_SCALE 1
+#endif
