@@ -1,516 +1,1177 @@
-## Камеры PIP3D
+# Pip3D API
 
-Этот раздел описывает, как использовать камеры из `lib/Pip3D/Core/Camera.h`
-в прошивках и играх на ESP32.
+Этот файл описывает актуальный публичный API `Pip3D`, который пользователь может использовать в своих проектах через `#include "Pip3D.h"`.
 
-Файл даёт вам:
+Здесь intentionally не описаны внутренности движка, которые не нужны внешнему коду:
 
-- **`Camera`** – базовая камера (позиция, таргет, матрицы).
-- **`FreeCam`** – свободная камера для отладочных/игровых режимов полёта.
-- **`OrbitCam`** – камера, вращающаяся вокруг точки интереса.
-- **`CameraBuilder`** – удобный билдер для создания настроенной камеры.
-
-Использовать всё это лучше через `#include "Pip3D.h"` и пространство имён
-`pip3D`.
+- dirty regions
+- band-local внутреннее состояние
+- rasterizer internals
+- internal helpers рендера
+- debug/internal infrastructure, которая не нужна для обычного использования
 
 ---
 
-### Быстрый пример: простая игровая камера
+# 1. Требования к компиляции
+
+`Pip3D` использует C++17.
+
+Для PlatformIO:
+
+```ini
+build_unflags =
+    -std=gnu++11
+build_flags =
+    -std=gnu++17
+```
+
+---
+
+# 2. Build-time конфигурация
+
+Основные compile-time флаги для `Pip3D` и нижнего слоя `PipCore`:
+
+- `PIP3D_SCREEN_WIDTH`
+  - логическая ширина экрана
+- `PIP3D_SCREEN_HEIGHT`
+  - логическая высота экрана
+- `PIP3D_SCREEN_BAND_COUNT`
+  - количество горизонтальных band'ов для banded rendering
+- `PIPCORE_PLATFORM`
+  - платформа `PipCore`
+  - пример: `ESP32`
+- `PIPCORE_DISPLAY`
+  - драйвер дисплея
+  - пример: `ILI9488`, `ST7789`
+- `PIPCORE_ENABLE_PREFS`
+  - `0` или `1`
+- `PIPCORE_ENABLE_WIFI`
+  - `0` или `1`
+- `PIPCORE_ENABLE_OTA`
+  - `0` или `1`
+- `PIPCORE_OTA_PROJECT_URL`
+  - URL для OTA backend, если OTA реально используется
+
+Пример из проекта через `platformio.ini`:
+
+```ini
+build_flags =
+    -std=gnu++17
+    -Ilib/Pip3D
+    -Ilib/Pip3D/Pip3D
+    -Iinclude
+    -DPIP3D_SCREEN_WIDTH=480
+    -DPIP3D_SCREEN_HEIGHT=320
+    -DPIP3D_SCREEN_BAND_COUNT=2
+    -DPIPCORE_PLATFORM=ESP32
+    -DPIPCORE_DISPLAY=ILI9488
+```
+
+То же самое можно задавать через `include/config.hpp`, если тебе так удобнее держать project-level конфиг.
+
+Что важно:
+
+- `PIP3D_SCREEN_WIDTH` и `PIP3D_SCREEN_HEIGHT` это не косметика, а базовые compile-time константы движка
+- runtime `begin3D(width, height, ...)` не должен противоречить этим макросам
+- если экран у проекта `480x320`, то и compile-time флаги должны быть `480x320`
+- `PIP3D_SCREEN_BAND_COUNT=2` или больше уменьшает память под framebuffer/z-buffer, но усложняет pipeline
+- для обычных проектов разумный старт это `2`
+- optional-модули `PipCore` по умолчанию выключены, и внешний код не должен использовать Wi-Fi / OTA API без явного включения флагов
+
+---
+
+# 3. Подключение и точка входа
+
+Основное подключение:
 
 ```cpp
+#include "Pip3D.h"
 using namespace pip3D;
-
-Camera cam(
-    Vector3(0, 2, -5),  // позиция камеры
-    Vector3(0, 1,  0),  // точка, куда смотрим
-    Vector3(0, 1,  0)   // вектор "вверх"
-);
-
-// Настраиваем перспективную проекцию
-cam.setPerspective(60.0f, 0.1f, 100.0f);
 ```
 
-Разбор `Vector3(0, 2, -5)`:
+Главные публичные entry points:
 
-- **`0`** – координата **X**, влево/вправо.
-- **`2`** – координата **Y**, вверх/вниз (камера поднята на 2 единицы).
-- **`-5`** – координата **Z**, вперёд/назад (камера стоит в 5 единицах перед
-  центром сцены, если считать вперёд по +Z).
+- `const char* getVersion()`
+- `Color RGB888(uint8_t r, uint8_t g, uint8_t b)`
+- `Renderer& renderer()`
+- `Renderer& begin3D(uint16_t width, uint16_t height, int8_t cs, int8_t dc, int8_t rst, int8_t bl = -1, uint32_t spi_freq = 80000000)`
+- `Renderer& begin3D(int8_t cs, int8_t dc, int8_t rst, int8_t bl = -1, uint32_t spi_freq = 80000000)`
 
-Типичный игровой цикл:
+Пример:
 
 ```cpp
-float dt = getDeltaTimeSeconds();
+Renderer& r = begin3D(480, 320, 10, 9, 8, -1, 80000000);
+```
 
-// Обновляем анимации камеры (если запущены)
-cam.updateAnim(dt);
+Что делает `begin3D(...)`:
 
-// Получаем матрицу вида-проекции для рендера
-float aspect = float(viewport.width) / viewport.height;
-const Matrix4x4& vp = cam.getViewProjectionMatrix(aspect);
+- инициализирует singleton-рендерер
+- настраивает display/framebuffer/z-buffer
+- включает `SKYBOX_DAY`
+- включает тени
+- ставит shadow plane на `Y = 0`
+
+Что важно:
+
+- overload `begin3D(cs, dc, rst, ...)` использует дефолт `320x240`
+- если твой проект не `320x240`, используй overload с явными `width` и `height`
+- `renderer()` возвращает глобальный singleton `Renderer`
+
+---
+
+# 4. Базовые типы
+
+## 4.1. `Vector3`
+
+Главный векторный тип движка:
+
+```cpp
+Vector3 p(0.0f, 2.0f, -5.0f);
+```
+
+Поддерживает:
+
+- `+`, `-`, `*`
+- `+=`, `-=`, `*=`
+- `normalize()`
+- `length()`
+- `lengthSquared()`
+- `dot(...)`
+- `cross(...)`
+
+## 4.2. `Color`
+
+Главный цветовой тип движка, хранится в `RGB565`.
+
+Основные способы создания:
+
+```cpp
+Color a = Color::rgb(255, 180, 120);
+Color b = Color::fromRGB888(255, 180, 120);
+Color c = RGB888(255, 180, 120);
+Color d = Color::hsv(0.08f, 0.7f, 1.0f);
+Color e = Color::fromTemperature(5500.0f);
+```
+
+Полезные методы:
+
+- `blend(...)`
+- `darken(...)`
+- `lighten(...)`
+- `brightness()`
+
+## 4.3. `DisplayConfig`
+
+Публичный alias для display config:
+
+```cpp
+DisplayConfig cfg(480, 320, 10, 9, 8);
+cfg.bl = -1;
+cfg.spi_freq = 80000000;
+```
+
+Обычно внешний код не создает `DisplayConfig` вручную, а использует `begin3D(...)`.
+
+## 4.4. `Skybox` и `SkyboxType`
+
+Публичные skybox preset'ы:
+
+- `SKYBOX_DAY`
+- `SKYBOX_SUNSET`
+- `SKYBOX_NIGHT`
+- `SKYBOX_DAWN`
+- `SKYBOX_OVERCAST`
+- `SKYBOX_CUSTOM`
+
+Для custom skybox:
+
+```cpp
+r.getSkybox().setCustom(
+    Color::fromRGB888(20, 60, 120),
+    Color::fromRGB888(180, 210, 255),
+    Color::fromRGB888(70, 80, 95)
+);
 ```
 
 ---
 
-## Базовые типы
+# 5. `Renderer`
 
-### ProjectionType
+`Renderer` это главный публичный API движка.
+
+## 5.1. Инициализация
+
+Обычно так:
 
 ```cpp
-enum ProjectionType
-{
-    PERSPECTIVE,
-    ORTHOGRAPHIC,
-    FISHEYE
-};
+Renderer& r = begin3D(480, 320, 10, 9, 8);
 ```
 
-- **`PERSPECTIVE`** – обычная перспективная 3D‑камера (то, что нужно
-  в большинстве игр).
-- **`ORTHOGRAPHIC`** – ортографическая проекция (вид сбоку/сверху, UI, карты).
-- **`FISHEYE`** – перспективная камера с лёгким «fisheye» эффектом.
+Либо вручную:
 
-Обычно вы не меняете `projectionType` напрямую, а вызываете методы:
+```cpp
+Renderer r;
+DisplayConfig cfg(480, 320, 10, 9, 8);
+r.init(cfg);
+```
+
+## 5.2. Кадр
+
+Базовый frame lifecycle:
+
+```cpp
+r.beginFrame();
+
+// draw calls
+
+r.endFrame();
+```
+
+Для большинства проектов этого достаточно.
+
+Advanced API:
+
+- `beginFrameBand(int bandIndex)`
+- `endFrameBand(int bandIndex)`
+
+Эти методы нужны только если ты сам осознанно управляешь banded rendering. Для обычного пользовательского кода лучше их не трогать.
+
+## 5.3. Камера
+
+Основные методы:
+
+- `Camera& getCamera()`
+- `Camera& getCamera(int index)`
+- `int createCamera()`
+- `void setActiveCamera(int index)`
+- `int getActiveCameraIndex()`
+- `int getCameraCount()`
+
+## 5.4. Рисование геометрии
+
+Основные методы:
+
+- `drawMesh(Mesh* mesh)`
+- `drawMesh(Mesh* mesh, ShadingMode mode)`
+- `drawMeshInstance(MeshInstance* instance)`
+- `drawMeshInstanceStatic(MeshInstance* instance)`
+- `drawInstances(InstanceManager& manager)`
+- `drawTriangle3D(...)`
+- `project(const Vector3& world)`
+
+Пример:
+
+```cpp
+Cube cube(1.0f, Color::fromRGB888(220, 220, 220));
+cube.setPosition(0.0f, 0.5f, 4.0f);
+
+r.beginFrame();
+r.drawMesh(&cube);
+r.endFrame();
+```
+
+## 5.5. Свет
+
+Основные методы:
+
+- `setLight(int index, const Light& light)`
+- `int addLight(const Light& light)`
+- `removeLight(int index)`
+- `Light* getLight(int index)`
+- `clearLights()`
+- `getLightCount()`
+- `setMainDirectionalLight(...)`
+- `setMainPointLight(...)`
+- `setLightColor(...)`
+- `setLightPosition(...)`
+- `setLightDirection(...)`
+- `setLightTemperature(...)`
+- `setLightType(...)`
+- `getLightColor()`
+
+Пример directional light:
+
+```cpp
+r.setMainDirectionalLight(
+    Vector3(-0.4f, -1.0f, -0.3f),
+    Color::fromTemperature(5200.0f),
+    1.0f
+);
+```
+
+## 5.6. Тени
+
+Публичные методы:
+
+- `setShadowsEnabled(bool enabled)`
+- `getShadowsEnabled()`
+- `setShadowOpacity(float opacity)`
+- `setShadowColor(const Color& color)`
+- `setShadowPlane(const Vector3& normal, float distance)`
+- `setShadowPlaneY(float y)`
+- `ShadowSettings& getShadowSettings()`
+- `drawMeshShadow(Mesh* mesh)`
+- `drawMeshInstanceShadow(MeshInstance* instance)`
+
+Типичный вариант:
+
+```cpp
+r.setShadowsEnabled(true);
+r.setShadowPlaneY(0.0f);
+r.setShadowOpacity(0.6f);
+```
+
+## 5.7. Skybox и фон
+
+Публичные методы:
+
+- `setSkyboxEnabled(bool enabled)`
+- `isSkyboxEnabled()`
+- `setSkyboxType(SkyboxType type)`
+- `setSkyboxWithLighting(SkyboxType type)`
+- `Skybox& getSkybox()`
+- `setClearColor(Color color)`
+- `drawSkyboxBackground()`
+
+Что делает `setSkyboxWithLighting(...)`:
+
+- меняет preset skybox
+- подбирает соответствующую цветовую температуру света
+
+## 5.8. HUD и overlay
+
+Публичные методы:
+
+- `drawText(...)`
+- `drawTextAdaptive(...)`
+- `getTextWidth(...)`
+- `getAdaptiveTextColor(...)`
+
+Пример:
+
+```cpp
+r.drawText(8, 8, "Pip3D demo", Color::WHITE);
+r.drawTextAdaptive(8, 20, "FPS auto-color");
+```
+
+## 5.9. Диагностика
+
+Полезные runtime-метрики:
+
+- `getFPS()`
+- `getAverageFPS()`
+- `getFrameTime()`
+- `getStatsTrianglesTotal()`
+- `getStatsTrianglesBackfaceCulled()`
+- `getStatsInstancesTotal()`
+- `getStatsInstancesFrustumCulled()`
+- `getStatsInstancesOcclusionCulled()`
+
+## 5.10. Дополнительные флаги рендера
+
+- `setBackfaceCullingEnabled(bool enabled)`
+- `getBackfaceCullingEnabled()`
+- `setOcclusionCullingEnabled(bool enabled)`
+- `getOcclusionCullingEnabled()`
+- `setDebugShowDirtyRegions(bool enabled)`
+- `getDebugShowDirtyRegions()`
+- `setShadingMode(ShadingMode mode)`
+- `getShadingMode()`
+
+Сейчас публично доступен один shading mode:
+
+- `Renderer::SHADING_FLAT`
+
+## 5.11. Визуальные helper'ы
+
+Публичные helper-методы:
+
+- `drawSunSprite(...)`
+- `drawSunSpriteDirectional(...)`
+- `drawWater(...)`
+
+Это user-facing API, но это именно convenience effects, а не базовая часть пайплайна.
+
+---
+
+# 6. Камеры
+
+## 6.1. `Camera`
+
+Базовый тип камеры:
+
+```cpp
+Camera cam(
+    Vector3(0, 2, -6),
+    Vector3(0, 1, 0),
+    Vector3(0, 1, 0)
+);
+```
+
+Публичные поля:
+
+- `position`
+- `target`
+- `up`
+- `projectionType`
+- `fov`
+- `nearPlane`
+- `farPlane`
+- `orthoWidth`
+- `orthoHeight`
+- `fisheyeStrength`
+- `config`
+- `anim`
+
+Поддерживаемые projection types:
+
+- `PERSPECTIVE`
+- `ORTHOGRAPHIC`
+- `FISHEYE`
+
+Основные методы:
 
 - `setPerspective(...)`
 - `setOrtho(...)`
 - `setFisheye(...)`
-
-### CameraConfig
-
-```cpp
-struct CameraConfig
-{
-    float aspectEps;  // чувствительность к смене aspect
-};
-```
-
-- **`aspectEps`** – насколько сильно должен измениться `aspect`, чтобы
-  пересчитать матрицу проекции.
-  - По умолчанию `1e-6f` – максимально точное поведение.
-  - Можно увеличить (например `1e-3f`), если `aspect` скачет от
-    бендинга/переворотов и вам не нужна супер‑точность.
-
-Пример изменения конфигурации:
-
-```cpp
-Camera cam;
-cam.config.aspectEps = 1e-4f;  // реже пересчитывать проекцию
-```
-
----
-
-## Класс Camera
-
-Базовый класс камеры. Хранит позицию, точку, куда смотрит, проекцию и кэш
-матриц.
-
-### Поля, которые удобно править руками
-
-```cpp
-Camera cam;
-
-cam.position = Vector3(0, 2, -5);  // где стоит камера
-cam.target   = Vector3(0, 1,  0);  // куда смотрим
-cam.up       = Vector3(0, 1,  0);  // "верх" камеры
-```
-
-После прямого изменения этих полей **желательно** вызвать `cam.markDirty()`,
-чтобы кэш матриц пересчитался при следующем запросе:
-
-```cpp
-cam.position = Vector3(1, 3, -4);
-cam.target   = Vector3(0, 1,  0);
-cam.markDirty();
-```
-
-Другие полезные публичные поля:
-
-- **`float fov`** – текущий FOV в градусах (при перспективе).
-- **`float nearPlane, farPlane`** – границы видимого диапазона.
-- **`float orthoWidth, orthoHeight`** – размер ортографического окна.
-- **`float fisheyeStrength`** – сила fisheye‑эффекта (0..1).
-- **`ProjectionType projectionType`** – текущий тип проекции
-  (обычно управляется через `setPerspective`/`setOrtho`/`setFisheye`).
-
-### Конструктор
-
-```cpp
-Camera(const Vector3& pos = Vector3(0, 0, -5),
-       const Vector3& tgt = Vector3(0, 0,  0),
-       const Vector3& up  = Vector3(0, 1,  0));
-``;
-
-- **`pos`** – позиция камеры.
-- **`tgt`** – точка, в которую камера смотрит.
-- **`up`** – вектор «вверх» камеры (будет нормализован).
+- `forward()`
+- `right()`
+- `upVec()`
+- `move(...)`
+- `moveForward(...)`
+- `moveBackward(...)`
+- `moveRight(...)`
+- `moveLeft(...)`
+- `moveUp(...)`
+- `moveDown(...)`
+- `rotate(...)`
+- `rotateDeg(...)`
+- `rotateRad(...)`
+- `lookAt(...)`
+- `orbit(...)`
+- `markDirty()`
+- `getViewMatrix()`
+- `getProjectionMatrix(float aspect)`
+- `getViewProjectionMatrix(float aspect)`
 
 Пример:
 
 ```cpp
-Camera cam(
-    Vector3(0, 2, -5),  // камера чуть выше и перед сценой
-    Vector3(0, 1,  0),  // смотрим в центр объекта на высоте 1
-    Vector3(0, 1,  0)   // классический "мировой вверх" по Y
-);
-```
-
-### Настройка проекции
-
-```cpp
-void setPerspective(float fovDegrees = 60,
-                    float near      = 0.1f,
-                    float far       = 100.0f);
-
-void setOrtho(float width  = 10.0f,
-              float height = 10.0f,
-              float near   = 0.1f,
-              float far    = 100.0f);
-
-void setFisheye(float fovDegrees = 120.0f,
-                float strength   = 1.0f,
-                float near       = 0.1f,
-                float far        = 100.0f);
-```
-
-- **`setPerspective`** – стандартная перспективная камера.
-  - `fovDegrees` – угол обзора по вертикали.
-  - `near` / `far` – ближняя и дальняя плоскости (клэмпятся к разумным
-    значениям, чтобы избежать артефактов).
-
-- **`setOrtho`** – ортографическая камера.
-  - `width` / `height` – базовый размер окна; фактический объём
-    подстраивается под `aspect`.
-  - Удобно для UI, карт, изометрии.
-
-- **`setFisheye`** – перспектива с fisheye‑эффектом.
-  - `strength` в диапазоне `[0, 1]`, где `1` – максимальное искажение.
-
-Пример переключения режимов:
-
-```cpp
-cam.setPerspective(75.0f, 0.1f, 200.0f);   // обычная 3D‑камера
-cam.setOrtho(20.0f, 20.0f, 0.1f, 50.0f);  // вид сверху без перспективы
-```
-
-### Движение камеры
-
-Базовый метод:
-
-```cpp
-void move(float forwardAmount,
-          float rightAmount,
-          float upAmount);
-```
-
-- **`forwardAmount`** – сдвиг вдоль направления `forward()`.
-- **`rightAmount`** – сдвиг вдоль `right()`.
-- **`upAmount`** – сдвиг вдоль `upVec()`.
-
-Камера и её `target` сдвигаются вместе – камера «едет» без
-изменения направления.
-
-Упрощённые методы:
-
-- `moveForward(float distance);`
-- `moveBackward(float distance);`
-- `moveRight(float distance);`
-- `moveLeft(float distance);`
-- `moveUp(float distance);`
-- `moveDown(float distance);`
-
-Пример WASD‑управления:
-
-```cpp
-float spd = 5.0f * dt;
-cam.move(
-    (w ? spd : (s ? -spd : 0)),   // вперёд/назад
-    (d ? spd : (a ? -spd : 0)),   // вправо/влево
-    0.0f                          // вверх/вниз отдельно
-);
-```
-
-### Вращение камеры
-
-```cpp
-void rotate(float yaw, float pitch, bool degrees = true);
-void rotateDeg(float yawDegrees, float pitchDegrees);
-void rotateRad(float yawRad, float pitchRad);
-```
-
-- **`yaw`** – поворот вокруг вертикальной оси (влево/вправо).
-- **`pitch`** – наклон вверх/вниз.
-- Вращение изменяет только `target`, `position` остаётся на месте.
-
-Пример мышиного управления:
-
-```cpp
-cam.rotate(mouseDeltaX * sens, mouseDeltaY * sens, true);
-```
-
-### Быстрые операции взгляда и орбиты
-
-```cpp
-void lookAt(const Vector3& newTarget);
-void lookAt(const Vector3& newTarget, const Vector3& newUp);
-
-void orbit(const Vector3& center,
-           float radius,
-           float azimuth,
-           float elevation,
-           bool degrees = true);
-```
-
-- `lookAt(target)` – мгновенно повернуть камеру на новую цель.
-- `lookAt(target, up)` – то же, плюс сменить вектор «вверх».
-- `orbit(center, radius, azimuth, elevation)` – поставить камеру на сферу
-  вокруг `center` и смотреть в неё.
-
-Пример орбиты вокруг объекта:
-
-```cpp
-Vector3 center = Vector3(0, 1, 0);
-cam.orbit(center, 5.0f, azimuthDeg, elevationDeg, true);
-```
-
-### Получение направлений и матриц
-
-```cpp
-const Vector3& forward() const;   // направление взгляда
-const Vector3& right() const;     // вправо от камеры
-const Vector3& upVec() const;     // вектор "вверх" камеры
-
-const Matrix4x4& getViewMatrix() const;
-const Matrix4x4& getProjectionMatrix(float aspect) const;
-const Matrix4x4& getViewProjectionMatrix(float aspect) const;
-```
-
-- Векторы `forward/right/upVec` удобно использовать для движения и стрельбы.
-- Матрицы `view`, `proj`, `viewProj` нужны рендереру.
-
-Пример использования с собственным рендерером:
-
-```cpp
-float aspect = float(viewport.width) / viewport.height;
-const Matrix4x4& viewProj = cam.getViewProjectionMatrix(aspect);
-```
-
-### Анимация камеры
-
-```cpp
-void animateTo(const Vector3& newPos,
-               const Vector3& newTgt,
-               float duration = 1.0f,
-               CameraAnimation::Type type = CameraAnimation::SMOOTH);
-
-void animatePos(const Vector3& newPos, float duration = 1.0f);
-void animateTarget(const Vector3& newTgt, float duration = 1.0f);
-void animateFOV(float newFov, float duration = 1.0f);
-
-void updateAnim(float deltaTime);
-void stopAnim();
-bool isAnimating() const;
-```
-
-- **`animateTo`** – плавный перелёт камеры из текущего положения в `newPos` и
-  `newTgt`.
-- **`animatePos`** – анимировать только позицию, сохраняя направление взгляда.
-- **`animateTarget`** – анимировать только цель.
-- **`animateFOV`** – плавный зум FOV.
-- **`updateAnim`** – вызывать **каждый кадр**, чтобы анимация двигалась.
-- **`stopAnim`** / **`isAnimating`** – управление и проверка статуса.
-
-Пример плавного перелёта камеры к новой точке:
-
-```cpp
-cam.animateTo(
-    Vector3(0, 3, -8),  // новая позиция
-    Vector3(0, 1,  0),  // новый таргет
-    1.5f,               // 1.5 секунды
-    CameraAnimation::SMOOTH
-);
-
-// В game loop:
-cam.updateAnim(dt);
-```
-
----
-
-## FreeCam – свободная камера
-
-```cpp
-class FreeCam : public Camera
-{
-public:
-    float rotSpeed = 90.0f;  // скорость вращения (град/сек)
-    float moveSpeed = 5.0f;  // скорость движения (ед/сек)
-
-    FreeCam(const Vector3& pos = Vector3(0, 0, -5));
-
-    void handleJoystick(float joyX, float joyY, float deltaTime);
-    void handleButtons(bool fwd, bool back, bool left, bool right,
-                       bool up, bool down, float deltaTime);
-    void handleDPad(int8_t dirX, int8_t dirY, float deltaTime);
-    void handleRotateButtons(bool rotLeft, bool rotRight,
-                             bool rotUp, bool rotDown,
-                             float deltaTime);
-};
-```
-
-**Назначение:**
-
-- Быстрая free‑fly камера под геймпад/кнопки.
-- Удобна для отладки сцены, полёта по уровню, режима «noclip».
-
-Пример:
-
-```cpp
-FreeCam cam(Vector3(0, 2, -5));
+Camera& cam = r.getCamera();
+cam.position = Vector3(0.0f, 2.0f, -6.0f);
+cam.lookAt(Vector3(0.0f, 1.0f, 4.0f));
 cam.setPerspective(60.0f, 0.1f, 100.0f);
-
-// В главном цикле
-cam.handleJoystick(joyX, joyY, dt);
-cam.handleButtons(btnFwd, btnBack, btnLeft, btnRight, btnUp, btnDown, dt);
-cam.updateAnim(dt);  // если нужны анимации
 ```
 
-Параметры обработчиков:
+## 6.2. Анимация камеры
 
-- **`joyX`, `joyY`** – аналоговый стик в диапазоне примерно `[-1, 1]`.
-- **`fwd/back/left/right/up/down`** – булевы кнопки движения.
-- **`dirX/dirY`** – дискретный D‑Pad, обычно `-1, 0, 1`.
+Встроенные методы:
 
-Все методы используют внутренние `move/rotate` базовой `Camera`.
+- `animateTo(...)`
+- `animatePos(...)`
+- `animateTarget(...)`
+- `animateFOV(...)`
+- `updateAnim(float deltaTime)`
+- `stopAnim()`
+- `isAnimating()`
 
----
+Типы интерполяции:
 
-## OrbitCam – орбитальная камера
+- `CameraAnimation::LINEAR`
+- `CameraAnimation::SMOOTH`
+- `CameraAnimation::EASE`
 
-```cpp
-class OrbitCam : public Camera
-{
-public:
-    Vector3 center = Vector3(0, 0, 0);
-    float   radius  = 10.0f;
-    float   azimuth = 0.0f;
-    float   elevation = 0.0f;
-    float   zoomSpd = 1.0f;
-    float   rotSpd  = 90.0f;
+## 6.3. `FreeCam`
 
-    OrbitCam(const Vector3& c = Vector3(0, 0, 0), float r = 10.0f);
+Готовая свободная камера для прототипов и debug/free-fly режимов.
 
-    void setCenter(const Vector3& c);
-    void zoom(float delta);
-    void handleJoystick(float joyX, float joyY, float deltaTime);
-    void handleButtons(bool zoomIn, bool zoomOut, float deltaTime);
-};
-```
+Публичные поля:
 
-**Назначение:**
+- `rotSpeed`
+- `moveSpeed`
 
-- Камера редактора/просмотра модели: вращается вокруг `center`, всегда
-  смотрит в центр.
+Основные методы:
 
-Пример:
+- `handleJoystick(...)`
+- `handleButtons(...)`
+- `handleDPad(...)`
+- `handleRotateButtons(...)`
 
-```cpp
-OrbitCam cam(Vector3(0, 1, 0), 5.0f);  // орбита вокруг объекта на высоте 1
-cam.setPerspective(60.0f, 0.1f, 100.0f);
+## 6.4. `OrbitCam`
 
-// В цикле
-cam.handleJoystick(joyX, joyY, dt);     // вращение
-cam.handleButtons(zoomIn, zoomOut, dt); // зум
-```
+Камера, вращающаяся вокруг центра.
 
-Пояснения:
+Публичные поля:
 
-- **`center`** – точка, вокруг которой вращаемся.
-- **`radius`** – расстояние от камеры до `center`.
-- **`azimuth`** – угол вокруг вертикальной оси (лево/право).
-- **`elevation`** – угол наклона (вверх/вниз).
-- **`zoom(delta)`** – изменить `radius` (клэмпится ≥ 0.1, чтобы камера не
-  схлопнулась в центр).
+- `center`
+- `radius`
+- `azimuth`
+- `elevation`
+- `zoomSpd`
+- `rotSpd`
 
----
+Основные методы:
 
-## CameraBuilder – удобное создание камеры
+- `setCenter(...)`
+- `zoom(...)`
+- `handleJoystick(...)`
+- `handleButtons(...)`
 
-```cpp
-class CameraBuilder
-{
-public:
-    CameraBuilder& at(const Vector3& pos);
-    CameraBuilder& lookAt(const Vector3& tgt);
-    CameraBuilder& withUp(const Vector3& up);
+## 6.5. `CameraBuilder`
 
-    CameraBuilder& persp(float fov = 60.0f,
-                         float near = 0.1f,
-                         float far  = 100.0f);
-
-    CameraBuilder& ortho(float w = 10.0f,
-                         float h = 10.0f,
-                         float near = 0.1f,
-                         float far  = 100.0f);
-
-    CameraBuilder& fisheye(float fov = 120.0f,
-                           float strength = 1.0f,
-                           float near = 0.1f,
-                           float far  = 100.0f);
-
-    CameraBuilder& withConfig(const CameraConfig& cfg);
-
-    Camera build();
-};
-```
-
-**Назначение:**
-
-- Делает создание камеры читаемым и цепочным.
-- Подходит для инициализации в `setup()` или конфиг‑файлах.
-
-Пример:
+Fluent builder для камеры:
 
 ```cpp
 Camera cam = CameraBuilder()
-    .at(Vector3(0, 2, -5))
-    .lookAt(Vector3(0, 1, 0))
-    .withUp(Vector3(0, 1, 0))
+    .at(0.0f, 2.0f, -6.0f)
+    .lookAt(0.0f, 1.0f, 0.0f)
     .persp(60.0f, 0.1f, 100.0f)
     .build();
 ```
 
-Разбор по шагам:
+Методы:
 
-- **`at(Vector3(0, 2, -5))`** – задаём позицию камеры.
-- **`lookAt(Vector3(0, 1, 0))`** – смотрим на объект в центре сцены.
-- **`withUp(Vector3(0, 1, 0))`** – фиксируем, что «верх» по оси Y.
-- **`persp(60, 0.1, 100)`** – настраиваем перспективную проекцию.
-- **`build()`** – получаем готовую `Camera` с помеченными грязными матрицами,
-  которые пересчитаются при первом использовании.
+- `at(...)`
+- `lookAt(...)`
+- `withUp(...)`
+- `persp(...)`
+- `ortho(...)`
+- `fisheye(...)`
+- `withConfig(...)`
+- `build()`
+
+## 6.6. `CameraTimeline`
+
+Публичный timeline для катсцен и scripted camera motion.
+
+Основные типы и методы:
+
+- `CameraKeyframe`
+- `setTrack(...)`
+- `start(Camera& cam)`
+- `update(Camera& cam, float dt)`
+- `isPlaying()`
 
 ---
 
-Этого набора API достаточно, чтобы:
+# 7. Меши и примитивы
 
-- создать одну или несколько камер под разные режимы;
-- управлять ими из игрового цикла (движение, вращение, орбита);
-- плавно анимировать перелёты и зум;
-- получать готовые матрицы `view`, `proj`, `viewProj` для своего рендера
-  или использовать камеры через высокоуровневый `Renderer`.
+## 7.1. `Mesh`
 
-В большинстве случаев вам достаточно `Camera` или `FreeCam`/`OrbitCam` и
-нескольких методов: `setPerspective`, `move*`, `rotate*`, `lookAt`,
-`getViewProjectionMatrix`, `animateTo` + `updateAnim`.
+`Mesh` это базовый публичный геометрический класс.
 
+Два базовых сценария:
 
+- создать procedural mesh вручную
+- использовать готовые primitive-классы
 
-cl /EHsc /W4 /std:c++17 /DPIP3D_PC pc_viewer.cpp ^
-  lib\Pip3D\Math\Math.cpp ^
-  lib\Pip3D\Core\Core.cpp ^
-  lib\Pip3D\Core\Debug\Logging.cpp ^
-  lib\Pip3D\Core\Jobs.cpp ^
-  lib\Pip3D\Graphics\Font.cpp ^
-  lib\Pip3D\Rendering\Rasterizer\Shading.cpp ^
-  lib\Pip3D\Rendering\Display\Drivers\PcDisplayDriver.cpp ^
-  user32.lib gdi32.lib ^
-  /Fe:pc_viewer.exe
+Конструкторы:
+
+- `Mesh(uint16_t maxVerts, uint16_t maxFaces, const Color& color = Color::WHITE)`
+- `Mesh(const Vertex* externalVertices, uint16_t vertCount, const Face* externalFaces, uint16_t faceCount, const Color& color = Color::WHITE, bool staticStorage = true)`
+
+Основные методы для procedural mesh:
+
+- `addVertex(...)`
+- `addFace(...)`
+- `clear()`
+- `finalizeNormals()`
+- `calculateBoundingSphere()`
+
+Основные transform-методы:
+
+- `setPosition(...)`
+- `setRotation(...)`
+- `setScale(...)`
+- `translate(...)`
+- `rotate(...)`
+
+Основные query/helper методы:
+
+- `numVertices()`
+- `numFaces()`
+- `vert(...)`
+- `face(...)`
+- `center()`
+- `radius()`
+- `normal(...)`
+- `getTransform()`
+
+Видимость и тени:
+
+- `show()`
+- `hide()`
+- `isVisible()`
+- `color(...)`
+- `color()`
+- `setCastShadows(bool enabled)`
+- `getCastShadows()`
+
+Минимальный пример procedural mesh:
+
+```cpp
+Mesh tri(3, 1, Color::fromRGB888(255, 180, 120));
+tri.addVertex(Vector3(-1, 0, 0));
+tri.addVertex(Vector3(1, 0, 0));
+tri.addVertex(Vector3(0, 1, 0));
+tri.addFace(0, 1, 2);
+tri.finalizeNormals();
+tri.calculateBoundingSphere();
+```
+
+## 7.2. Готовые примитивы
+
+Публичные primitive mesh-классы:
+
+- `Cube`
+- `Pyramid`
+- `Sphere`
+- `Plane`
+- `Cylinder`
+- `Cone`
+- `Capsule`
+- `Teapot`
+- `TrefoilKnot`
+
+Примеры:
+
+```cpp
+Cube cube(1.0f, Color::fromRGB888(220, 220, 220));
+Sphere sun(0.5f, 16, 12, Color::fromRGB888(255, 220, 160));
+Plane ground(20.0f, 20.0f, 1, Color::fromRGB888(90, 90, 90));
+```
+
+---
+
+# 8. Инстансы
+
+## 8.1. `MeshInstance`
+
+`MeshInstance` это способ много раз использовать один и тот же `Mesh` с разными transform/color.
+
+Основные методы:
+
+- `setMesh(...)`
+- `getMesh()`
+- `setPosition(...)`
+- `setRotation(const Quaternion&)`
+- `setEuler(...)`
+- `setScale(...)`
+- `rotate(...)`
+- `setColor(...)`
+- `color()`
+- `show()`
+- `hide()`
+- `isVisible()`
+- `center()`
+- `radius()`
+- `transform()`
+
+Fluent helper-методы:
+
+- `at(...)`
+- `euler(...)`
+- `size(...)`
+- `color(...)`
+
+Пример:
+
+```cpp
+Cube buildingMesh(1.0f, Color::fromRGB888(120, 130, 145));
+MeshInstance instance(&buildingMesh);
+instance.at(0.0f, 2.0f, 8.0f)->size(2.0f, 4.0f, 2.0f);
+```
+
+## 8.2. `InstanceManager`
+
+Менеджер для большого числа инстансов.
+
+Основные методы:
+
+- `create(Mesh* mesh)`
+- `batch(Mesh* mesh, size_t count)`
+- `remove(MeshInstance* inst)`
+- `clear()`
+- `destroyAll()`
+- `count()`
+- `all()`
+- `cull(...)`
+- `sort(...)`
+
+Рисование:
+
+```cpp
+r.drawInstances(manager);
+```
+
+---
+
+# 9. Свет
+
+## 9.1. `LightType`
+
+Поддерживаемые типы:
+
+- `LIGHT_DIRECTIONAL`
+- `LIGHT_POINT`
+
+## 9.2. `Light`
+
+Публичные поля:
+
+- `type`
+- `intensity`
+- `direction`
+- `position`
+- `color`
+- `range`
+
+Публичные методы:
+
+- `setRange(float r)`
+- `getCachedRGB(...)`
+
+Пример point light:
+
+```cpp
+Light lamp;
+lamp.type = LIGHT_POINT;
+lamp.position = Vector3(0.0f, 3.0f, 5.0f);
+lamp.color = Color::fromRGB888(255, 210, 170);
+lamp.intensity = 1.2f;
+lamp.setRange(8.0f);
+
+r.addLight(lamp);
+```
+
+---
+
+# 10. Scene Graph
+
+## 10.1. `Node`
+
+Базовый scene node.
+
+Основные методы:
+
+- `addChild(...)`
+- `removeChild(...)`
+- `getChild(...)`
+- `findChild(...)`
+- `getChildCount()`
+- `getParent()`
+- `setPosition(...)`
+- `setRotation(...)`
+- `setScale(...)`
+- `translate(...)`
+- `rotate(...)`
+- `getPosition()`
+- `getRotation()`
+- `getScale()`
+- `getWorldPosition()`
+- `getWorldTransform()`
+- `getLocalTransform()`
+- `setVisible(...)`
+- `isVisible()`
+- `setEnabled(...)`
+- `isEnabled()`
+- `setName(...)`
+- `getName()`
+- `update(float deltaTime)`
+- `render(Renderer* renderer)`
+
+## 10.2. `MeshNode`
+
+Node для `Mesh`.
+
+Основные методы:
+
+- `setMesh(...)`
+- `getMesh()`
+- `setCastShadows(bool cast)`
+- `getCastShadows()`
+
+## 10.3. `CameraNode`
+
+Node для камеры.
+
+Основные методы:
+
+- `setFOV(...)`
+- `getFOV()`
+- `setNearPlane(...)`
+- `getNearPlane()`
+- `setFarPlane(...)`
+- `getFarPlane()`
+- `setProjectionType(...)`
+- `getProjectionType()`
+- `applyToCamera(Camera& camera)`
+
+## 10.4. `LightNode`
+
+Node для света.
+
+Основные методы:
+
+- `setLightType(...)`
+- `getLightType()`
+- `setColor(...)`
+- `getColor()`
+- `setIntensity(...)`
+- `getIntensity()`
+- `setDirection(...)`
+- `getDirection()`
+- `setRange(...)`
+- `getRange()`
+- `applyToLight(Light& light)`
+
+## 10.5. `SceneGraph`
+
+Основной container для scene graph.
+
+Основные методы:
+
+- `getRoot()`
+- `createNode<T>(...)`
+- `createMeshNode(...)`
+- `createCameraNode(...)`
+- `createLightNode(...)`
+- `setActiveCamera(...)`
+- `getActiveCamera()`
+- `update(float deltaTime)`
+- `render()`
+- `findNode(...)`
+
+Пример:
+
+```cpp
+SceneGraph scene(&r);
+
+CameraNode* camNode = scene.createCameraNode("MainCamera");
+camNode->setPosition(0.0f, 2.0f, -6.0f);
+scene.setActiveCamera(camNode);
+
+Cube* cube = new Cube(1.0f, Color::WHITE);
+MeshNode* cubeNode = scene.createMeshNode(cube, "Cube");
+cubeNode->setPosition(0.0f, 0.5f, 5.0f);
+```
+
+## 10.6. `SceneBuilder`
+
+Convenience builder:
+
+- `withCamera(...)`
+- `withSun(...)`
+- `withPointLight(...)`
+- `addMesh(...)`
+- `build()`
+
+---
+
+# 11. Character Controller
+
+## 11.1. `CharacterInput`
+
+Поля:
+
+- `moveX`
+- `moveY`
+- `jump`
+- `sprint`
+
+## 11.2. `CharacterController`
+
+Готовый публичный controller для простого персонажа.
+
+Основные методы:
+
+- `setVisual(MeshInstance* mesh)`
+- `setVisualRig(...)`
+- `initDefaultVisual()`
+- `setPosition(...)`
+- `getPosition()`
+- `getYaw()`
+- `setYaw(...)`
+- `update(float deltaTime, const CharacterInput& input, const Camera& camera)`
+- `applyToCamera(Camera& cam, const Vector3& offset) const`
+- `applyFirstPerson(Camera& cam) const`
+- `render(Renderer* renderer)`
+
+Что важно:
+
+- это не физический character controller AAA-уровня
+- по умолчанию он дает базовое движение, гравитацию, jump и простой визуальный риг
+- для прототипов, демо и простых игр этого достаточно
+
+---
+
+# 12. Время суток
+
+## 12.1. `TimeOfDayConfig`
+
+Поля:
+
+- `dayLengthSeconds`
+- `startHour`
+- `baseIntensity`
+- `nightIntensity`
+- `autoAdvance`
+
+## 12.2. `TimeOfDayController`
+
+Контроллер неба и основного directional light по циклу дня.
+
+Основные методы:
+
+- `init(Renderer* r, const TimeOfDayConfig& cfg)`
+- `setRenderer(Renderer* r)`
+- `setDayLengthSeconds(float seconds)`
+- `setAutoAdvance(bool enabled)`
+- `setBaseIntensity(float intensity)`
+- `setNightIntensity(float intensity)`
+- `setTime(float hours, float minutes = 0.0f)`
+- `getTimeHours() const`
+- `getTime01() const`
+- `update(float deltaSeconds)`
+
+Пример:
+
+```cpp
+TimeOfDayController tod;
+
+TimeOfDayConfig cfg;
+cfg.dayLengthSeconds = 180.0f;
+cfg.startHour = 8.0f;
+
+tod.init(&r, cfg);
+```
+
+В цикле:
+
+```cpp
+float dt = getDeltaTime();
+tod.update(dt);
+```
+
+---
+
+# 13. Эффекты частиц
+
+## 13.1. `ParticleEmitterConfig`
+
+Поля:
+
+- `maxParticles`
+- `emitRate`
+- `minLifetime`
+- `maxLifetime`
+- `initialSpeed`
+- `spread`
+- `acceleration`
+- `startColor`
+- `endColor`
+- `startSize`
+- `endSize`
+- `looping`
+- `additive`
+
+## 13.2. `ParticleEmitter`
+
+Основные методы:
+
+- `setPosition(...)`
+- `getPosition()`
+- `setVelocityOffset(...)`
+- `setEnabled(...)`
+- `isEnabled()`
+- `triggerBurst(int count)`
+- `update(float dt)`
+- `render(Renderer& renderer) const`
+
+## 13.3. `FXSystem`
+
+Менеджер для emitters и готовых preset-эффектов.
+
+Основные методы:
+
+- `createEmitter(...)`
+- `destroyEmitter(...)`
+- `clear()`
+- `update(float dt)`
+- `render(Renderer& renderer) const`
+- `createFire(...)`
+- `createSmoke(...)`
+- `createExplosion(...)`
+- `createSparks(...)`
+
+Пример:
+
+```cpp
+FXSystem fx;
+ParticleEmitter* smoke = fx.createSmoke(Vector3(0.0f, 0.5f, 6.0f));
+```
+
+В цикле:
+
+```cpp
+fx.update(dt);
+fx.render(r);
+```
+
+---
+
+# 14. Input API
+
+`Pip3D` экспортирует простой Arduino-style input layer в namespace `pip3D::input`.
+
+Что в нем есть:
+
+- `ButtonConfig`
+- `Button`
+- `AnalogAxisConfig`
+- `AnalogAxis`
+- `JoystickConfig`
+- `Joystick`
+
+## 14.1. `Button`
+
+Основные методы:
+
+- `begin()`
+- `update()`
+- `isPressed()`
+- `wasPressed()`
+- `wasReleased()`
+
+## 14.2. `AnalogAxis`
+
+Основные методы:
+
+- `begin()`
+- `update(float deltaTime)`
+- `value()`
+
+## 14.3. `Joystick`
+
+Основные методы:
+
+- `begin()`
+- `update(float deltaTime)`
+- `x()`
+- `y()`
+- `isPressed()`
+- `wasPressed()`
+- `wasReleased()`
+
+Пример:
+
+```cpp
+using namespace pip3D::input;
+
+Joystick stick(
+    JoystickConfig(
+        AnalogAxisConfig(1, 0, 4095, 0.12f, false),
+        AnalogAxisConfig(2, 0, 4095, 0.12f, true),
+        ButtonConfig(3, true, 30)
+    )
+);
+
+stick.begin();
+stick.update(dt);
+```
+
+Что важно:
+
+- этот input layer рассчитан именно на Arduino/ESP32-style пины
+- PC keyboard/mouse runtime в симуляторе это отдельный слой, не часть `Input.h`
+
+---
+
+# 15. Utility API
+
+## 15.1. `getDeltaTime()`
+
+Простой helper:
+
+```cpp
+float dt = getDeltaTime();
+```
+
+Возвращает `dt` в секундах и clamp'ит слишком большие паузы.
+
+## 15.2. `CameraHelper`
+
+- `quickSetup(Camera& cam, float fov, float nearPlane, float farPlane)`
+
+## 15.3. `MultiCameraHelper`
+
+- `createIsometricCamera(Renderer& renderer, float distance)`
+
+## 15.4. `SceneHelper`
+
+Convenience helper для простой сцены.
+
+Основные методы:
+
+- `addGround(...)`
+- `addSun(...)`
+- `renderGround()`
+- `renderSun(...)`
+- `setSunPosition(...)`
+
+Это helper для быстрых прототипов. Для более серьезной сцены обычно лучше работать напрямую через `Renderer`, `Light`, `SceneGraph` и свои меши.
+
+---
+
+# 16. Минимальный рабочий пример
+
+```cpp
+#include <Arduino.h>
+#include "Pip3D.h"
+
+using namespace pip3D;
+
+Renderer* g_renderer = nullptr;
+Cube* g_cube = nullptr;
+
+void setup()
+{
+    g_renderer = &begin3D(480, 320, 10, 9, 8);
+
+    Camera& cam = g_renderer->getCamera();
+    cam.position = Vector3(0.0f, 2.0f, -6.0f);
+    cam.lookAt(Vector3(0.0f, 0.5f, 5.0f));
+    cam.setPerspective(60.0f, 0.1f, 100.0f);
+
+    g_renderer->setSkyboxWithLighting(SKYBOX_DAY);
+    g_renderer->setShadowPlaneY(0.0f);
+
+    g_cube = new Cube(1.0f, Color::fromRGB888(220, 220, 230));
+    g_cube->setPosition(0.0f, 0.5f, 5.0f);
+}
+
+void loop()
+{
+    float dt = getDeltaTime();
+    g_cube->rotate(0.0f, 40.0f * dt, 0.0f);
+
+    g_renderer->beginFrame();
+    g_renderer->drawMesh(g_cube);
+    g_renderer->drawText(8, 8, "Pip3D", Color::WHITE);
+    g_renderer->endFrame();
+}
+```
+
+---
+
+# 17. Практические замечания
+
+- Внешнему коду лучше начинать с `begin3D(...)`, `Renderer`, `Camera`, `Mesh`, `Light`.
+- Если нужны много однотипных объектов, используй `MeshInstance` и `InstanceManager`, а не отдельные копии `Mesh`.
+- Если нужна полноценная иерархия объектов, бери `SceneGraph` и `Node`-производные.
+- Если нужна катсцена, используй `CameraTimeline`.
+- Если нужен цикл дня, используй `TimeOfDayController`.
+- Если нужен простой персонаж для тестов, используй `CharacterController`.
+- Если нужен быстрый прототип эффекта, используй `FXSystem`.
+- Внутренние хедеры рендера и пайплайна не должны быть основной точкой интеграции пользовательского кода.
+
