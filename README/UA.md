@@ -1,11 +1,21 @@
-# Pip3D
+<p align="center">
+  <img src="./hero.png" alt="PipKit Framework" width="100%">
+</p>
 
-[English](../README.md) &nbsp;&nbsp; **Українська** &nbsp;&nbsp; [Русский](RU.md)<br>
-<sup>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;▔▔▔▔▔▔</sup>
+<p align="center">
+  <a href="../README.md">English</a> &nbsp;&nbsp; <strong>Українська</strong> &nbsp;&nbsp; <a href="RU.md">Русский</a><br>
+  <sup>▔▔▔▔▔▔</sup>
+</p>
 
-Програмний 3D-рушій для плат ESP32-S3 з дисплеєм ST7789 320×240.<br>
-Створений для інтерактивних демо, простих ігор і custom embedded-інтерфейсів на обмеженому залізі.
+Pip3D — це легкий, високопродуктивний рушій тривимірної графіки та фізики з низькими накладними витратами, розроблений спеціально для мікроконтролерів (наразі підтримується лише ESP32-S3). Працює безпосередньо на базі системного ядра PipCore.
 
-**Ресурси**&emsp;&emsp;&emsp;&emsp;**Модуль**<br>
-&ensp;[Доки](https://pisppus.is-a.dev/docs/pip3d)&emsp;&emsp;&emsp;&emsp;&ensp;&nbsp;[PipCore](https://github.com/pisppus/PipCore)<br>
-&nbsp;[Огляд](https://pisppus.is-a.dev/projects/esp/pip3d/review)
+Движок інтегрує гнучку систему графа сцени з ієрархічними трансформаціями, перспективну, ортографічну та фіша-проекції камери, а також автоматизовану шкалу анімації за ключовими кадрами. Реалістичний конвеєр освітлення підтримує спрямовані та точкові джерела, силуетне підсвічування та м'які планарні тіні. Фізичний модуль Pip3D містить повноцінний симулятор динаміки твердих тіл із зіткненням сфер і паралелепіпедів, вирішенням обмежень, симуляцією мотузок на основі інтеграції Верле та реалістичною плавучістю тіл у воді.
+
+<p align="center">
+  <strong>Ресурси</strong>&emsp;&emsp;&emsp;<strong>Модуль</strong><br>
+  &ensp;&ensp;<a href="https://pisppus.is-a.dev/docs/pip3d">Доки</a>&emsp;&emsp;&emsp;&emsp;&ensp;<a href="https://github.com/pisppus/PipCore">PipCore</a>
+</p>
+
+<p align="center">
+  Розповсюджується за ліцензією MIT.
+</p>
