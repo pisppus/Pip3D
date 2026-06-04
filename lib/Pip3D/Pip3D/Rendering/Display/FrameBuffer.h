@@ -2,14 +2,11 @@
 
 #include "Core/Core.h"
 #if defined(PIP3D_PC)
-#include "PcDisplayBlit.h"
+#include <PipCore/Platforms/Desktop/Runtime.hpp>
 #else
 #include <PipCore/Display.hpp>
 #endif
 #include "ZBuffer.h"
-
-// Кроссплатформенный префетч: на GCC/Clang используем __builtin_prefetch,
-// на MSVC и прочих платформах оставляем пустым no-op.
 #if defined(__GNUC__) || defined(__clang__)
 #ifndef PIP3D_PREFETCH
 #define PIP3D_PREFETCH(ptr) __builtin_prefetch((ptr), 0, 0)
@@ -41,11 +38,11 @@ namespace pip3D
         uint32_t totalPixels;
         uint32_t pixels32;
         bool oddPixels;
-        
+
         uint16_t *skyboxColorCache;
         int16_t cachedScreenHeight;
         bool cacheValid;
-        
+
         uint16_t colorLUT[2];
 
     public:
@@ -92,7 +89,7 @@ namespace pip3D
             size_t bufferSize = totalPixels * sizeof(uint16_t);
             bufferSize = (bufferSize + DMA_ALIGNMENT - 1) & ~(DMA_ALIGNMENT - 1);
 
-            buffer = (uint16_t *)heap_caps_aligned_alloc(DMA_ALIGNMENT, bufferSize, 
+            buffer = (uint16_t *)heap_caps_aligned_alloc(DMA_ALIGNMENT, bufferSize,
                                                          MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
 
             if (!buffer)
@@ -104,10 +101,10 @@ namespace pip3D
                      static_cast<int>(config.height));
                 return false;
             }
-            
+
             memset(buffer, 0, bufferSize);
-            
-            skyboxColorCache = (uint16_t *)heap_caps_malloc(SCREEN_HEIGHT * 2 * sizeof(uint16_t), 
+
+            skyboxColorCache = (uint16_t *)heap_caps_malloc(SCREEN_HEIGHT * 2 * sizeof(uint16_t),
                                                             MALLOC_CAP_INTERNAL);
             if (!skyboxColorCache)
             {
@@ -136,13 +133,14 @@ namespace pip3D
     private:
         __attribute__((always_inline)) inline void rebuildSkyboxCache()
         {
-            if (!skyboxColorCache || !useSkybox || !skybox.enabled) return;
-            
+            if (!skyboxColorCache || !useSkybox || !skybox.enabled)
+                return;
+
             for (int16_t y = 0; y < SCREEN_HEIGHT; ++y)
             {
                 Color lineColor = skybox.getColorAtY(y, SCREEN_HEIGHT);
                 uint16_t color1 = lineColor.rgb565;
-                
+
                 uint16_t darker = color1;
 #if !defined(PIP3D_PC)
                 if (color1 != 0)
@@ -151,19 +149,19 @@ namespace pip3D
                     const uint16_t g = (color1 >> 5) & 0x3F;
                     const uint16_t b = color1 & 0x1F;
                     darker = ((r ? r - 1 : 0) << 11) |
-                            ((g ? g - 1 : 0) << 5) |
-                            (b ? b - 1 : 0);
+                             ((g ? g - 1 : 0) << 5) |
+                             (b ? b - 1 : 0);
                 }
 #endif
-                
+
                 skyboxColorCache[y * 2] = color1;
                 skyboxColorCache[y * 2 + 1] = darker;
             }
-            
+
             cachedScreenHeight = SCREEN_HEIGHT;
             cacheValid = true;
         }
-        
+
         __attribute__((always_inline)) inline void fastClear()
         {
             const uint16_t clearCol = clearColor.rgb565;
@@ -173,7 +171,7 @@ namespace pip3D
             uint32_t i = 0;
             const uint32_t blocks8 = pixels32 >> 3;
             const uint32_t limit8 = blocks8 << 3;
-            
+
             for (; i < limit8; i += 8)
             {
                 fb32[i] = clearColor32;
@@ -185,7 +183,7 @@ namespace pip3D
                 fb32[i + 6] = clearColor32;
                 fb32[i + 7] = clearColor32;
             }
-            
+
             for (; i < pixels32; i++)
             {
                 fb32[i] = clearColor32;
@@ -234,7 +232,7 @@ namespace pip3D
             const int16_t invShadowMask = ~ZBuffer<WIDTH, HEIGHT>::shadowFlagMask();
 
             const bool shouldUseSkybox = useSkybox && skybox.enabled;
-            
+
             if (shouldUseSkybox && skyboxColorCache && !cacheValid)
             {
                 rebuildSkyboxCache();
@@ -260,7 +258,7 @@ namespace pip3D
                 {
                     Color lineColor = skybox.getColorAtY(globalY, SCREEN_HEIGHT);
                     const uint16_t color1 = lineColor.rgb565;
-                    
+
                     uint16_t darker = color1;
 #if !defined(PIP3D_PC)
                     if (color1 != 0)
@@ -269,11 +267,11 @@ namespace pip3D
                         const uint16_t g = (color1 >> 5) & 0x3F;
                         const uint16_t b = color1 & 0x1F;
                         darker = ((r ? r - 1 : 0) << 11) |
-                                ((g ? g - 1 : 0) << 5) |
-                                (b ? b - 1 : 0);
+                                 ((g ? g - 1 : 0) << 5) |
+                                 (b ? b - 1 : 0);
                     }
 #endif
-                    
+
                     const uint16_t yOdd = y & 1;
                     colorLUT[0] = color1;
                     colorLUT[1] = yOdd ? darker : color1;
@@ -289,7 +287,7 @@ namespace pip3D
                 for (; x < width16; x += 16)
                 {
                     PIP3D_PREFETCH(&zbRow[x + 16]);
-                    
+
                     const int16_t d0 = zbRow[x] & invShadowMask;
                     const int16_t d1 = zbRow[x + 1] & invShadowMask;
                     const int16_t d2 = zbRow[x + 2] & invShadowMask;
@@ -307,22 +305,38 @@ namespace pip3D
                     const int16_t d14 = zbRow[x + 14] & invShadowMask;
                     const int16_t d15 = zbRow[x + 15] & invShadowMask;
 
-                    if (d0 == clearDepth) row[x] = colorLUT[x & 1u];
-                    if (d1 == clearDepth) row[x + 1] = colorLUT[(x + 1) & 1u];
-                    if (d2 == clearDepth) row[x + 2] = colorLUT[(x + 2) & 1u];
-                    if (d3 == clearDepth) row[x + 3] = colorLUT[(x + 3) & 1u];
-                    if (d4 == clearDepth) row[x + 4] = colorLUT[(x + 4) & 1u];
-                    if (d5 == clearDepth) row[x + 5] = colorLUT[(x + 5) & 1u];
-                    if (d6 == clearDepth) row[x + 6] = colorLUT[(x + 6) & 1u];
-                    if (d7 == clearDepth) row[x + 7] = colorLUT[(x + 7) & 1u];
-                    if (d8 == clearDepth) row[x + 8] = colorLUT[(x + 8) & 1u];
-                    if (d9 == clearDepth) row[x + 9] = colorLUT[(x + 9) & 1u];
-                    if (d10 == clearDepth) row[x + 10] = colorLUT[(x + 10) & 1u];
-                    if (d11 == clearDepth) row[x + 11] = colorLUT[(x + 11) & 1u];
-                    if (d12 == clearDepth) row[x + 12] = colorLUT[(x + 12) & 1u];
-                    if (d13 == clearDepth) row[x + 13] = colorLUT[(x + 13) & 1u];
-                    if (d14 == clearDepth) row[x + 14] = colorLUT[(x + 14) & 1u];
-                    if (d15 == clearDepth) row[x + 15] = colorLUT[(x + 15) & 1u];
+                    if (d0 == clearDepth)
+                        row[x] = colorLUT[x & 1u];
+                    if (d1 == clearDepth)
+                        row[x + 1] = colorLUT[(x + 1) & 1u];
+                    if (d2 == clearDepth)
+                        row[x + 2] = colorLUT[(x + 2) & 1u];
+                    if (d3 == clearDepth)
+                        row[x + 3] = colorLUT[(x + 3) & 1u];
+                    if (d4 == clearDepth)
+                        row[x + 4] = colorLUT[(x + 4) & 1u];
+                    if (d5 == clearDepth)
+                        row[x + 5] = colorLUT[(x + 5) & 1u];
+                    if (d6 == clearDepth)
+                        row[x + 6] = colorLUT[(x + 6) & 1u];
+                    if (d7 == clearDepth)
+                        row[x + 7] = colorLUT[(x + 7) & 1u];
+                    if (d8 == clearDepth)
+                        row[x + 8] = colorLUT[(x + 8) & 1u];
+                    if (d9 == clearDepth)
+                        row[x + 9] = colorLUT[(x + 9) & 1u];
+                    if (d10 == clearDepth)
+                        row[x + 10] = colorLUT[(x + 10) & 1u];
+                    if (d11 == clearDepth)
+                        row[x + 11] = colorLUT[(x + 11) & 1u];
+                    if (d12 == clearDepth)
+                        row[x + 12] = colorLUT[(x + 12) & 1u];
+                    if (d13 == clearDepth)
+                        row[x + 13] = colorLUT[(x + 13) & 1u];
+                    if (d14 == clearDepth)
+                        row[x + 14] = colorLUT[(x + 14) & 1u];
+                    if (d15 == clearDepth)
+                        row[x + 15] = colorLUT[(x + 15) & 1u];
                 }
 
                 for (; x < fbWidth; ++x)
@@ -353,7 +367,17 @@ namespace pip3D
                 return;
             }
 #if defined(PIP3D_PC)
-            blitPcDisplay(0, 0, config.width, config.height, buffer, config.width);
+            const uint32_t count = config.width * config.height;
+            for (uint32_t i = 0; i < count; ++i)
+            {
+                buffer[i] = __builtin_bswap16(buffer[i]);
+            }
+
+            pipcore::desktop::Runtime::instance().writeRect565(0, 0, config.width, config.height, buffer, config.width);
+            for (uint32_t i = 0; i < count; ++i)
+            {
+                buffer[i] = __builtin_bswap16(buffer[i]);
+            }
 #else
             display->writeRect565(0, 0, config.width, config.height, buffer, config.width);
 #endif
@@ -425,7 +449,24 @@ namespace pip3D
             const int16_t clippedH = static_cast<int16_t>(clippedY1 - clippedY0);
             const uint16_t *region = buffer + static_cast<size_t>(localY) * config.width + clippedX0;
 #if defined(PIP3D_PC)
-            blitPcDisplay(clippedX0, clippedY0, clippedW, clippedH, region, config.width);
+            for (int16_t row = 0; row < clippedH; ++row)
+            {
+                uint16_t *line = const_cast<uint16_t *>(region) + (static_cast<size_t>(row) * config.width);
+                for (int16_t col = 0; col < clippedW; ++col)
+                {
+                    line[col] = __builtin_bswap16(line[col]);
+                }
+            }
+
+            pipcore::desktop::Runtime::instance().writeRect565(clippedX0, clippedY0, clippedW, clippedH, region, config.width);
+            for (int16_t row = 0; row < clippedH; ++row)
+            {
+                uint16_t *line = const_cast<uint16_t *>(region) + (static_cast<size_t>(row) * config.width);
+                for (int16_t col = 0; col < clippedW; ++col)
+                {
+                    line[col] = __builtin_bswap16(line[col]);
+                }
+            }
 #else
             display->writeRect565(clippedX0, clippedY0, clippedW, clippedH, region, config.width);
 #endif
@@ -435,21 +476,21 @@ namespace pip3D
         __attribute__((always_inline)) inline const uint16_t *getBuffer() const { return buffer; }
         __attribute__((always_inline)) inline const DisplayConfig &getConfig() const { return config; }
 
-        __attribute__((always_inline)) inline void setSkyboxEnabled(bool enabled) 
-        { 
+        __attribute__((always_inline)) inline void setSkyboxEnabled(bool enabled)
+        {
             if (useSkybox != enabled)
             {
                 useSkybox = enabled;
                 cacheValid = false;
             }
         }
-        
-        __attribute__((always_inline)) inline void setSkyboxType(SkyboxType type) 
-        { 
+
+        __attribute__((always_inline)) inline void setSkyboxType(SkyboxType type)
+        {
             skybox.setPreset(type);
             cacheValid = false;
         }
-        
+
         __attribute__((always_inline)) inline void setClearColor(Color color) { clearColor = color; }
 
         __attribute__((always_inline)) inline Skybox &getSkybox() { return skybox; }
@@ -471,4 +512,3 @@ namespace pip3D
         }
     };
 }
-

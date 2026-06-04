@@ -270,6 +270,10 @@ namespace pip3D
                 return;
             }
 
+            int16_t bandTop = currentBandOffsetY();
+            int16_t bandH = currentBandHeight();
+            int16_t bandBottom = bandTop + bandH;
+
             for (size_t i = 0; i < particles.size(); ++i)
             {
                 const Particle &p = particles[i];
@@ -291,7 +295,7 @@ namespace pip3D
                 if (size <= 0.25f)
                     size = 0.25f;
 
-                Vector3 screen = renderer.project(p.position);
+                 Vector3 screen = renderer.project(p.position);
                 if (screen.z <= 0.0f)
                     continue;
 
@@ -302,9 +306,13 @@ namespace pip3D
                     radius = 1;
 
                 int r2 = radius * radius;
+                int y0 = cy - radius;
+                int y1 = cy + radius;
 
-                int y0 = clamp(cy - radius, 0, (int)height - 1);
-                int y1 = clamp(cy + radius, 0, (int)height - 1);
+                if (y0 < bandTop) y0 = bandTop;
+                if (y1 >= bandBottom) y1 = bandBottom - 1;
+                if (y0 > y1) 
+                    continue;
 
                 for (int y = y0; y <= y1; ++y)
                 {
@@ -312,7 +320,9 @@ namespace pip3D
                     int dy2 = dy * dy;
                     int x0 = clamp(cx - radius, 0, (int)width - 1);
                     int x1 = clamp(cx + radius, 0, (int)width - 1);
-                    size_t idx = (size_t)y * width + x0;
+                    int localY = y - bandTop;
+                    size_t idx = (size_t)localY * width + x0;
+                    
                     for (int x = x0; x <= x1; ++x, ++idx)
                     {
                         int dx = x - cx;
@@ -341,12 +351,9 @@ namespace pip3D
                             gDst += (gSrc * a) >> 8;
                             bDst += (bSrc * a) >> 8;
 
-                            if (rDst > 31u)
-                                rDst = 31u;
-                            if (gDst > 63u)
-                                gDst = 63u;
-                            if (bDst > 31u)
-                                bDst = 31u;
+                            if (rDst > 31u) rDst = 31u;
+                            if (gDst > 63u) gDst = 63u;
+                            if (bDst > 31u) bDst = 31u;
 
                             fb[idx] = (uint16_t)((rDst << 11) | (gDst << 5) | bDst);
                         }

@@ -17,9 +17,8 @@
 #include "Lighting/ShadowRenderer.h"
 #include "Rasterizer/Rasterizer.h"
 #include "Rasterizer/Shading.h"
-#include "Display/FrameBuffer.h"
 #if defined(PIP3D_PC)
-#include "Display/PcDisplayBlit.h"
+#include <PipCore/Platforms/Desktop/Runtime.hpp>
 #else
 #include <PipCore/Platforms/Select.hpp>
 #endif
@@ -299,14 +298,15 @@ namespace pip3D
                  cfg.bl);
 
 #if defined(PIP3D_PC)
-            pcDisplayReady = initPcDisplay(cfg);
-            if (!pcDisplayReady)
+            auto &runtime = pipcore::desktop::Runtime::instance();
+            if (!runtime.configureDisplay(cfg.width, cfg.height) || !runtime.beginDisplay(0))
             {
                 LOGE(::pip3D::Debug::LOG_MODULE_RENDER,
                      "Renderer::init: pc display init failed");
                 initialized = false;
                 return false;
             }
+            pcDisplayReady = true;
 #else
             auto *platform = pipcore::GetPlatform();
             if (!platform)
@@ -425,11 +425,11 @@ namespace pip3D
 
         void endFrame()
         {
-        if (!isInitialized())
-            return;
-        #if ENABLE_DEBUG_DRAW
+            if (!isInitialized())
+                return;
+#if ENABLE_DEBUG_DRAW
             ::pip3D::Debug::DebugDraw::render(*this);
-        #endif
+#endif
 
             framebuffer.endFrameRegion(0, currentBandOffsetY(),
                                        framebuffer.getConfig().width,
@@ -495,9 +495,9 @@ namespace pip3D
             if (zBuffer)
                 zBuffer->clear();
 
-        #if ENABLE_DEBUG_DRAW
+#if ENABLE_DEBUG_DRAW
             ::pip3D::Debug::DebugDraw::beginFrame();
-        #endif
+#endif
         }
 
         void endFrameBand(int bandIndex)
@@ -873,8 +873,6 @@ namespace pip3D
                 }
             }
 
-            // Contribution culling: skip instances that project to < 1 pixel
-            // on screen for perspective cameras.
             const Camera &cam = cameras[activeCameraIndex];
             if (cam.projectionType == PERSPECTIVE)
             {
@@ -964,15 +962,27 @@ namespace pip3D
                 const Vector3 &p1 = screenVerts[face.v1];
                 const Vector3 &p2 = screenVerts[face.v2];
 
-                float minY = fminf(p0.y, fminf(p1.y, p2.y));
-                float maxY = fmaxf(p0.y, fmaxf(p1.y, p2.y));
-                if (maxY < bandTop || minY >= bandBottom)
+                float d0 = (v0 - cam.position).dot(cam.forward());
+                float d1 = (v1 - cam.position).dot(cam.forward());
+                float d2 = (v2 - cam.position).dot(cam.forward());
+
+                if (d0 < cam.nearPlane && d1 < cam.nearPlane && d2 < cam.nearPlane)
                     continue;
 
-                float minX = fminf(p0.x, fminf(p1.x, p2.x));
-                float maxX = fmaxf(p0.x, fmaxf(p1.x, p2.x));
-                if (maxX < 0.0f || minX >= viewportWidth)
-                    continue;
+                bool partiallyClipped = (d0 < cam.nearPlane || d1 < cam.nearPlane || d2 < cam.nearPlane);
+
+                if (!partiallyClipped)
+                {
+                    float minY = fminf(p0.y, fminf(p1.y, p2.y));
+                    float maxY = fmaxf(p0.y, fmaxf(p1.y, p2.y));
+                    if (maxY < bandTop || minY >= bandBottom)
+                        continue;
+
+                    float minX = fminf(p0.x, fminf(p1.x, p2.x));
+                    float maxX = fmaxf(p0.x, fmaxf(p1.x, p2.x));
+                    if (maxX < 0.0f || minX >= viewportWidth)
+                        continue;
+                }
 
                 statsTrianglesTotal++;
                 if (backfaceCullingEnabled)
@@ -1251,8 +1261,6 @@ namespace pip3D
                 }
             }
         }
-
     };
 
 }
-

@@ -2,6 +2,7 @@
 
 #include <PipCore/Platforms/Desktop/Runtime.hpp>
 
+#undef INPUT
 #include <wx/wx.h>
 #include <wx/dcbuffer.h>
 #include <wx/evtloop.h>

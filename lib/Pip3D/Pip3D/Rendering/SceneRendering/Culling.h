@@ -54,6 +54,8 @@ namespace pip3D
             int16_t cy = (int16_t)pc.y;
 
             const float eps = 1e-3f;
+            int16_t bandTop = currentBandOffsetY();
+            int16_t bandBottom = bandTop + cfg.height;
 
             const int16_t offsets[5][2] = {
                 {0, 0},
@@ -69,12 +71,16 @@ namespace pip3D
                 int16_t sx = cx + offsets[i][0];
                 int16_t sy = cy + offsets[i][1];
 
-                if (sx < 0 || sy < 0 || sx >= cfg.width || sy >= cfg.height)
+                if (sy < bandTop || sy >= bandBottom)
+                    continue;
+
+                int16_t localSy = sy - bandTop;
+
+                if (sx < 0 || sx >= cfg.width)
                     continue;
 
                 ++validSamples;
-
-                float depth = zBuffer->getDepth01((uint16_t)sx, (uint16_t)sy);
+                float depth = zBuffer->getDepth01((uint16_t)sx, (uint16_t)localSy);
 
                 if (depth >= 1.0f)
                     return false;
@@ -90,4 +96,3 @@ namespace pip3D
         }
     };
 }
-
