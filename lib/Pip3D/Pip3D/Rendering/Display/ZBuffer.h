@@ -183,46 +183,21 @@ namespace pip3D
                                                                            uint16_t *frameBuffer, uint16_t color)
         {
             if (unlikely(y >= HEIGHT))
-            {
-                LOGE(::pip3D::Debug::LOG_MODULE_RENDER,
-                     "ZBuffer::testAndSetScanline y out of bounds (y=%u, HEIGHT=%u)",
-                     static_cast<unsigned int>(y),
-                     static_cast<unsigned int>(HEIGHT));
                 return;
-            }
             if (unlikely(x_end >= WIDTH))
-            {
-                LOGW(::pip3D::Debug::LOG_MODULE_RENDER,
-                     "ZBuffer::testAndSetScanline x_end clamped (x_end=%u, WIDTH=%u)",
-                     static_cast<unsigned int>(x_end),
-                     static_cast<unsigned int>(WIDTH));
                 x_end = WIDTH - 1;
-            }
             if (unlikely(x_start >= WIDTH))
-            {
-                LOGE(::pip3D::Debug::LOG_MODULE_RENDER,
-                     "ZBuffer::testAndSetScanline x_start out of bounds (x_start=%u, WIDTH=%u)",
-                     static_cast<unsigned int>(x_start),
-                     static_cast<unsigned int>(WIDTH));
                 return;
-            }
 
             const uint16_t countTotal = x_end - x_start + 1;
             if (unlikely(countTotal == 0))
-            {
-                LOGW(::pip3D::Debug::LOG_MODULE_RENDER,
-                     "ZBuffer::testAndSetScanline empty span (x_start=%u, x_end=%u)",
-                     static_cast<unsigned int>(x_start),
-                     static_cast<unsigned int>(x_end));
                 return;
-            }
 
             size_t index = y * WIDTH + x_start;
             int16_t *__restrict__ buf = buffer + index;
             uint16_t *__restrict__ fb = frameBuffer + index;
 
             int32_t depth = depthStart;
-
             uint16_t count = countTotal;
 
             while (count >= 4)
@@ -230,7 +205,13 @@ namespace pip3D
                 PIP3D_PREFETCH(buf + 16);
                 PIP3D_PREFETCH(fb + 16);
 
-                int16_t depth0 = static_cast<int16_t>(depth);
+                int32_t dVal0 = depth;
+                if (dVal0 < 0)
+                    dVal0 = 0;
+                else if (dVal0 > 32638)
+                    dVal0 = 32638;
+                int16_t depth0 = static_cast<int16_t>(dVal0);
+
                 int16_t stored0 = buf[0];
                 int16_t currentDepth0 = stored0 & ~SHADOW_FLAG;
                 if (depth0 < currentDepth0)
@@ -240,7 +221,13 @@ namespace pip3D
                 }
                 depth += depthStep;
 
-                int16_t depth1 = static_cast<int16_t>(depth);
+                int32_t dVal1 = depth;
+                if (dVal1 < 0)
+                    dVal1 = 0;
+                else if (dVal1 > 32638)
+                    dVal1 = 32638;
+                int16_t depth1 = static_cast<int16_t>(dVal1);
+
                 int16_t stored1 = buf[1];
                 int16_t currentDepth1 = stored1 & ~SHADOW_FLAG;
                 if (depth1 < currentDepth1)
@@ -250,7 +237,13 @@ namespace pip3D
                 }
                 depth += depthStep;
 
-                int16_t depth2 = static_cast<int16_t>(depth);
+                int32_t dVal2 = depth;
+                if (dVal2 < 0)
+                    dVal2 = 0;
+                else if (dVal2 > 32638)
+                    dVal2 = 32638;
+                int16_t depth2 = static_cast<int16_t>(dVal2);
+
                 int16_t stored2 = buf[2];
                 int16_t currentDepth2 = stored2 & ~SHADOW_FLAG;
                 if (depth2 < currentDepth2)
@@ -260,7 +253,13 @@ namespace pip3D
                 }
                 depth += depthStep;
 
-                int16_t depth3 = static_cast<int16_t>(depth);
+                int32_t dVal3 = depth;
+                if (dVal3 < 0)
+                    dVal3 = 0;
+                else if (dVal3 > 32638)
+                    dVal3 = 32638;
+                int16_t depth3 = static_cast<int16_t>(dVal3);
+
                 int16_t stored3 = buf[3];
                 int16_t currentDepth3 = stored3 & ~SHADOW_FLAG;
                 if (depth3 < currentDepth3)
@@ -277,7 +276,13 @@ namespace pip3D
 
             while (count > 0)
             {
-                int16_t d = static_cast<int16_t>(depth);
+                int32_t dVal = depth;
+                if (dVal < 0)
+                    dVal = 0;
+                else if (dVal > 32638)
+                    dVal = 32638;
+                int16_t d = static_cast<int16_t>(dVal);
+
                 int16_t stored = *buf;
                 int16_t currentDepth = stored & ~SHADOW_FLAG;
                 if (d < currentDepth)
@@ -300,4 +305,3 @@ namespace pip3D
     };
 
 }
-

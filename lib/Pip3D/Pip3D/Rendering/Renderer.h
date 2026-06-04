@@ -331,7 +331,7 @@ namespace pip3D
             displayCfg.xOffset = 0;
             displayCfg.yOffset = 0;
 
-            if (!platform->configDisplay(displayCfg) || !platform->beginDisplay(3))
+            if (!platform->configDisplay(displayCfg) || !platform->beginDisplay(PIP3D_DISPLAY_ROTATION))
             {
                 LOGE(::pip3D::Debug::LOG_MODULE_RENDER,
                      "Renderer::init: display init failed");

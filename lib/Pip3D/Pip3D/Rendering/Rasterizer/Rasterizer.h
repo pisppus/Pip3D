@@ -50,7 +50,7 @@ namespace pip3D
             float dy2 = y2 - y0;
             if (fabsf(dy1) < 1e-6f && fabsf(dy2) < 1e-6f)
                 return;
-            const float depthScale = 32767.0f;
+            const float depthScale = 32638.0f;
 
             auto rasterHalf = [&](float xa0, float ya0, float za0,
                                   float xa1, float ya1, float za1,
@@ -182,7 +182,7 @@ namespace pip3D
             const uint16_t sg = (shadowColor >> 5) & 0x3F;
             const uint16_t sb = shadowColor & 0x1F;
 
-            const float depthScale = 32767.0f;
+            const float depthScale = 32638.0f;
             const int16_t clearDepth = ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::clearDepthValue();
             const int16_t shadowMask = ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::shadowFlagMask();
             const int16_t invShadowMask = static_cast<int16_t>(~shadowMask);
@@ -326,7 +326,7 @@ namespace pip3D
             const int16_t width = config.width;
             const int16_t height = config.height;
 
-            const float depthScale = 32767.0f;
+            const float depthScale = 32638.0f;
             int16_t *const zBufferData = const_cast<int16_t *>(zBuffer ? zBuffer->getBufferPtr() : nullptr);
             const int16_t shadowMask = ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::shadowFlagMask();
             const int16_t invShadowMask = static_cast<int16_t>(~shadowMask);
@@ -777,7 +777,7 @@ namespace pip3D
 
             if (fabsf(dy1) < 1e-6f && fabsf(dy2) < 1e-6f)
                 return;
-            const float depthScale = 32767.0f;
+            const float depthScale = 32638.0f;
 
             auto rasterHalf = [&](float xa0, float ya0, float za0,
                                   float xa1, float ya1, float za1,
