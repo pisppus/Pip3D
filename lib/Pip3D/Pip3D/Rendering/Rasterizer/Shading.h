@@ -168,10 +168,9 @@ namespace pip3D
                     }
                 }
 
-                float lightR;
-                float lightG;
-                float lightB;
-                light.getCachedRGB(lightR, lightG, lightB);
+                const float lightR = light.cachedR;
+                const float lightG = light.cachedG;
+                const float lightB = light.cachedB;
 
                 const float diffuseR = baseR * diffuse;
                 const float diffuseG = baseG * diffuse;
@@ -228,12 +227,10 @@ namespace pip3D
             b *= 31.0f;
 
             const float bayerValue = BAYER_MATRIX_4X4[y & 3][x & 3];
-            const float ditherRB = bayerValue * 0.5f;
-            const float ditherG = bayerValue * 0.25f;
 
-            const int ir = static_cast<int>(r + ditherRB);
-            const int ig = static_cast<int>(g + ditherG);
-            const int ib = static_cast<int>(b + ditherRB);
+            const int ir = static_cast<int>(r + bayerValue);
+            const int ig = static_cast<int>(g + bayerValue);
+            const int ib = static_cast<int>(b + bayerValue);
 
             const uint16_t rc = (ir > 31) ? 31 : ((ir < 0) ? 0 : ir);
             const uint16_t gc = (ig > 63) ? 63 : ((ig < 0) ? 0 : ig);

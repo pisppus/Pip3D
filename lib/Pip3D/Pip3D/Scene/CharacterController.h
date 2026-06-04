@@ -403,10 +403,8 @@ namespace pip3D
                 -offset.x * s + offset.z * c);
 
             Vector3 camPos = position + localOffset;
-            // Направление вперёд по yaw (то же, что направление движения)
             Vector3 forward(s, 0.0f, c);
 
-            // Смотрим немного вперёд от персонажа, чтобы пол был хорошо виден
             Vector3 target = position + forward * 1.5f + Vector3(0.0f, height * 0.5f, 0.0f);
 
             cam.position = camPos;
@@ -422,8 +420,6 @@ namespace pip3D
             float c = cosf(yawRad);
 
             Vector3 forward(s, 0.0f, c);
-
-            // Точка глаз чуть выше верхушки сферы-персонажа
             Vector3 eye = position + Vector3(0.0f, radius + 0.1f, 0.0f);
 
             cam.position = eye;

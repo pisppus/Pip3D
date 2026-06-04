@@ -70,13 +70,10 @@ namespace pip3D
                 return;
             }
 
-            Vector3 worldAnchorA = aBody->position + aBody->orientation.rotate(localAnchorA);
-            Vector3 worldAnchorB = bBody->position + bBody->orientation.rotate(localAnchorB);
+            rA = aBody->orientation.rotate(localAnchorA);
+            rB = bBody->orientation.rotate(localAnchorB);
 
-            rA = worldAnchorA - aBody->position;
-            rB = worldAnchorB - bBody->position;
-
-            Vector3 delta = worldAnchorB - worldAnchorA;
+            Vector3 delta = (bBody->position + rB) - (aBody->position + rA);
             float distSq = delta.lengthSquared();
             float C = 0.0f;
 

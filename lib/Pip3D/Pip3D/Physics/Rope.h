@@ -213,7 +213,6 @@ namespace pip3D
                 if (n.fixed)
                     continue;
 
-                // Floor collision (simple plane)
                 if (n.position.y < floorHeight)
                 {
                     float penetration = floorHeight - n.position.y;

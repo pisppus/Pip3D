@@ -140,8 +140,6 @@ namespace pip3D
             const int16_t height = vp.height;
 
 #if PIP3D_TILED_RENDERING
-            // В тайловом режиме рисуем частицы в текущий тайл через tileColorBuffer.
-            // Предполагается, что beginTileRender уже вызван, tileActive=true.
             if (!renderer.isTileActive() || !renderer.getTileColorBuffer())
             {
                 return;
@@ -189,7 +187,6 @@ namespace pip3D
                 int y0 = clamp(cy - radius, 0, (int)height - 1);
                 int y1 = clamp(cy + radius, 0, (int)height - 1);
 
-                // Ограничиваем по текущему тайлу
                 if (y1 < tileY || y0 >= tileY + tileH)
                     continue;
 

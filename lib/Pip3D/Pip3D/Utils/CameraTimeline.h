@@ -131,5 +131,5 @@ namespace pip3D
         }
     };
 
-} // namespace pip3D
+}
 

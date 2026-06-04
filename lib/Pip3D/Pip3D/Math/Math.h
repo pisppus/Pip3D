@@ -5,10 +5,18 @@
 #include <cstring>
 #include <array>
 
+#if !defined(likely) && (defined(__GNUC__) || defined(__clang__))
+#define likely(x) __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+#elif !defined(likely)
+#define likely(x) (x)
+#define unlikely(x) (x)
+#endif
+
 #if defined(ARDUINO)
 #include <Arduino.h>
 #else
-// Определения, совместимые с Arduino, для десктопных сборок
+
 #ifndef DEG_TO_RAD
 #define DEG_TO_RAD 0.017453292519943295769f
 #endif
@@ -23,7 +31,6 @@
 #endif
 #endif
 
-// GCC-style атрибуты и квалификатор __restrict__ на MSVC не поддерживаются, делаем их пустыми.
 #if defined(_MSC_VER)
 #ifndef __attribute__
 #define __attribute__(x)
@@ -58,33 +65,35 @@ namespace pip3D
     public:
         __attribute__((always_inline)) static inline float fastSin(float angle)
         {
-            if (angle < 0.0f || angle >= kTwoPi)
-                angle = normalizeAngle(angle);
+            if (unlikely(angle < 0.0f || angle >= kTwoPi))
+            {
+                float q = angle * 0.1591549430918953f;
+                int qi = static_cast<int>(q);
+                if (angle < 0.0f)
+                    qi -= 1;
+                angle -= static_cast<float>(qi) * kTwoPi;
+            }
             const int index = static_cast<int>(angle * TWO_PI_256) & 0xFF;
             return sinTable[static_cast<size_t>(index)];
         }
 
         __attribute__((always_inline)) static inline float fastCos(float angle)
         {
-            if (angle < 0.0f || angle >= kTwoPi)
-                angle = normalizeAngle(angle);
+            if (unlikely(angle < 0.0f || angle >= kTwoPi))
+            {
+                float q = angle * 0.1591549430918953f;
+                int qi = static_cast<int>(q);
+                if (angle < 0.0f)
+                    qi -= 1;
+                angle -= static_cast<float>(qi) * kTwoPi;
+            }
             const int index = static_cast<int>(angle * TWO_PI_256) & 0xFF;
             return cosTable[static_cast<size_t>(index)];
         }
 
         __attribute__((always_inline)) static inline float fastInvSqrt(float x)
         {
-            float xhalf = 0.5f * x;
-            union
-            {
-                float f;
-                uint32_t i;
-            } conv;
-            conv.f = x;
-            conv.i = 0x5f3759df - (conv.i >> 1);
-            conv.f = conv.f * (1.5f - xhalf * conv.f * conv.f);
-            conv.f = conv.f * (1.5f - xhalf * conv.f * conv.f);
-            return conv.f;
+            return 1.0f / sqrtf(x);
         }
     };
 
@@ -476,7 +485,7 @@ namespace pip3D
                 dot = -dot;
             }
 
-            if (dot > 0.9995f)
+            if (dot > 0.9995f) 
             {
                 Quaternion result(
                     a.x + t * (b_adjusted.x - a.x),
@@ -501,4 +510,3 @@ namespace pip3D
     };
 
 }
-

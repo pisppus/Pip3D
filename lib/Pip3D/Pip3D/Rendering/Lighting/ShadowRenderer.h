@@ -256,7 +256,6 @@ namespace pip3D
             const int16_t bandTop = currentBandOffsetY();
             const int16_t bandBottom = static_cast<int16_t>(bandTop + currentBandHeight());
 
-            // --- БЫСТРОЕ ОТСЕЧЕНИЕ ПО БАНДАМ РЕНДЕРА ---
             if (fabsf(dirNorm.y) > 0.01f)
             {
                 float tProj = (planeY - meshCenter.y) / dirNorm.y;
@@ -272,7 +271,7 @@ namespace pip3D
 
                     if ((projCenter.y + rScr) < bandTop || (projCenter.y - rScr) >= bandBottom)
                     {
-                        return; // Тень гарантированно вне текущего банда
+                        return;
                     }
                 }
             }
@@ -281,7 +280,6 @@ namespace pip3D
             uint8_t baseAlpha;
             computeShadowColorAndAlpha(shadowSettings, shadowColor, baseAlpha);
 
-            // --- ПАТЧ: Плавное затухание тени на закате ---
             float absLy = fabsf(dirNorm.y);
             float fadeFactor = 1.0f;
             if (absLy < 0.35f)
@@ -326,6 +324,44 @@ namespace pip3D
             const DisplayConfig &framebufferConfig = framebuffer.getConfig();
             uint16_t *const frameBuffer = framebuffer.getBuffer();
 
+            thread_local static std::vector<Vector3> shadowVertsCache;
+            if (shadowVertsCache.size() < vertexCount)
+            {
+                shadowVertsCache.resize(vertexCount);
+            }
+
+            const Vector3 &L_dir = dirNorm;
+            const float ly = L_dir.y;
+            const float signLy = (ly >= 0.0f) ? 1.0f : -1.0f;
+            const float absLyVal = fabsf(ly);
+            const float safeLy = (absLyVal < 0.22f) ? signLy * 0.22f : ly;
+
+            for (uint16_t vi = 0; vi < vertexCount; ++vi)
+            {
+                Vector3 v = worldVerts ? worldVerts[vi] : mesh->vertex(vi);
+                Vector3 sv;
+                if (light.type == LIGHT_DIRECTIONAL)
+                {
+                    float t = (planeY - v.y) / safeLy;
+                    sv = Vector3(v.x + t * L_dir.x, planeY, v.z + t * L_dir.z);
+                }
+                else
+                {
+                    Vector3 Ldir = v - light.position;
+                    if (fabsf(Ldir.y) > 0.001f)
+                    {
+                        float t = (planeY - light.position.y) / Ldir.y;
+                        sv = light.position + Ldir * t;
+                    }
+                    else
+                    {
+                        sv = Vector3(v.x, planeY, v.z);
+                    }
+                }
+                sv.y += offsetY;
+                shadowVertsCache[vi] = sv;
+            }
+
             for (uint16_t i = 0; i < faceCount; ++i)
             {
                 const Face &face = mesh->face(i);
@@ -365,64 +401,9 @@ namespace pip3D
                 if (nl <= 0.0f)
                     continue;
 
-                Vector3 sv0, sv1, sv2;
-
-                if (light.type == LIGHT_DIRECTIONAL)
-                {
-                    const Vector3 &L = dirNorm;
-                    float ly = L.y;
-                    float signLy = (ly >= 0.0f) ? 1.0f : -1.0f;
-                    float absLyVal = fabsf(ly);
-                    float safeLy = (absLyVal < 0.22f) ? signLy * 0.22f : ly;
-
-                    float t0 = (planeY - v0.y) / safeLy;
-                    float t1 = (planeY - v1.y) / safeLy;
-                    float t2 = (planeY - v2.y) / safeLy;
-
-                    sv0 = Vector3(v0.x + t0 * L.x, planeY, v0.z + t0 * L.z);
-                    sv1 = Vector3(v1.x + t1 * L.x, planeY, v1.z + t1 * L.z);
-                    sv2 = Vector3(v2.x + t2 * L.x, planeY, v2.z + t2 * L.z);
-                }
-                else
-                {
-                    Vector3 L0 = v0 - light.position;
-                    Vector3 L1 = v1 - light.position;
-                    Vector3 L2 = v2 - light.position;
-
-                    if (fabsf(L0.y) > 0.001f)
-                    {
-                        float t0 = (planeY - light.position.y) / L0.y;
-                        sv0 = light.position + L0 * t0;
-                    }
-                    else
-                    {
-                        sv0 = Vector3(v0.x, planeY, v0.z);
-                    }
-
-                    if (fabsf(L1.y) > 0.001f)
-                    {
-                        float t1 = (planeY - light.position.y) / L1.y;
-                        sv1 = light.position + L1 * t1;
-                    }
-                    else
-                    {
-                        sv1 = Vector3(v1.x, planeY, v1.z);
-                    }
-
-                    if (fabsf(L2.y) > 0.001f)
-                    {
-                        float t2 = (planeY - light.position.y) / L2.y;
-                        sv2 = light.position + L2 * t2;
-                    }
-                    else
-                    {
-                        sv2 = Vector3(v2.x, planeY, v2.z);
-                    }
-                }
-
-                sv0.y += offsetY;
-                sv1.y += offsetY;
-                sv2.y += offsetY;
+                Vector3 sv0 = shadowVertsCache[face.v0];
+                Vector3 sv1 = shadowVertsCache[face.v1];
+                Vector3 sv2 = shadowVertsCache[face.v2];
 
                 clipAndRenderShadowTriangle(sv0, sv1, sv2,
                                             camera, viewport, viewProjMatrix,
@@ -459,7 +440,6 @@ namespace pip3D
             if (light.type != LIGHT_DIRECTIONAL && light.type != LIGHT_POINT)
                 return;
 
-            // Объявляем worldTransform на верхнем уровне функции
             const Matrix4x4 &worldTransform = instance->transform();
 
             const ShadowProjector::ShadowPlane &plane = shadowSettings.plane;
@@ -487,7 +467,6 @@ namespace pip3D
             const int16_t bandTop = currentBandOffsetY();
             const int16_t bandBottom = static_cast<int16_t>(bandTop + currentBandHeight());
 
-            // --- БЫСТРОЕ ОТСЕЧЕНИЕ ПО БАНДАМ РЕНДЕРА ---
             if (fabsf(dirNorm.y) > 0.01f)
             {
                 float tProj = (planeY - instCenter.y) / dirNorm.y;
@@ -512,7 +491,6 @@ namespace pip3D
             uint8_t baseAlpha;
             computeShadowColorAndAlpha(shadowSettings, shadowColor, baseAlpha);
 
-            // --- ПАТЧ: Плавное затухание тени на закате ---
             float absLy = fabsf(dirNorm.y);
             float fadeFactor = 1.0f;
             if (absLy < 0.35f)
@@ -555,6 +533,44 @@ namespace pip3D
 
             const DisplayConfig &framebufferConfig = framebuffer.getConfig();
             uint16_t *const frameBuffer = framebuffer.getBuffer();
+
+            thread_local static std::vector<Vector3> shadowVertsCache;
+            if (shadowVertsCache.size() < vertexCount)
+            {
+                shadowVertsCache.resize(vertexCount);
+            }
+
+            const Vector3 &L_dir = dirNorm;
+            const float ly = L_dir.y;
+            const float signLy = (ly >= 0.0f) ? 1.0f : -1.0f;
+            const float absLyVal = fabsf(ly);
+            const float safeLy = (absLyVal < 0.22f) ? signLy * 0.22f : ly;
+
+            for (uint16_t vi = 0; vi < vertexCount; ++vi)
+            {
+                Vector3 v = worldVerts ? worldVerts[vi] : worldTransform.transformNoDiv(localVerts ? localVerts[vi] : mesh->decodePosition(mesh->vert(vi)));
+                Vector3 sv;
+                if (light.type == LIGHT_DIRECTIONAL)
+                {
+                    float t = (planeY - v.y) / safeLy;
+                    sv = Vector3(v.x + t * L_dir.x, planeY, v.z + t * L_dir.z);
+                }
+                else
+                {
+                    Vector3 Ldir = v - light.position;
+                    if (fabsf(Ldir.y) > 0.001f)
+                    {
+                        float t = (planeY - light.position.y) / Ldir.y;
+                        sv = light.position + Ldir * t;
+                    }
+                    else
+                    {
+                        sv = Vector3(v.x, planeY, v.z);
+                    }
+                }
+                sv.y += offsetY;
+                shadowVertsCache[vi] = sv;
+            }
 
             for (uint16_t i = 0; i < faceCount; ++i)
             {
@@ -603,65 +619,9 @@ namespace pip3D
                 if (nl <= 0.0f)
                     continue;
 
-                Vector3 sv0, sv1, sv2;
-
-                if (light.type == LIGHT_DIRECTIONAL)
-                {
-                    const Vector3 &L = dirNorm;
-
-                    float ly = L.y;
-                    float signLy = (ly >= 0.0f) ? 1.0f : -1.0f;
-                    float absLyVal = fabsf(ly);
-                    float safeLy = (absLyVal < 0.22f) ? signLy * 0.22f : ly;
-
-                    float t0 = (planeY - v0.y) / safeLy;
-                    float t1 = (planeY - v1.y) / safeLy;
-                    float t2 = (planeY - v2.y) / safeLy;
-
-                    sv0 = Vector3(v0.x + t0 * L.x, planeY, v0.z + t0 * L.z);
-                    sv1 = Vector3(v1.x + t1 * L.x, planeY, v1.z + t1 * L.z);
-                    sv2 = Vector3(v2.x + t2 * L.x, planeY, v2.z + t2 * L.z);
-                }
-                else
-                {
-                    Vector3 L0 = v0 - light.position;
-                    Vector3 L1 = v1 - light.position;
-                    Vector3 L2 = v2 - light.position;
-
-                    if (fabsf(L0.y) > 0.001f)
-                    {
-                        float t0 = (planeY - light.position.y) / L0.y;
-                        sv0 = light.position + L0 * t0;
-                    }
-                    else
-                    {
-                        sv0 = Vector3(v0.x, planeY, v0.z);
-                    }
-
-                    if (fabsf(L1.y) > 0.001f)
-                    {
-                        float t1 = (planeY - light.position.y) / L1.y;
-                        sv1 = light.position + L1 * t1;
-                    }
-                    else
-                    {
-                        sv1 = Vector3(v1.x, planeY, v1.z);
-                    }
-
-                    if (fabsf(L2.y) > 0.001f)
-                    {
-                        float t2 = (planeY - light.position.y) / L2.y;
-                        sv2 = light.position + L2 * t2;
-                    }
-                    else
-                    {
-                        sv2 = Vector3(v2.x, planeY, v2.z);
-                    }
-                }
-
-                sv0.y += offsetY;
-                sv1.y += offsetY;
-                sv2.y += offsetY;
+                Vector3 sv0 = shadowVertsCache[face.v0];
+                Vector3 sv1 = shadowVertsCache[face.v1];
+                Vector3 sv2 = shadowVertsCache[face.v2];
 
                 clipAndRenderShadowTriangle(sv0, sv1, sv2,
                                             camera, viewport, viewProjMatrix,

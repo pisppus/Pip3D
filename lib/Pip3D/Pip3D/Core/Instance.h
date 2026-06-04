@@ -315,6 +315,17 @@ namespace pip3D
         }
     };
 
+    struct SortedInstance
+    {
+        float distanceSq;
+        MeshInstance *instance;
+
+        bool operator<(const SortedInstance &other) const
+        {
+            return distanceSq < other.distanceSq;
+        }
+    };
+
     class InstanceManager
     {
     private:
@@ -480,17 +491,28 @@ namespace pip3D
 
         void sort(const Vector3 &cameraPos, std::vector<MeshInstance *> &insts)
         {
-            std::sort(insts.begin(), insts.end(),
-                      [&cameraPos](const MeshInstance *a, const MeshInstance *b)
-                      {
-                          float distA = (a->pos() - cameraPos).lengthSquared();
-                          float distB = (b->pos() - cameraPos).lengthSquared();
-                          return distA < distB;
-                      });
+            if (insts.size() < 2)
+                return;
+
+            static std::vector<SortedInstance> sortedPairs;
+            sortedPairs.clear();
+            sortedPairs.reserve(insts.size());
+
+            for (auto *inst : insts)
+            {
+                float distSq = (inst->pos() - cameraPos).lengthSquared();
+                sortedPairs.push_back({distSq, inst});
+            }
+
+            std::sort(sortedPairs.begin(), sortedPairs.end());
+
+            for (size_t i = 0; i < insts.size(); ++i)
+            {
+                insts[i] = sortedPairs[i].instance;
+            }
         }
 
         size_t count() const { return instances.size(); }
     };
 
 }
-

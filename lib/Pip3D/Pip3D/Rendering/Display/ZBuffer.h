@@ -6,8 +6,6 @@
 #include "Core/Core.h"
 #include "Core/Debug/Logging.h"
 
-// Кроссплатформенный префетч для ZBuffer: на GCC/Clang используем
-// __builtin_prefetch, на MSVC оставляем пустым no-op.
 #if defined(__GNUC__) || defined(__clang__)
 #ifndef PIP3D_PREFETCH
 #define PIP3D_PREFETCH(ptr) __builtin_prefetch((ptr), 1, 0)
@@ -144,7 +142,6 @@ namespace pip3D
             return static_cast<int16_t>(stored & ~SHADOW_FLAG);
         }
 
-        // Accessors used by optimized skybox rendering pass.
         __attribute__((always_inline)) inline const int16_t *getBufferPtr() const
         {
             return buffer;
@@ -205,66 +202,38 @@ namespace pip3D
                 PIP3D_PREFETCH(buf + 16);
                 PIP3D_PREFETCH(fb + 16);
 
-                int32_t dVal0 = depth;
-                if (dVal0 < 0)
-                    dVal0 = 0;
-                else if (dVal0 > 32638)
-                    dVal0 = 32638;
-                int16_t depth0 = static_cast<int16_t>(dVal0);
-
-                int16_t stored0 = buf[0];
-                int16_t currentDepth0 = stored0 & ~SHADOW_FLAG;
+                int16_t depth0 = static_cast<int16_t>(depth);
+                int16_t currentDepth0 = buf[0] & ~SHADOW_FLAG;
                 if (depth0 < currentDepth0)
                 {
-                    buf[0] = static_cast<int16_t>((stored0 & SHADOW_FLAG) | depth0);
+                    buf[0] = depth0;
                     fb[0] = color;
                 }
                 depth += depthStep;
 
-                int32_t dVal1 = depth;
-                if (dVal1 < 0)
-                    dVal1 = 0;
-                else if (dVal1 > 32638)
-                    dVal1 = 32638;
-                int16_t depth1 = static_cast<int16_t>(dVal1);
-
-                int16_t stored1 = buf[1];
-                int16_t currentDepth1 = stored1 & ~SHADOW_FLAG;
+                int16_t depth1 = static_cast<int16_t>(depth);
+                int16_t currentDepth1 = buf[1] & ~SHADOW_FLAG;
                 if (depth1 < currentDepth1)
                 {
-                    buf[1] = static_cast<int16_t>((stored1 & SHADOW_FLAG) | depth1);
+                    buf[1] = depth1;
                     fb[1] = color;
                 }
                 depth += depthStep;
 
-                int32_t dVal2 = depth;
-                if (dVal2 < 0)
-                    dVal2 = 0;
-                else if (dVal2 > 32638)
-                    dVal2 = 32638;
-                int16_t depth2 = static_cast<int16_t>(dVal2);
-
-                int16_t stored2 = buf[2];
-                int16_t currentDepth2 = stored2 & ~SHADOW_FLAG;
+                int16_t depth2 = static_cast<int16_t>(depth);
+                int16_t currentDepth2 = buf[2] & ~SHADOW_FLAG;
                 if (depth2 < currentDepth2)
                 {
-                    buf[2] = static_cast<int16_t>((stored2 & SHADOW_FLAG) | depth2);
+                    buf[2] = depth2;
                     fb[2] = color;
                 }
                 depth += depthStep;
 
-                int32_t dVal3 = depth;
-                if (dVal3 < 0)
-                    dVal3 = 0;
-                else if (dVal3 > 32638)
-                    dVal3 = 32638;
-                int16_t depth3 = static_cast<int16_t>(dVal3);
-
-                int16_t stored3 = buf[3];
-                int16_t currentDepth3 = stored3 & ~SHADOW_FLAG;
+                int16_t depth3 = static_cast<int16_t>(depth);
+                int16_t currentDepth3 = buf[3] & ~SHADOW_FLAG;
                 if (depth3 < currentDepth3)
                 {
-                    buf[3] = static_cast<int16_t>((stored3 & SHADOW_FLAG) | depth3);
+                    buf[3] = depth3;
                     fb[3] = color;
                 }
                 depth += depthStep;
@@ -276,18 +245,11 @@ namespace pip3D
 
             while (count > 0)
             {
-                int32_t dVal = depth;
-                if (dVal < 0)
-                    dVal = 0;
-                else if (dVal > 32638)
-                    dVal = 32638;
-                int16_t d = static_cast<int16_t>(dVal);
-
-                int16_t stored = *buf;
-                int16_t currentDepth = stored & ~SHADOW_FLAG;
+                int16_t d = static_cast<int16_t>(depth);
+                int16_t currentDepth = *buf & ~SHADOW_FLAG;
                 if (d < currentDepth)
                 {
-                    *buf = static_cast<int16_t>((stored & SHADOW_FLAG) | d);
+                    *buf = d;
                     *fb = color;
                 }
                 depth += depthStep;

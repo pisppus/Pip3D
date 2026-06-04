@@ -3,7 +3,7 @@
 #include <stdint.h>
 
 #if defined(PIP3D_PC)
-#include "Core/Core.h" // micros() stub
+#include "Core/Core.h"
 #else
 #include <Arduino.h>
 #endif
@@ -34,5 +34,5 @@ namespace pip3D
         return dt;
     }
 
-} // namespace pip3D
+}
 

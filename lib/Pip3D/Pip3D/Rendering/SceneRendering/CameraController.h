@@ -26,7 +26,7 @@ namespace pip3D
             return Vector3(
                 (clipX * invW + 1.0f) * halfWidth + viewportX,
                 (1.0f - clipY * invW) * halfHeight + viewportY,
-                clipZ * invW);
+                (clipZ * invW + 1.0f) * 0.5f);
         }
 
         static void updateViewProjectionIfNeeded(Camera &camera,
@@ -63,4 +63,3 @@ namespace pip3D
         }
     };
 }
-

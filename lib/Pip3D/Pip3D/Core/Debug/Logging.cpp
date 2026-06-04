@@ -1,7 +1,7 @@
 #include "Logging.h"
 
 #if defined(PIP3D_PC)
-#include "Core/Core.h" // для micros() и базовых типов
+#include "Core/Core.h"
 #include <cstdio>
 #else
 #include <Arduino.h>

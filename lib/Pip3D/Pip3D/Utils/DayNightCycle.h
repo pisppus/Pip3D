@@ -159,20 +159,7 @@ namespace pip3D
 
             auto lerpColor = [](Color c1, Color c2, float k) -> Color
             {
-                if (k <= 0.0f)
-                    return c1;
-                if (k >= 1.0f)
-                    return c2;
-                int r1 = (c1.rgb565 >> 11) & 0x1F;
-                int g1 = (c1.rgb565 >> 5) & 0x3F;
-                int b1 = c1.rgb565 & 0x1F;
-                int r2 = (c2.rgb565 >> 11) & 0x1F;
-                int g2 = (c2.rgb565 >> 5) & 0x3F;
-                int b2 = c2.rgb565 & 0x1F;
-                uint16_t r = (uint16_t)(r1 + (r2 - r1) * k);
-                uint16_t g = (uint16_t)(g1 + (g2 - g1) * k);
-                uint16_t b = (uint16_t)(b1 + (b2 - b1) * k);
-                return Color((uint16_t)((r << 11) | (g << 5) | b));
+                return c1.blend(c2, static_cast<uint8_t>(k * 255.0f));
             };
 
             Color top, horizon, ground;
@@ -275,4 +262,3 @@ namespace pip3D
     };
 
 }
-
