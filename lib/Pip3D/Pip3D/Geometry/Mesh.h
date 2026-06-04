@@ -537,19 +537,37 @@ namespace pip3D
             if (cache.transformHash == newHash && cache.transformValid)
                 return;
 
-            Matrix4x4 t, r, s;
-            t.setTranslation(position.x, position.y, position.z);
+            float radX = rotation.x * DEG2RAD;
+            float radY = rotation.y * DEG2RAD;
+            float radZ = rotation.z * DEG2RAD;
 
-            Matrix4x4 rx, ry, rz;
-            rx.setRotationX(rotation.x);
-            ry.setRotationY(rotation.y);
-            rz.setRotationZ(rotation.z);
-            r = rz * ry * rx;
+            float cx = FastMath::fastCos(radX), sx = FastMath::fastSin(radX);
+            float cy = FastMath::fastCos(radY), sy = FastMath::fastSin(radY);
+            float cz = FastMath::fastCos(radZ), sz = FastMath::fastSin(radZ);
 
-            s.setScale(scale.x, scale.y, scale.z);
+            cache.transform.identity();
 
-            cache.transform = t * r * s;
-            cache.maxScale = fmaxf(fmaxf(scale.x, scale.y), scale.z);
+            const float scaleX = scale.x;
+            const float scaleY = scale.y;
+            const float scaleZ = scale.z;
+
+            cache.transform.m[0] = cy * cz * scaleX;
+            cache.transform.m[1] = cy * sz * scaleX;
+            cache.transform.m[2] = -sy * scaleX;
+
+            cache.transform.m[4] = (sx * sy * cz - cx * sz) * scaleY;
+            cache.transform.m[5] = (sx * sy * sz + cx * cz) * scaleY;
+            cache.transform.m[6] = sx * cy * scaleY;
+
+            cache.transform.m[8] = (cx * sy * cz + sx * sz) * scaleZ;
+            cache.transform.m[9] = (cx * sy * sz - sx * cz) * scaleZ;
+            cache.transform.m[10] = cx * cy * scaleZ;
+
+            cache.transform.m[12] = position.x;
+            cache.transform.m[13] = position.y;
+            cache.transform.m[14] = position.z;
+
+            cache.maxScale = fmaxf(fmaxf(scaleX, scaleY), scaleZ);
             cache.transformHash = newHash;
             cache.transformValid = true;
 

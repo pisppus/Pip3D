@@ -228,7 +228,6 @@ namespace pip3D
                      activeLightCount(1),
                      shadowsEnabled(true),
                      backfaceCullingEnabled(true),
-                     // Occlusion culling disabled by default in banded mode
                      occlusionCullingEnabled(false),
                      shadingMode(SHADING_FLAT),
                      statsTrianglesTotal(0),
@@ -368,7 +367,6 @@ namespace pip3D
                 return false;
             }
 
-            // Z-buffer also allocated per-band (same dimensions as framebuffer)
             zBuffer = new ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>();
             if (!zBuffer || !zBuffer->init())
             {
@@ -394,7 +392,6 @@ namespace pip3D
                 return false;
             }
 
-            // Viewport still covers the full screen; projection stays unchanged.
             viewport = Viewport(0, 0, cfg.width, cfg.height);
 
             LOGI(::pip3D::Debug::LOG_MODULE_RENDER,
@@ -452,22 +449,19 @@ namespace pip3D
             if (bandIndex >= BAND_COUNT)
                 bandIndex = BAND_COUNT - 1;
 
-            // Update global band state (used by rasterizer, mesh renderer, shadows, etc.).
             int16_t bandTop = static_cast<int16_t>(bandIndex * BAND_HEIGHT);
             currentBandOffsetY() = bandTop;
             currentBandHeight() = BAND_HEIGHT;
 
-            // Only once per full frame, on the first band
             if (bandIndex == 0)
             {
                 currentFrameStamp()++;
                 perfCounter.begin();
 
-                for (int i = 0; i < MAX_WORLD_DIRTY_INSTANCES; ++i)
+                for (int i = 0; i < activeLightCount; ++i)
                 {
-                    worldInstanceDirty[i].hasCurrent = false;
-                    worldInstanceDirty[i].hasLast = false;
-                    worldInstanceDirty[i].instance = nullptr;
+                    float r, g, b;
+                    lights[i].getCachedRGB(r, g, b);
                 }
 
                 hasWorldDirtyRegion = false;
@@ -514,7 +508,6 @@ namespace pip3D
 
             framebuffer.endFrameRegion(0, bandY, fbCfg.width, fbCfg.height);
 
-            // Finish performance counter after the last band is flushed
             if (bandIndex == BAND_COUNT - 1)
             {
                 perfCounter.endFrame();
@@ -601,10 +594,8 @@ namespace pip3D
 
             Camera &cam = cameras[activeCameraIndex];
 
-            // Mark the full world region as dirty since water animates every frame
             addDirtyRect(nullptr, 0, 0, viewport.width, viewport.height);
 
-            // Frustum cull: simple sphere around water patch
             const Vector3 center(0.0f, yLevel, 0.0f);
             const float radius = size * 0.75f;
             if (!frustum.sphere(center, radius))
@@ -619,6 +610,15 @@ namespace pip3D
             const float freq = 0.6f;
             const float amp = size * 0.02f;
 
+            float sinTerms[GRID + 1];
+            float cosTerms[GRID + 1];
+            for (int i = 0; i <= GRID; ++i)
+            {
+                float val = -half + step * static_cast<float>(i);
+                sinTerms[i] = FastMath::fastSin(val * freq + time) * amp;
+                cosTerms[i] = FastMath::fastCos(val * freq + time) * amp;
+            }
+
             for (int iz = 0; iz < GRID; ++iz)
             {
                 float z0 = -half + step * static_cast<float>(iz);
@@ -629,26 +629,12 @@ namespace pip3D
                     float x0 = -half + step * static_cast<float>(ix);
                     float x1 = x0 + step;
 
-                    Vector3 v00(x0,
-                                yLevel + FastMath::fastSin(x0 * freq + time) * amp +
-                                    FastMath::fastCos(z0 * freq + time) * amp,
-                                z0);
-                    Vector3 v10(x1,
-                                yLevel + FastMath::fastSin(x1 * freq + time) * amp +
-                                    FastMath::fastCos(z0 * freq + time) * amp,
-                                z0);
-                    Vector3 v01(x0,
-                                yLevel + FastMath::fastSin(x0 * freq + time) * amp +
-                                    FastMath::fastCos(z1 * freq + time) * amp,
-                                z1);
-                    Vector3 v11(x1,
-                                yLevel + FastMath::fastSin(x1 * freq + time) * amp +
-                                    FastMath::fastCos(z1 * freq + time) * amp,
-                                z1);
+                    Vector3 v00(x0, yLevel + sinTerms[ix] + cosTerms[iz], z0);
+                    Vector3 v10(x1, yLevel + sinTerms[ix + 1] + cosTerms[iz], z0);
+                    Vector3 v01(x0, yLevel + sinTerms[ix] + cosTerms[iz + 1], z1);
+                    Vector3 v11(x1, yLevel + sinTerms[ix + 1] + cosTerms[iz + 1], z1);
 
-                    // Triangle 1
                     drawWaterTriangleInternal(v00, v10, v11, color, alphaByte, cam, cfg, fb);
-                    // Triangle 2
                     drawWaterTriangleInternal(v00, v11, v01, color, alphaByte, cam, cfg, fb);
                 }
             }
@@ -1202,7 +1188,6 @@ namespace pip3D
             int16_t minY = static_cast<int16_t>(floorf(minYf));
             int16_t maxY = static_cast<int16_t>(ceilf(maxYf));
 
-            // Clip to full screen bounds first.
             if (maxX < 0 || maxY < 0 || minX >= (int16_t)SCREEN_WIDTH || minY >= (int16_t)SCREEN_HEIGHT)
             {
                 return;
@@ -1217,7 +1202,6 @@ namespace pip3D
             if (maxY >= (int16_t)SCREEN_HEIGHT)
                 maxY = (int16_t)SCREEN_HEIGHT - 1;
 
-            // Then clip to current band vertically.
             int16_t bandTop = currentBandOffsetY();
             int16_t bandH = currentBandHeight();
             int16_t bandBottom = static_cast<int16_t>(bandTop + bandH);

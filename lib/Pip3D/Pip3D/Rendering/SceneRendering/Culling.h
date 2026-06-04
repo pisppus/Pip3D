@@ -41,7 +41,7 @@ namespace pip3D
 
             Vector3 frontWorld = center - dirToCenter * radius;
             Vector3 frontProj = viewProjMatrix.transform(frontWorld);
-            float objDepth = frontProj.z;
+            float objDepth = frontProj.z * 0.5f + 0.5f;
 
             Vector3 py = CameraController::project(Vector3(center.x, center.y + radius, center.z),
                                                    viewProjMatrix, viewport);

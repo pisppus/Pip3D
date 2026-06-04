@@ -79,7 +79,6 @@ inline void *heap_caps_aligned_alloc(size_t align, size_t size, unsigned int)
 #if defined(_MSC_VER)
   return _aligned_malloc(size, align);
 #else
-  // C++17 aligned_alloc требует size кратным align.
   const size_t alignedSize = (size + align - 1u) / align * align;
   return std::aligned_alloc(align, alignedSize);
 #endif
@@ -87,8 +86,6 @@ inline void *heap_caps_aligned_alloc(size_t align, size_t size, unsigned int)
 
 inline void *heap_caps_malloc(size_t size, unsigned int)
 {
-  // Для единообразия под Windows тоже используем _aligned_malloc,
-  // чтобы heap_caps_free мог всегда вызывать _aligned_free.
 #if defined(_MSC_VER)
   const size_t align = 16u;
   return _aligned_malloc(size, align);
@@ -106,7 +103,7 @@ inline void heap_caps_free(void *ptr)
 #endif
 }
 
-#endif // PIP3D_PC
+#endif
 
 namespace pip3D
 {
@@ -132,7 +129,6 @@ namespace pip3D
     return value < min_val ? min_val : (value > max_val ? max_val : value);
   }
 
-// Branch prediction hints: используем __builtin_expect только там, где он есть.
 #if defined(__GNUC__) || defined(__clang__)
 #ifndef likely
 #define likely(x) __builtin_expect(!!(x), 1)
@@ -161,17 +157,12 @@ namespace pip3D
         : width(w), height(h), cs(cs_), dc(dc_), rst(rst_) {}
   };
 
-  // Global screen configuration (physical display resolution)
   static constexpr uint16_t SCREEN_WIDTH = PIP3D_SCREEN_WIDTH;
   static constexpr uint16_t SCREEN_HEIGHT = PIP3D_SCREEN_HEIGHT;
 
-  // Banded rendering configuration: number of horizontal bands and band height
   static constexpr uint16_t SCREEN_BAND_COUNT = PIP3D_SCREEN_BAND_COUNT;
   static constexpr uint16_t SCREEN_BAND_HEIGHT = SCREEN_HEIGHT / SCREEN_BAND_COUNT;
 
-  // Per-frame band state used by the renderer and rasterizer.
-  // currentBandOffsetY: top Y coordinate (in full-screen space) of the active band.
-  // currentBandHeight:  height of the active band in pixels.
   __attribute__((always_inline)) inline int16_t &currentBandOffsetY()
   {
     static int16_t offsetY = 0;
@@ -249,11 +240,9 @@ namespace pip3D
 
     static Color temp(float k)
     {
-      static float lastK = -1.0f;
-      static Color lastColor(0);
+      thread_local float lastK = -1.0f;
+      thread_local Color lastColor(0);
 
-      // Quantize temperature to reduce unique values and reuse cached result.
-      // Step 50K даёт достаточно плавный переход и сильно снижает число расчётов.
       const float step = 50.0f;
       const int bucket = static_cast<int>(k * INV_COLOR_TEMP_STEP + 0.5f);
       const float qk = bucket * step;
@@ -315,14 +304,15 @@ namespace pip3D
       if (unlikely(a == 255))
         return c;
 
-      const uint32_t ia = 255u - a;
+      const uint32_t alpha = a >> 3;
+      const uint32_t ia = 32u - alpha;
       const uint32_t c1 = rgb565, c2 = c.rgb565;
 
       const uint32_t rb1 = c1 & 0xF81Fu, rb2 = c2 & 0xF81Fu;
       const uint32_t g1 = c1 & 0x07E0u, g2 = c2 & 0x07E0u;
 
-      const uint32_t rb = ((rb1 * ia + rb2 * a) >> 8) & 0xF81Fu;
-      const uint32_t g = ((g1 * ia + g2 * a) >> 8) & 0x07E0u;
+      const uint32_t rb = ((rb1 * ia + rb2 * alpha) >> 5) & 0xF81Fu;
+      const uint32_t g = ((g1 * ia + g2 * alpha) >> 5) & 0x07E0u;
 
       return Color(rb | g);
     }
@@ -334,11 +324,11 @@ namespace pip3D
       if (unlikely(amt == 255))
         return Color(0);
 
-      const uint32_t f = 255u - amt;
-      const uint32_t rb = ((rgb565 & 0xF81Fu) * f) >> 8;
-      const uint32_t g = ((rgb565 & 0x07E0u) * f) >> 8;
+      const uint32_t scale = (255u - amt) >> 3;
+      const uint32_t rb = (((rgb565 & 0xF81Fu) * scale) >> 5) & 0xF81Fu;
+      const uint32_t g = (((rgb565 & 0x07E0u) * scale) >> 5) & 0x07E0u;
 
-      return Color(static_cast<uint16_t>((rb & 0xF81Fu) | (g & 0x07E0u)));
+      return Color(static_cast<uint16_t>(rb | g));
     }
 
     __attribute__((always_inline)) inline Color lighten(uint8_t amt) const

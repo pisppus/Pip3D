@@ -281,70 +281,48 @@ namespace pip3D
                     colorLUT[0] = colorLUT[1] = baseClearColor;
                 }
 
+                const uint32_t colorLUT32 = (static_cast<uint32_t>(colorLUT[1]) << 16) | colorLUT[0];
+                const int32_t clearDepth32 = (static_cast<int32_t>(clearDepth) << 16) | clearDepth;
+                const int32_t invShadowMask32 = (static_cast<int32_t>(invShadowMask) << 16) | invShadowMask;
+
                 uint16_t x = 0;
-                const uint16_t width16 = fbWidth & ~15u;
+                const uint16_t widthHalf = fbWidth >> 1;
 
-                for (; x < width16; x += 16)
+                uint32_t *__restrict__ row32 = reinterpret_cast<uint32_t *>(row);
+                const int32_t *__restrict__ zbRow32 = reinterpret_cast<const int32_t *>(zbRow);
+
+                for (; x < widthHalf; ++x)
                 {
-                    PIP3D_PREFETCH(&zbRow[x + 16]);
+                    PIP3D_PREFETCH(&zbRow32[x + 8]);
 
-                    const int16_t d0 = zbRow[x] & invShadowMask;
-                    const int16_t d1 = zbRow[x + 1] & invShadowMask;
-                    const int16_t d2 = zbRow[x + 2] & invShadowMask;
-                    const int16_t d3 = zbRow[x + 3] & invShadowMask;
-                    const int16_t d4 = zbRow[x + 4] & invShadowMask;
-                    const int16_t d5 = zbRow[x + 5] & invShadowMask;
-                    const int16_t d6 = zbRow[x + 6] & invShadowMask;
-                    const int16_t d7 = zbRow[x + 7] & invShadowMask;
-                    const int16_t d8 = zbRow[x + 8] & invShadowMask;
-                    const int16_t d9 = zbRow[x + 9] & invShadowMask;
-                    const int16_t d10 = zbRow[x + 10] & invShadowMask;
-                    const int16_t d11 = zbRow[x + 11] & invShadowMask;
-                    const int16_t d12 = zbRow[x + 12] & invShadowMask;
-                    const int16_t d13 = zbRow[x + 13] & invShadowMask;
-                    const int16_t d14 = zbRow[x + 14] & invShadowMask;
-                    const int16_t d15 = zbRow[x + 15] & invShadowMask;
+                    int32_t zb2 = zbRow32[x];
+                    int32_t d2 = zb2 & invShadowMask32;
 
-                    if (d0 == clearDepth)
-                        row[x] = colorLUT[x & 1u];
-                    if (d1 == clearDepth)
-                        row[x + 1] = colorLUT[(x + 1) & 1u];
-                    if (d2 == clearDepth)
-                        row[x + 2] = colorLUT[(x + 2) & 1u];
-                    if (d3 == clearDepth)
-                        row[x + 3] = colorLUT[(x + 3) & 1u];
-                    if (d4 == clearDepth)
-                        row[x + 4] = colorLUT[(x + 4) & 1u];
-                    if (d5 == clearDepth)
-                        row[x + 5] = colorLUT[(x + 5) & 1u];
-                    if (d6 == clearDepth)
-                        row[x + 6] = colorLUT[(x + 6) & 1u];
-                    if (d7 == clearDepth)
-                        row[x + 7] = colorLUT[(x + 7) & 1u];
-                    if (d8 == clearDepth)
-                        row[x + 8] = colorLUT[(x + 8) & 1u];
-                    if (d9 == clearDepth)
-                        row[x + 9] = colorLUT[(x + 9) & 1u];
-                    if (d10 == clearDepth)
-                        row[x + 10] = colorLUT[(x + 10) & 1u];
-                    if (d11 == clearDepth)
-                        row[x + 11] = colorLUT[(x + 11) & 1u];
-                    if (d12 == clearDepth)
-                        row[x + 12] = colorLUT[(x + 12) & 1u];
-                    if (d13 == clearDepth)
-                        row[x + 13] = colorLUT[(x + 13) & 1u];
-                    if (d14 == clearDepth)
-                        row[x + 14] = colorLUT[(x + 14) & 1u];
-                    if (d15 == clearDepth)
-                        row[x + 15] = colorLUT[(x + 15) & 1u];
+                    if (d2 == clearDepth32)
+                    {
+                        row32[x] = colorLUT32;
+                    }
+                    else
+                    {
+                        int16_t d0 = static_cast<int16_t>(zb2 & 0xFFFF) & invShadowMask;
+                        if (d0 == clearDepth)
+                        {
+                            row[x * 2] = colorLUT[0];
+                        }
+                        int16_t d1 = static_cast<int16_t>(zb2 >> 16) & invShadowMask;
+                        if (d1 == clearDepth)
+                        {
+                            row[x * 2 + 1] = colorLUT[1];
+                        }
+                    }
                 }
 
-                for (; x < fbWidth; ++x)
+                if (unlikely(fbWidth & 1u))
                 {
-                    const int16_t depthNoShadow = zbRow[x] & invShadowMask;
+                    const int16_t depthNoShadow = zbRow[fbWidth - 1] & invShadowMask;
                     if (depthNoShadow == clearDepth)
                     {
-                        row[x] = colorLUT[x & 1u];
+                        row[fbWidth - 1] = colorLUT[(fbWidth - 1) & 1u];
                     }
                 }
             }
