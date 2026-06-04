@@ -2,6 +2,7 @@
 
 #if PIPCORE_DISPLAY_ID(PIPCORE_DISPLAY) == PIPCORE_DISPLAY_TAG_ST7789
 
+#include <PipCore/Debug/MemoryHooks.hpp>
 #include <PipCore/Platforms/ESP32/Transports/St7789Spi.hpp>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -193,13 +194,17 @@ namespace pipcore::esp32
         {
             if (_dmaBuf[i])
             {
+                void *freed = _dmaBuf[i];
                 heap_caps_free(_dmaBuf[i]);
                 _dmaBuf[i] = nullptr;
+                pipcore::debug::memoryEvent(pipcore::debug::MemoryEvent::Free, "st7789.dma.free", freed, nullptr, DmaBufferBytes, MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
             }
             if (_trans[i])
             {
+                void *freed = _trans[i];
                 heap_caps_free(_trans[i]);
                 _trans[i] = nullptr;
+                pipcore::debug::memoryEvent(pipcore::debug::MemoryEvent::Free, "st7789.trans.free", freed, nullptr, sizeof(spi_transaction_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
             }
             _transInFlight[i] = false;
         }
@@ -247,6 +252,8 @@ namespace pipcore::esp32
         for (int i = 0; i < 2; ++i)
         {
             _dmaBuf[i] = static_cast<uint8_t *>(heap_caps_aligned_alloc(4, DmaBufferBytes, MALLOC_CAP_DMA | MALLOC_CAP_8BIT));
+            pipcore::debug::memoryEvent(_dmaBuf[i] ? pipcore::debug::MemoryEvent::Alloc : pipcore::debug::MemoryEvent::AllocFail,
+                                        "st7789.dma.alloc", _dmaBuf[i], nullptr, DmaBufferBytes, MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
         }
         _dmaBufSize = DmaBufferBytes;
 
@@ -258,6 +265,8 @@ namespace pipcore::esp32
         for (int i = 0; i < 2; ++i)
         {
             _trans[i] = static_cast<spi_transaction_t *>(heap_caps_calloc(1, sizeof(spi_transaction_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+            pipcore::debug::memoryEvent(_trans[i] ? pipcore::debug::MemoryEvent::Alloc : pipcore::debug::MemoryEvent::AllocFail,
+                                        "st7789.trans.alloc", _trans[i], nullptr, sizeof(spi_transaction_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
             if (!_trans[i])
             {
                 deinit();

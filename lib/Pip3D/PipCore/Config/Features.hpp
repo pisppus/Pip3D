@@ -1,6 +1,20 @@
 #pragma once
 
-#if __has_include(<config.hpp>)
+#if defined(ESP32) || defined(ARDUINO_ARCH_ESP32) || defined(ESP_PLATFORM)
+#define PIPCORE_TARGET_ESP32 1
+#else
+#define PIPCORE_TARGET_ESP32 0
+#endif
+
+#if defined(_WIN32) || defined(__linux__)
+#define PIPCORE_TARGET_DESKTOP 1
+#else
+#define PIPCORE_TARGET_DESKTOP 0
+#endif
+
+#if PIPCORE_TARGET_DESKTOP && __has_include(<config_sim.hpp>)
+#include <config_sim.hpp>
+#elif __has_include(<config.hpp>)
 #include <config.hpp>
 #endif
 
@@ -47,7 +61,13 @@ namespace pipcore::detail
 
 #define PIPCORE_PLATFORM_TAG_ESP32 1
 #define PIPCORE_PLATFORM_TAG_DESKTOP 2
-#define PIPCORE_PLATFORM_ID(name) PIPCORE_PP_CAT(PIPCORE_PLATFORM_TAG_, name)
+#if PIPCORE_TARGET_ESP32 && !defined(ESP32)
+#define ESP32 PIPCORE_PLATFORM_TAG_ESP32
+#endif
+#ifndef DESKTOP
+#define DESKTOP PIPCORE_PLATFORM_TAG_DESKTOP
+#endif
+#define PIPCORE_PLATFORM_ID(name) name
 
 #define PIPCORE_DISPLAY_TAG_ST7789 1
 #define PIPCORE_DISPLAY_TAG_ILI9488 2

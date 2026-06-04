@@ -3,7 +3,7 @@
 #include <PipCore/Config/Features.hpp>
 #include <PipCore/Platform.hpp>
 
-#if !defined(ESP32)
+#if !PIPCORE_TARGET_ESP32
 #error "pipcore::esp32::Platform requires ESP32"
 #endif
 
