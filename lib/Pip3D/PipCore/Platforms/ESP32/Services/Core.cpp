@@ -1,4 +1,5 @@
 #include <PipCore/Platforms/ESP32/Services/Core.hpp>
+#include <PipCore/Debug/MemoryHooks.hpp>
 
 #include <Arduino.h>
 #include <esp_heap_caps.h>
@@ -36,15 +37,22 @@ namespace pipcore::esp32::services
         {
             void *ptr = heap_caps_malloc(bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
             if (ptr)
+            {
+                pipcore::debug::memoryEvent(pipcore::debug::MemoryEvent::Alloc, "platform.alloc.internal", ptr, nullptr, bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
                 return ptr;
+            }
         }
 
-        return heap_caps_malloc(bytes, MALLOC_CAP_8BIT);
+        void *ptr = heap_caps_malloc(bytes, MALLOC_CAP_8BIT);
+        pipcore::debug::memoryEvent(ptr ? pipcore::debug::MemoryEvent::Alloc : pipcore::debug::MemoryEvent::AllocFail,
+                                    "platform.alloc", ptr, nullptr, bytes, MALLOC_CAP_8BIT);
+        return ptr;
     }
 
     void Heap::free(void *ptr) const noexcept
     {
         heap_caps_free(ptr);
+        pipcore::debug::memoryEvent(pipcore::debug::MemoryEvent::Free, "platform.free", ptr, nullptr, 0, 0);
     }
 
     uint32_t Heap::freeHeapTotal() const noexcept

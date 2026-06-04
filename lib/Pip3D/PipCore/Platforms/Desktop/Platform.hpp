@@ -1,6 +1,8 @@
 #pragma once
 
-#if defined(_WIN32)
+#include <PipCore/Config/Features.hpp>
+
+#if PIPCORE_TARGET_DESKTOP
 
 #include <PipCore/Displays/Simulator/Display.hpp>
 #include <PipCore/Network/Wifi.hpp>
