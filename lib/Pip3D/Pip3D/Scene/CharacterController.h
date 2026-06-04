@@ -245,9 +245,15 @@ namespace pip3D
 
         void update(float deltaTime, const CharacterInput &input, const Camera &camera)
         {
-            (void)camera;
+            Vector3 camFwd = camera.forward();
+            camFwd.y = 0.0f;
+            camFwd.normalize();
 
-            Vector3 moveDir(input.moveX, 0.0f, input.moveY);
+            Vector3 camRight = camera.right();
+            camRight.y = 0.0f;
+            camRight.normalize();
+
+            Vector3 moveDir = camRight * input.moveX + camFwd * input.moveY;
             float moveLenSq = moveDir.lengthSquared();
             if (moveLenSq > 1e-5f)
             {

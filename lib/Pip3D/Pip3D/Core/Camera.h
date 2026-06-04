@@ -305,13 +305,11 @@ namespace pip3D
       if (cache.flags.vectorsDirty)
         updateVectors();
 
-      const Vector3 &fwd = cache.cachedForward;
-      const float cy = cosf(yawRad), sy = sinf(yawRad);
-      const float cp = cosf(pitchRad), sp = sinf(pitchRad);
+      Quaternion pitchQ = Quaternion::fromAxisAngle(cache.cachedRight, pitchRad);
+      Vector3 tempFwd = pitchQ.rotate(cache.cachedForward);
 
-      Vector3 newFwd(fwd.x * cy - fwd.z * sy, fwd.y, fwd.x * sy + fwd.z * cy);
-      Vector3 finalFwd(newFwd.x, newFwd.y * cp - newFwd.z * sp,
-                       newFwd.y * sp + newFwd.z * cp);
+      Quaternion yawQ = Quaternion::fromAxisAngle(Vector3(0, 1, 0), yawRad);
+      Vector3 finalFwd = yawQ.rotate(tempFwd);
       finalFwd.normalize();
 
       const float dist = (target - position).length();
