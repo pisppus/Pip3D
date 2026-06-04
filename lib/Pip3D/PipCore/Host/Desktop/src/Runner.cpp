@@ -2,6 +2,7 @@
 #include <PipCore/Platforms/Desktop/Runtime.hpp>
 
 #if defined(_WIN32)
+#undef INPUT
 #include <windows.h>
 #endif
 

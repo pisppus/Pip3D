@@ -266,7 +266,7 @@ namespace pip3D
                         const int16_t frontTolerance = 40 + (depthNoShadow >> 10);
                         const int16_t backTolerance = 10 + (depthNoShadow >> 11);
                         const int16_t depthDelta = static_cast<int16_t>(depthNoShadow - shadowDepth);
-                        if (depthDelta < -backTolerance || depthDelta > frontTolerance)
+                        if (depthDelta < -backTolerance)
                         {
                             depth += depthStep;
                             continue;
@@ -872,4 +872,3 @@ namespace pip3D
     };
 
 }
-

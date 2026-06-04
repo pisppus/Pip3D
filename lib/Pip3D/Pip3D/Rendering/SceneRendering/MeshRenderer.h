@@ -451,8 +451,8 @@ namespace pip3D
                     Vector3 worldPos = meshTransform.transformNoDiv(localPos);
                     worldVerts[i] = worldPos;
                     screenVerts[i] = CameraController::project(worldPos, viewProjMatrix,
-                                                              viewportHalfWidth, viewportHalfHeight,
-                                                              viewport.x, viewport.y);
+                                                               viewportHalfWidth, viewportHalfHeight,
+                                                               viewport.x, viewport.y);
                 }
 
                 mesh->setCachedProjectionFrameStamp(frameStamp);
@@ -473,15 +473,26 @@ namespace pip3D
                 const Vector3 &p1 = screenVerts[i1];
                 const Vector3 &p2 = screenVerts[i2];
 
-                float minY = fminf(p0.y, fminf(p1.y, p2.y));
-                float maxY = fmaxf(p0.y, fmaxf(p1.y, p2.y));
-                if (maxY < bandTop || minY >= bandBottom)
+                float d0 = (v0 - camera.position).dot(camera.forward());
+                float d1 = (v1 - camera.position).dot(camera.forward());
+                float d2 = (v2 - camera.position).dot(camera.forward());
+
+                if (d0 < camera.nearPlane && d1 < camera.nearPlane && d2 < camera.nearPlane)
                     continue;
 
-                float minX = fminf(p0.x, fminf(p1.x, p2.x));
-                float maxX = fmaxf(p0.x, fmaxf(p1.x, p2.x));
-                if (maxX < 0.0f || minX >= viewportWidth)
-                    continue;
+                bool partiallyClipped = (d0 < camera.nearPlane || d1 < camera.nearPlane || d2 < camera.nearPlane);
+                if (!partiallyClipped)
+                {
+                    float minY = fminf(p0.y, fminf(p1.y, p2.y));
+                    float maxY = fmaxf(p0.y, fmaxf(p1.y, p2.y));
+                    if (maxY < bandTop || minY >= bandBottom)
+                        continue;
+
+                    float minX = fminf(p0.x, fminf(p1.x, p2.x));
+                    float maxX = fmaxf(p0.x, fmaxf(p1.x, p2.x));
+                    if (maxX < 0.0f || minX >= viewportWidth)
+                        continue;
+                }
 
                 statsTrianglesTotal++;
                 if (backfaceCullingEnabled)
@@ -524,4 +535,3 @@ namespace pip3D
         }
     };
 }
-
