@@ -322,12 +322,12 @@ namespace pip3D
             displayCfg.cs = cfg.cs;
             displayCfg.dc = cfg.dc;
             displayCfg.rst = cfg.rst;
-            displayCfg.width = cfg.width;
-            displayCfg.height = cfg.height;
+            displayCfg.width = cfg.height;
+            displayCfg.height = cfg.width;
             displayCfg.hz = cfg.spi_freq;
             displayCfg.order = 1;
             displayCfg.invert = true;
-            displayCfg.swap = false;
+            displayCfg.swap = true;
             displayCfg.xOffset = 0;
             displayCfg.yOffset = 0;
 

@@ -8,7 +8,9 @@
     "srcFilter": [
       "+<PipCore/>",
       "+<Pip3D/>",
-      "-<Pip3D/Editor/>"
+      "-<Pip3D/Editor/>",
+      "-<PipCore/Host/Desktop/>",
+      "-<PipCore/Platforms/Desktop/>"
     ]
   }
 }

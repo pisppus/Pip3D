@@ -25,6 +25,7 @@
 
 #if defined(PIP3D_PC)
 
+/*
 inline uint32_t micros()
 {
   using namespace std::chrono;
@@ -45,6 +46,7 @@ inline uint32_t millis()
 {
   return micros() / 1000u;
 }
+*/
 
 inline long random(long minVal, long maxVal)
 {

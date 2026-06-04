@@ -831,7 +831,7 @@ namespace pip3D
 
                         int32_t depthStep = static_cast<int32_t>(z_step * depthScale);
                         int32_t depthStart = static_cast<int32_t>(z * depthScale);
-                        const int16_t localY = static_cast<int16_t>(y - currentBandOffsetY());
+                        const int16_t localY = static_cast<int16_t>(y);
                         if (localY < 0 || localY >= SCREEN_BAND_HEIGHT)
                             continue;
 
