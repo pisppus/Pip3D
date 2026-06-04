@@ -7,16 +7,16 @@
 #include <PipCore/Platforms/Desktop/Runtime.hpp>
 #endif
 
-#define TFT_MOSI 11
+#define TFT_MOSI 6
 #define TFT_MISO -1
-#define TFT_SCLK 12
+#define TFT_SCLK 5
 
 #include "Pip3D.h"
 
 using namespace pip3D;
 
-static const int8_t TFT_CS_PIN = 10;
-static const int8_t TFT_DC_PIN = 9;
+static const int8_t TFT_CS_PIN = 7;
+static const int8_t TFT_DC_PIN = 8;
 static const int8_t TFT_RST_PIN = -1;
 static const int8_t TFT_BL_PIN = -1;
 
@@ -158,6 +158,24 @@ static SunState g_sunState{};
 static uint32_t g_lastMs = 0;
 static float g_demoTime = 0.0f;
 
+struct PerfHudSnapshot
+{
+  float fps = 0.0f;
+  float avgFps = 0.0f;
+  uint32_t frameTimeUs = 0;
+  uint32_t freeHeapBytes = 0;
+  uint32_t largestHeapBlockBytes = 0;
+  uint32_t freePsramBytes = 0;
+  uint32_t trianglesTotal = 0;
+  uint32_t trianglesBackfaceCulled = 0;
+  uint32_t instancesTotal = 0;
+  uint32_t instancesFrustumCulled = 0;
+  uint32_t instancesOcclusionCulled = 0;
+};
+
+static PerfHudSnapshot g_perfHudSnapshot{};
+static bool g_perfHudSnapshotValid = false;
+
 #if defined(PIP3D_PC)
 struct FreeCameraState
 {
@@ -191,6 +209,49 @@ static float smoother(float t)
 {
   t = saturate(t);
   return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
+}
+
+static void formatFixed1(char *dst, size_t dstSize, float value)
+{
+  if (!dst || dstSize == 0)
+    return;
+
+  const bool negative = value < 0.0f;
+  if (negative)
+    value = -value;
+
+  uint32_t scaled = static_cast<uint32_t>(value * 10.0f + 0.5f);
+  uint32_t whole = scaled / 10u;
+  uint32_t frac = scaled % 10u;
+
+  if (negative)
+    snprintf(dst, dstSize, "-%u.%u", static_cast<unsigned int>(whole), static_cast<unsigned int>(frac));
+  else
+    snprintf(dst, dstSize, "%u.%u", static_cast<unsigned int>(whole), static_cast<unsigned int>(frac));
+}
+
+static void capturePerfHud(const Renderer &r)
+{
+  g_perfHudSnapshot.fps = r.getFPS();
+  g_perfHudSnapshot.avgFps = r.getAverageFPS();
+  g_perfHudSnapshot.frameTimeUs = r.getFrameTime();
+  g_perfHudSnapshot.freeHeapBytes = static_cast<uint32_t>(MemUtils::getFreeHeap());
+  g_perfHudSnapshot.largestHeapBlockBytes = static_cast<uint32_t>(MemUtils::getLargestFreeBlock());
+  g_perfHudSnapshot.freePsramBytes = static_cast<uint32_t>(MemUtils::getFreePSRAM());
+  g_perfHudSnapshot.trianglesTotal = r.getStatsTrianglesTotal();
+  g_perfHudSnapshot.trianglesBackfaceCulled = r.getStatsTrianglesBackfaceCulled();
+  g_perfHudSnapshot.instancesTotal = r.getStatsInstancesTotal();
+  g_perfHudSnapshot.instancesFrustumCulled = r.getStatsInstancesFrustumCulled();
+  g_perfHudSnapshot.instancesOcclusionCulled = r.getStatsInstancesOcclusionCulled();
+  g_perfHudSnapshotValid = true;
+}
+
+static void drawHudLine(Renderer &r, int16_t x, int16_t y, const char *text)
+{
+  if (!text || !*text)
+    return;
+
+  r.drawTextAdaptive(x, y, text);
 }
 
 static Vector3 lerpVec(const Vector3 &a, const Vector3 &b, float t)
