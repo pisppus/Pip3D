@@ -1,8 +1,10 @@
 #pragma once
 
 #include <stdint.h>
-#include "Core/Core.h"
+#include "Core/Platform.h"
+#include "Core/Diagnostics.h"
 #include "FrameBuffer.h"
+#include "Core/Viewport.h"
 
 namespace pip3D
 {

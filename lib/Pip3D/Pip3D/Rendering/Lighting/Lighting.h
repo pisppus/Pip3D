@@ -1,6 +1,7 @@
 #pragma once
 
-#include "Core/Core.h"
+#include "Core/Platform.h"
+#include "Core/Color.h"
 
 namespace pip3D
 {

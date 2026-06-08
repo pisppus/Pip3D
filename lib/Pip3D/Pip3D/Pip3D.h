@@ -1,43 +1,56 @@
 #pragma once
 
-#include "Core/Core.h"
-#include "Core/Camera.h"
-#include "Core/Frustum.h"
-#include "Core/Instance.h"
+#include "Core/Platform.h"
+#include "Core/Memory.h"
+#include "Core/Color.h"
+#include "Core/Viewport.h"
+#include "Core/Diagnostics.h"
+#include "Core/Events.h"
+#include "Core/Resources.h"
 #include "Core/Jobs.h"
-#include "Core/Debug/DebugConfig.h"
-#include "Core/Debug/Logging.h"
-#include "Core/Debug/DebugDraw.h"
 
-#include "Math/Math.h"
+#include "Debug/Flags.h"
+#include "Debug/Logging.h"
+#include "Debug/Gizmos.h"
+
+#include "Math/Algebra.h"
 #include "Math/Collision.h"
 
 #include "Physics/Physics.h"
 
-#include "Geometry/Mesh.h"
-#include "Geometry/PrimitiveShapes.h"
+#include "Camera/Camera.h"
+#include "Camera/Frustum.h"
+#include "Camera/Timeline.h"
 
-#include "Rendering/Display/ZBuffer.h"
-#include "Rendering/Lighting/Lighting.h"
-#include "Rendering/Lighting/Shadow.h"
-#include "Rendering/Rasterizer/Rasterizer.h"
-#include "Rendering/Rasterizer/Shading.h"
+#include "Geometry/Mesh.h"
+#include "Geometry/Instance.h"
+#include "Geometry/Primitives.h"
+
+#include "Input/Input.h"
+
 #include "Rendering/Display/FrameBuffer.h"
+#include "Rendering/Display/ZBuffer.h"
+#include "Rendering/Display/Sky.h"
 #include "Rendering/Renderer.h"
 
-#include "Graphics/Font.h"
+#include "Rendering/Pipeline/Rasterizer.h"
+#include "Rendering/Pipeline/Shading.h"
+#include "Rendering/Pipeline/Object.h"
+#include "Rendering/Pipeline/Water.h"
 
-#include "Scene/SceneHelper.h"
-#include "Utils/ObjectUtils.h"
-#include "Utils/CameraUtils.h"
-#include "Utils/CameraTimeline.h"
-#include "Utils/DayNightCycle.h"
-#include "Utils/TimeUtils.h"
-#include "Utils/FX.h"
-#include "Input/Input.h"
-#include "Scene/SceneNode.h"
-#include "Scene/SceneGraph.h"
-#include "Scene/CharacterController.h"
+#include "Rendering/Lighting/Lighting.h"
+#include "Rendering/Lighting/Shadow.h"
+
+#include "Rendering/Effects/Particles.h"
+
+#include "Rendering/UI/Font.h"
+#include "Rendering/UI/HUD.h"
+
+#include "Scene/Node.h"
+#include "Scene/Graph.h"
+#include "Scene/Helper.h"
+#include "Scene/Atmosphere.h"
+#include "Scene/Character.h"
 
 namespace pip3D
 {
@@ -94,4 +107,3 @@ namespace pip3D
         return begin3D(320, 240, cs, dc, rst, bl, spi_freq);
     }
 }
-

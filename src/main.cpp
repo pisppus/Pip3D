@@ -300,6 +300,22 @@ static void drawHud(Renderer& r) {
         r.drawText(12, 14, "GEOMETRIC ARCHWAY", mixColor565(Color::fromRGB888(70, 80, 105), Color::fromRGB888(245, 235, 220), intro));
         r.drawText(12, 24, "3d shadow projection test", mixColor565(Color::fromRGB888(40, 55, 90), Color::fromRGB888(165, 220, 255), intro));
     }
+
+    // Мониторинг производительности
+    char buf[64];
+
+    // 1. Текущий и средний FPS + время кадра в миллисекундах
+    snprintf(buf, sizeof(buf), "FPS: %.1f (%.1f ms)", r.getAverageFPS(), r.getFrameTime() / 1000.0f);
+    r.drawText(200, 12, buf, Color::GREEN);
+
+    // 2. Отрисованные треугольники (всего выслано минус отсеченные Backface Culling)
+    uint32_t activeTris = r.getStatsTrianglesTotal() - r.getStatsTrianglesBackfaceCulled();
+    snprintf(buf, sizeof(buf), "Tris: %lu (BFC: %lu)", (unsigned long)activeTris, (unsigned long)r.getStatsTrianglesBackfaceCulled());
+    r.drawText(12, 216, buf, Color::YELLOW);
+
+    // 3. Статистика инстансов (всего на сцене против отсеченных Frustum Culling)
+    snprintf(buf, sizeof(buf), "Inst: %lu (Cull: %lu)", (unsigned long)r.getStatsInstancesTotal(), (unsigned long)r.getStatsInstancesFrustumCulled());
+    r.drawText(12, 226, buf, Color::CYAN);
 }
 
 void setup() {

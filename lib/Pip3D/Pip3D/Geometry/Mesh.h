@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Math/Math.h"
-#include "Core/Core.h"
+#include "Math/Algebra.h"
+#include "Core/Memory.h"
 
 #if !defined(PIP3D_PC)
 #include <esp_heap_caps.h>

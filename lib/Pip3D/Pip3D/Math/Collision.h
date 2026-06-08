@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Math.h"
+#include "Algebra.h"
 #include <float.h>
 
 namespace pip3D

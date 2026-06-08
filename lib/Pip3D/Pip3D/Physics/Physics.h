@@ -2,7 +2,7 @@
 
 #include "Math/Collision.h"
 #include "Core/Jobs.h"
-#include "Core/Debug/Logging.h"
+#include "Debug/Logging.h"
 #include <vector>
 #include <float.h>
 
