@@ -5,11 +5,7 @@
 #include <array>
 #include <cstring>
 
-#if defined(PIP3D_PC)
-#include "Core/Core.h"
-#else
 #include <Arduino.h>
-#endif
 
 namespace pip3D
 {

@@ -17,7 +17,7 @@ namespace pip3D
 
     class MeshRenderer
     {
-    private:
+    public:
         static constexpr float RGB565_RED_TO_FLOAT = 0.03225806451612903226f;
         static constexpr float RGB565_GREEN_TO_FLOAT = 0.01587301587301587302f;
         static constexpr float RGB565_BLUE_TO_FLOAT = 0.03225806451612903226f;
@@ -32,6 +32,7 @@ namespace pip3D
             baseB = (color & 0x1F) * RGB565_BLUE_TO_FLOAT;
         }
 
+    private:
         static void drawTriangle3D_Color_Preprojected(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2,
                                                       const Vector3 &p0, const Vector3 &p1, const Vector3 &p2,
                                                       float baseR,
@@ -46,7 +47,9 @@ namespace pip3D
                                                       int activeLightCount,
                                                       bool backfaceCullingEnabled,
                                                       uint32_t &statsTrianglesTotal,
-                                                      uint32_t &statsTrianglesBackfaceCulled)
+                                                      uint32_t &statsTrianglesBackfaceCulled,
+                                                      bool useUniformColor = false,
+                                                      uint16_t uniformColor = 0)
         {
             (void)viewProjMatrix;
             (void)backfaceCullingEnabled;
@@ -76,27 +79,40 @@ namespace pip3D
             lp1.y -= (float)bandTop;
             lp2.y -= (float)bandTop;
 
-            Vector3 edge1 = v1 - v0;
-            Vector3 edge2 = v2 - v0;
-            Vector3 normal = edge1.cross(edge2);
-            Vector3 fragPos = (v0 + v1 + v2) * (1.0f / 3.0f);
-            Vector3 viewDir = camera.position - fragPos;
+            uint16_t shadedColor = uniformColor;
 
-            if (camera.projectionType == PERSPECTIVE)
+            if (!useUniformColor)
             {
-                if (p0.z <= 0.0f && p1.z <= 0.0f && p2.z <= 0.0f)
-                    return;
+                Vector3 edge1 = v1 - v0;
+                Vector3 edge2 = v2 - v0;
+                Vector3 normal = edge1.cross(edge2);
+                Vector3 fragPos = (v0 + v1 + v2) * (1.0f / 3.0f);
+                Vector3 viewDir = camera.position - fragPos;
+
+                if (camera.projectionType == PERSPECTIVE)
+                {
+                    if (p0.z <= 0.0f && p1.z <= 0.0f && p2.z <= 0.0f)
+                        return;
+                }
+                normal.normalize();
+                viewDir.normalize();
+
+                float finalR, finalG, finalB;
+                Shading::calculateLighting(fragPos, normal, viewDir,
+                                           lights, activeLightCount,
+                                           baseR, baseG, baseB,
+                                           finalR, finalG, finalB);
+
+                shadedColor = Shading::quantizeColor(finalR, finalG, finalB);
             }
-            normal.normalize();
-            viewDir.normalize();
-
-            float finalR, finalG, finalB;
-            Shading::calculateLighting(fragPos, normal, viewDir,
-                                       lights, activeLightCount,
-                                       baseR, baseG, baseB,
-                                       finalR, finalG, finalB);
-
-            uint16_t shadedColor = Shading::quantizeColor(finalR, finalG, finalB);
+            else
+            {
+                if (camera.projectionType == PERSPECTIVE)
+                {
+                    if (p0.z <= 0.0f && p1.z <= 0.0f && p2.z <= 0.0f)
+                        return;
+                }
+            }
 
             Rasterizer::fillTriangle(lp0.x, lp0.y, lp0.z,
                                      lp1.x, lp1.y, lp1.z,
@@ -120,7 +136,9 @@ namespace pip3D
                                          int activeLightCount,
                                          bool backfaceCullingEnabled,
                                          uint32_t &statsTrianglesTotal,
-                                         uint32_t &statsTrianglesBackfaceCulled)
+                                         uint32_t &statsTrianglesBackfaceCulled,
+                                         bool useUniformColor = false,
+                                         uint16_t uniformColor = 0)
         {
             Vector3 p0 = CameraController::project(v0, viewProjMatrix, viewport);
             Vector3 p1 = CameraController::project(v1, viewProjMatrix, viewport);
@@ -134,7 +152,9 @@ namespace pip3D
                                               lights, activeLightCount,
                                               backfaceCullingEnabled,
                                               statsTrianglesTotal,
-                                              statsTrianglesBackfaceCulled);
+                                              statsTrianglesBackfaceCulled,
+                                              useUniformColor,
+                                              uniformColor);
         }
 
         static void drawTriangle3D_Clipped_Preprojected(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2,
@@ -151,7 +171,9 @@ namespace pip3D
                                                         int activeLightCount,
                                                         bool backfaceCullingEnabled,
                                                         uint32_t &statsTrianglesTotal,
-                                                        uint32_t &statsTrianglesBackfaceCulled)
+                                                        uint32_t &statsTrianglesBackfaceCulled,
+                                                        bool useUniformColor = false,
+                                                        uint16_t uniformColor = 0)
         {
             if (camera.projectionType == PERSPECTIVE)
             {
@@ -178,7 +200,9 @@ namespace pip3D
                                                       lights, activeLightCount,
                                                       backfaceCullingEnabled,
                                                       statsTrianglesTotal,
-                                                      statsTrianglesBackfaceCulled);
+                                                      statsTrianglesBackfaceCulled,
+                                                      useUniformColor,
+                                                      uniformColor);
                     return;
                 }
 
@@ -189,7 +213,9 @@ namespace pip3D
                                        lights, activeLightCount,
                                        backfaceCullingEnabled,
                                        statsTrianglesTotal,
-                                       statsTrianglesBackfaceCulled);
+                                       statsTrianglesBackfaceCulled,
+                                       useUniformColor,
+                                       uniformColor);
                 return;
             }
 
@@ -201,7 +227,9 @@ namespace pip3D
                                               lights, activeLightCount,
                                               backfaceCullingEnabled,
                                               statsTrianglesTotal,
-                                              statsTrianglesBackfaceCulled);
+                                              statsTrianglesBackfaceCulled,
+                                              useUniformColor,
+                                              uniformColor);
         }
 
         static void drawTriangle3D_Clipped(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2,
@@ -217,7 +245,9 @@ namespace pip3D
                                            int activeLightCount,
                                            bool backfaceCullingEnabled,
                                            uint32_t &statsTrianglesTotal,
-                                           uint32_t &statsTrianglesBackfaceCulled)
+                                           uint32_t &statsTrianglesBackfaceCulled,
+                                           bool useUniformColor = false,
+                                           uint16_t uniformColor = 0)
         {
             if (camera.projectionType == PERSPECTIVE)
             {
@@ -292,7 +322,9 @@ namespace pip3D
                                          lights, activeLightCount,
                                          backfaceCullingEnabled,
                                          statsTrianglesTotal,
-                                         statsTrianglesBackfaceCulled);
+                                         statsTrianglesBackfaceCulled,
+                                         useUniformColor,
+                                         uniformColor);
                     return;
                 }
 
@@ -305,7 +337,9 @@ namespace pip3D
                                          lights, activeLightCount,
                                          backfaceCullingEnabled,
                                          statsTrianglesTotal,
-                                         statsTrianglesBackfaceCulled);
+                                         statsTrianglesBackfaceCulled,
+                                         useUniformColor,
+                                         uniformColor);
 
                     drawTriangle3D_Color(clipped[0], clipped[2], clipped[3],
                                          baseR, baseG, baseB,
@@ -314,7 +348,9 @@ namespace pip3D
                                          lights, activeLightCount,
                                          backfaceCullingEnabled,
                                          statsTrianglesTotal,
-                                         statsTrianglesBackfaceCulled);
+                                         statsTrianglesBackfaceCulled,
+                                         useUniformColor,
+                                         uniformColor);
                     return;
                 }
             }
@@ -326,7 +362,9 @@ namespace pip3D
                                  lights, activeLightCount,
                                  backfaceCullingEnabled,
                                  statsTrianglesTotal,
-                                 statsTrianglesBackfaceCulled);
+                                 statsTrianglesBackfaceCulled,
+                                 useUniformColor,
+                                 uniformColor);
         }
 
     public:
@@ -342,7 +380,9 @@ namespace pip3D
                                                 int activeLightCount,
                                                 bool backfaceCullingEnabled,
                                                 uint32_t &statsTrianglesTotal,
-                                                uint32_t &statsTrianglesBackfaceCulled)
+                                                uint32_t &statsTrianglesBackfaceCulled,
+                                                bool useUniformColor = false,
+                                                uint16_t uniformColor = 0)
         {
             float baseR;
             float baseG;
@@ -357,7 +397,9 @@ namespace pip3D
                                                 lights, activeLightCount,
                                                 backfaceCullingEnabled,
                                                 statsTrianglesTotal,
-                                                statsTrianglesBackfaceCulled);
+                                                statsTrianglesBackfaceCulled,
+                                                useUniformColor,
+                                                uniformColor);
         }
 
         static void drawTriangle3D(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2,
@@ -371,7 +413,9 @@ namespace pip3D
                                    int activeLightCount,
                                    bool backfaceCullingEnabled,
                                    uint32_t &statsTrianglesTotal,
-                                   uint32_t &statsTrianglesBackfaceCulled)
+                                   uint32_t &statsTrianglesBackfaceCulled,
+                                   bool useUniformColor = false,
+                                   uint16_t uniformColor = 0)
         {
             float baseR;
             float baseG;
@@ -385,7 +429,9 @@ namespace pip3D
                                    lights, activeLightCount,
                                    backfaceCullingEnabled,
                                    statsTrianglesTotal,
-                                   statsTrianglesBackfaceCulled);
+                                   statsTrianglesBackfaceCulled,
+                                   useUniformColor,
+                                   uniformColor);
         }
 
         static void drawMesh(Mesh *mesh,
@@ -421,6 +467,23 @@ namespace pip3D
             if (faceCount == 0)
             {
                 return;
+            }
+
+            bool useUniformColor = mesh->getSingleColorLighting();
+            uint16_t uniformColor = 0;
+            if (useUniformColor)
+            {
+                Vector3 meshNormal = mesh->normal(0);
+                Vector3 viewDir = camera.position - center;
+                viewDir.normalize();
+
+                float finalR, finalG, finalB;
+                Shading::calculateLighting(center, meshNormal, viewDir,
+                                           lights, activeLightCount,
+                                           baseR, baseG, baseB,
+                                           finalR, finalG, finalB,
+                                           true);
+                uniformColor = Shading::quantizeColor(finalR, finalG, finalB);
             }
 
             const uint16_t vertexCountUsed = mesh->numVertices();
@@ -530,8 +593,11 @@ namespace pip3D
                                                     lights, activeLightCount,
                                                     backfaceCullingEnabled,
                                                     statsTrianglesTotal,
-                                                    statsTrianglesBackfaceCulled);
+                                                    statsTrianglesBackfaceCulled,
+                                                    useUniformColor,
+                                                    uniformColor);
             }
         }
     };
+
 }

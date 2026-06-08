@@ -1049,6 +1049,31 @@ namespace pip3D
             }
 
             const uint16_t instColor565 = instance->color().rgb565;
+            float baseR, baseG, baseB;
+            MeshRenderer::decodeColorToFloat(instColor565, baseR, baseG, baseB); 
+
+            bool useUniformColor = mesh->getSingleColorLighting();
+            uint16_t uniformColor = 0;
+            const Light *const activeLights = lights.data();
+            const Matrix4x4 &worldTransform = instance->transform();
+
+            if (useUniformColor)
+            {
+                Vector3 localNormal = mesh->numVertices() > 0 ? mesh->vert(0).normal.get() : Vector3(0.0f, 1.0f, 0.0f);
+                Vector3 worldNormal = worldTransform.transformNormal(localNormal);
+                Vector3 viewDir = cam.position - center;
+                viewDir.normalize();
+
+                float finalR, finalG, finalB;
+                Shading::calculateLighting(center, worldNormal, viewDir,
+                                           activeLights, activeLightCount,
+                                           baseR, baseG, baseB,
+                                           finalR, finalG, finalB,
+                                           true);
+                uniformColor = Shading::quantizeColor(finalR, finalG, finalB);
+            }
+
+
             const uint16_t vertexCountUsed = mesh->numVertices();
             const uint16_t faceCount = mesh->numFaces();
             if (!instance->ensureProjectionCache(vertexCountUsed))
@@ -1061,13 +1086,11 @@ namespace pip3D
             Vector3 *worldVerts = instance->getCachedWorldVertices();
             Vector3 *screenVerts = instance->getCachedScreenVertices();
             const uint32_t frameStamp = currentFrameStamp();
-            const Matrix4x4 &worldTransform = instance->transform();
             const int16_t bandTop = currentBandOffsetY();
             const int16_t bandBottom = static_cast<int16_t>(bandTop + currentBandHeight());
             const float viewportWidth = static_cast<float>(viewport.width);
             const float viewportHalfWidth = viewportWidth * 0.5f;
             const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
-            const Light *const activeLights = lights.data();
 
             if (instance->getCachedProjectionFrameStamp() != frameStamp)
             {
@@ -1147,7 +1170,9 @@ namespace pip3D
                                                           activeLightCount,
                                                           backfaceCullingEnabled,
                                                           statsTrianglesTotal,
-                                                          statsTrianglesBackfaceCulled);
+                                                          statsTrianglesBackfaceCulled,
+                                                          useUniformColor,
+                                                          uniformColor);
             }
         }
 

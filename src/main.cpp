@@ -52,6 +52,7 @@ static Cylinder* g_cylinderMesh = nullptr;
 static Cone* g_coneMesh = nullptr;
 static Pyramid* g_pyramidMesh = nullptr;
 static TrefoilKnot* g_knotMesh = nullptr;
+static Plane* g_planeMesh = nullptr; // <--- Добавили указатель на плоскость
 
 static std::vector<MeshInstance*> g_trackParts;
 static std::vector<MeshInstance*> g_arches;
@@ -103,6 +104,7 @@ static void initMeshes() {
     if (!g_coneMesh) g_coneMesh = new Cone(0.5f, 1.0f, 12, Color::WHITE);
     if (!g_pyramidMesh) g_pyramidMesh = new Pyramid(1.0f, Color::WHITE);
     if (!g_knotMesh) g_knotMesh = new TrefoilKnot(0.5f, 32, 8, Color::WHITE);
+    if (!g_planeMesh) g_planeMesh = new Plane(1.0f, 1.0f, 1, Color::WHITE); // <--- Инициализация плоскости
 }
 
 static void buildTrackAndArches() {
@@ -117,10 +119,10 @@ static void buildTrackAndArches() {
     for (int i = 0; i < numSections; ++i) {
         float z = i * 15.0f;
 
-        // Центральный продолговатый пол
-        MeshInstance* floor = g_instances.create(g_cubeMesh);
-        floor->setPosition(0.0f, -0.1f, z + 7.5f);
-        floor->setScale(10.0f, 0.2f, 15.1f);
+        // Центральный продолговатый пол (теперь используем g_planeMesh)
+        MeshInstance* floor = g_instances.create(g_planeMesh); 
+        floor->setPosition(0.0f, 0.0f, z + 7.5f); // Y = 0.0f (плоскость не имеет толщины)
+        floor->setScale(10.0f, 1.0f, 15.1f); // X - ширина, Z - длина
         floor->setColor(floorColor);
         g_trackParts.push_back(floor);
 

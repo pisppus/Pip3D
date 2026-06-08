@@ -124,8 +124,8 @@ namespace pip3D
         bool castShadows;
         mutable bool transformDirty;
 
+        bool singleColorLighting;
         bool isStaticStorage;
-
         float qScale;
 
         mutable MeshCache cache;
@@ -143,9 +143,9 @@ namespace pip3D
               position(0, 0, 0), rotation(0, 0, 0), scale(1, 1, 1),
               meshColor(color), visible(true), castShadows(true), transformDirty(true),
               isStaticStorage(false), qScale(1.0f),
-              cachedLocalVertices(nullptr), cachedLocalVertexCapacity(0), cachedLocalVerticesValid(false),
-              cachedWorldVertices(nullptr), cachedScreenVertices(nullptr),
-              cachedProjectionCapacity(0), cachedProjectionFrameStamp(0)
+              cachedLocalVertices(nullptr), singleColorLighting(false), cachedLocalVertexCapacity(0),
+              cachedLocalVerticesValid(false), cachedWorldVertices(nullptr),
+              cachedScreenVertices(nullptr), cachedProjectionCapacity(0), cachedProjectionFrameStamp(0)
         {
 
             const size_t vertexSize = maxVertices * sizeof(Vertex);
@@ -181,7 +181,7 @@ namespace pip3D
               maxVertices(vertCount), maxFaces(faceCountIn),
               position(0, 0, 0), rotation(0, 0, 0), scale(1, 1, 1),
               meshColor(color), visible(true), castShadows(true), transformDirty(true),
-              isStaticStorage(staticStorage), qScale(1.0f),
+              isStaticStorage(staticStorage), qScale(1.0f), singleColorLighting(false),
               cachedLocalVertices(nullptr), cachedLocalVertexCapacity(0), cachedLocalVerticesValid(false),
               cachedWorldVertices(nullptr), cachedScreenVertices(nullptr),
               cachedProjectionCapacity(0), cachedProjectionFrameStamp(0)
@@ -657,9 +657,10 @@ namespace pip3D
         MESH_FORCE_INLINE void show() { visible = true; }
         MESH_FORCE_INLINE void hide() { visible = false; }
         MESH_PURE MESH_FORCE_INLINE bool isVisible() const { return visible; }
-
         MESH_FORCE_INLINE void setCastShadows(bool enabled) { castShadows = enabled; }
         MESH_PURE MESH_FORCE_INLINE bool getCastShadows() const { return castShadows; }
+        MESH_FORCE_INLINE void setSingleColorLighting(bool enabled) { singleColorLighting = enabled; }
+        MESH_PURE MESH_FORCE_INLINE bool getSingleColorLighting() const { return singleColorLighting; }
 
         MESH_HOT_PATH const Matrix4x4 &getTransform() const
         {
@@ -755,4 +756,3 @@ namespace pip3D
     };
 
 }
-
