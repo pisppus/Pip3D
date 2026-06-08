@@ -1,12 +1,15 @@
 #pragma once
 
-#include "Core/Core.h"
+#include "Core/Platform.h"
+#include "Core/Viewport.h"
+#include "Core/Memory.h"
 #if defined(PIP3D_PC)
 #include <PipCore/Platforms/Desktop/Runtime.hpp>
 #else
 #include <PipCore/Display.hpp>
 #endif
 #include "ZBuffer.h"
+#include "Rendering/Display/Sky.h"
 #if defined(__GNUC__) || defined(__clang__)
 #ifndef PIP3D_PREFETCH
 #define PIP3D_PREFETCH(ptr) __builtin_prefetch((ptr), 0, 0)

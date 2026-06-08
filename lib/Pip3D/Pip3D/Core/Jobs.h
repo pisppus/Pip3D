@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Core.h"
+#include "Core/Platform.h"
 
 #ifdef ARDUINO_ARCH_ESP32
 #include <freertos/FreeRTOS.h>

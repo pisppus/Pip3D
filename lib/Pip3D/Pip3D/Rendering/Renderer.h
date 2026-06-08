@@ -1,31 +1,36 @@
 #pragma once
 
-#include "Core/Core.h"
-#include "Core/Debug/DebugDraw.h"
-#include "Core/Camera.h"
-#include "Core/Frustum.h"
-#include "Core/Instance.h"
+#include "Core/Platform.h"
+#include "Core/Color.h"
+#include "Core/Viewport.h"
+#include "Core/Diagnostics.h"
+#include "Core/Events.h"
+#include "Core/Diagnostics.h"
+#include "Core/Resources.h"
+#include "Debug/Gizmos.h"
+#include "Camera/Camera.h"
+#include "Camera/Frustum.h"
+#include "Geometry/Instance.h"
 #include "Core/Jobs.h"
-#include "Math/Math.h"
+#include "Math/Algebra.h"
 #include "Geometry/Mesh.h"
-#include "Graphics/Font.h"
-#include "Display/ZBuffer.h"
+#include "Rendering/UI/Font.h"
+#include "Rendering/Display/ZBuffer.h"
 #include "Display/DirtyRegions.h"
 #include "Lighting/Lighting.h"
-#include "Lighting/LightManager.h"
 #include "Lighting/Shadow.h"
-#include "Lighting/ShadowRenderer.h"
-#include "Rasterizer/Rasterizer.h"
-#include "Rasterizer/Shading.h"
+#include "Pipeline/Rasterizer.h"
+#include "Pipeline/Shading.h"
+#include "Rendering/Display/Sky.h"
 #if defined(PIP3D_PC)
 #include <PipCore/Platforms/Desktop/Runtime.hpp>
 #else
 #include <PipCore/Platforms/Select.hpp>
 #endif
-#include "HUD/HudRenderer.h"
-#include "SceneRendering/Culling.h"
-#include "SceneRendering/MeshRenderer.h"
-#include "SceneRendering/CameraController.h"
+#include "UI/HUD.h"
+#include "Pipeline/Culling.h"
+#include "Rendering/Pipeline/MeshDraw.h"
+#include "Camera/Camera.h"
 #include <vector>
 
 #ifndef TFT_MOSI
@@ -34,6 +39,10 @@
 
 #ifndef TFT_SCLK
 #define TFT_SCLK 12
+#endif
+
+#ifndef PIP3D_DISPLAY_ROTATION
+#define PIP3D_DISPLAY_ROTATION 1 // Стандартный поворот по умолчанию (ландшафтный)
 #endif
 
 namespace pip3D
@@ -425,7 +434,7 @@ namespace pip3D
             if (!isInitialized())
                 return;
 #if ENABLE_DEBUG_DRAW
-            ::pip3D::Debug::DebugDraw::render(*this);
+            ::pip3D::Debug::Gizmos::render(*this);
 #endif
 
             framebuffer.endFrameRegion(0, currentBandOffsetY(),
@@ -490,7 +499,7 @@ namespace pip3D
                 zBuffer->clear();
 
 #if ENABLE_DEBUG_DRAW
-            ::pip3D::Debug::DebugDraw::beginFrame();
+            ::pip3D::Debug::Gizmos::beginFrame();
 #endif
         }
 
@@ -694,57 +703,186 @@ namespace pip3D
 
         void setLight(int index, const Light &light)
         {
-            LightManager::setLight(lights, activeLightCount, index, light);
+            if (index < 0)
+            {
+                LOGW(::pip3D::Debug::LOG_MODULE_RENDER,
+                     "Renderer::setLight: negative index %d (activeLightCount=%d)",
+                     index,
+                     activeLightCount);
+                return;
+            }
+
+            if (index >= static_cast<int>(lights.size()))
+            {
+                lights.resize(index + 1);
+            }
+
+            lights[index] = light;
+            lights[index].colorCacheDirty = true;
+
+            if (index + 1 > activeLightCount)
+                activeLightCount = index + 1;
         }
 
         int addLight(const Light &light)
         {
-            return LightManager::addLight(lights, activeLightCount, light);
+            if (activeLightCount < static_cast<int>(lights.size()))
+            {
+                lights[activeLightCount] = light;
+            }
+            else
+            {
+                lights.push_back(light);
+            }
+
+            lights[activeLightCount].colorCacheDirty = true;
+            return activeLightCount++;
         }
 
         void removeLight(int index)
         {
-            LightManager::removeLight(lights, activeLightCount, index);
+            if (index < 0 || index >= activeLightCount)
+            {
+                LOGW(::pip3D::Debug::LOG_MODULE_RENDER,
+                     "Renderer::removeLight: index %d out of range (activeLightCount=%d)",
+                     index,
+                     activeLightCount);
+                return;
+            }
+
+            if (index == activeLightCount - 1)
+            {
+                activeLightCount--;
+                return;
+            }
+
+            for (int i = index; i < activeLightCount - 1; i++)
+            {
+                lights[i] = lights[i + 1];
+            }
+
+            activeLightCount--;
         }
 
         Light *getLight(int index)
         {
-            return LightManager::getLight(lights, activeLightCount, index);
+            if (index < 0 || index >= activeLightCount)
+            {
+                LOGW(::pip3D::Debug::LOG_MODULE_RENDER,
+                     "Renderer::getLight: index %d out of range (activeLightCount=%d)",
+                     index,
+                     activeLightCount);
+                return nullptr;
+            }
+            return &lights[index];
         }
 
-        void clearLights() { LightManager::clearLights(activeLightCount); }
-        int getLightCount() const { return LightManager::getLightCount(activeLightCount); }
+        void clearLights()
+        {
+            activeLightCount = 0;
+        }
+
+        int getLightCount() const
+        {
+            return activeLightCount;
+        }
 
         void setMainDirectionalLight(const Vector3 &direction, const Color &color, float intensity = 1.0f)
         {
-            LightManager::setMainDirectionalLight(lights, activeLightCount, direction, color, intensity);
+            if (activeLightCount == 0)
+                activeLightCount = 1;
+            if (lights.empty())
+                lights.resize(1);
+            lights[0].type = LIGHT_DIRECTIONAL;
+            lights[0].direction = direction;
+            lights[0].direction.normalize();
+            lights[0].color = color;
+            lights[0].intensity = intensity;
+            lights[0].colorCacheDirty = true;
         }
 
         void setMainPointLight(const Vector3 &position, const Color &color, float intensity = 1.0f, float range = 10.0f)
         {
-            LightManager::setMainPointLight(lights, activeLightCount, position, color, intensity, range);
+            if (activeLightCount == 0)
+                activeLightCount = 1;
+            if (lights.empty())
+                lights.resize(1);
+            lights[0].type = LIGHT_POINT;
+            lights[0].position = position;
+            lights[0].color = color;
+            lights[0].intensity = intensity;
+            lights[0].setRange(range);
+            lights[0].colorCacheDirty = true;
         }
 
         void setLightColor(const Color &color)
         {
-            LightManager::setLightColor(lights, activeLightCount, color);
+            if (activeLightCount == 0 || lights.empty())
+            {
+                LOGW(::pip3D::Debug::LOG_MODULE_RENDER,
+                     "Renderer::setLightColor called with no active lights (activeLightCount=%d, lightsEmpty=%d)",
+                     activeLightCount,
+                     lights.empty() ? 1 : 0);
+                return;
+            }
+            lights[0].color = color;
+            lights[0].colorCacheDirty = true;
         }
 
         void setLightPosition(const Vector3 &pos)
         {
-            LightManager::setLightPosition(lights, activeLightCount, pos);
+            if (activeLightCount == 0 || lights.empty())
+            {
+                LOGW(::pip3D::Debug::LOG_MODULE_RENDER,
+                     "Renderer::setLightPosition called with no active lights (activeLightCount=%d, lightsEmpty=%d)",
+                     activeLightCount,
+                     lights.empty() ? 1 : 0);
+                return;
+            }
+            lights[0].position = pos;
         }
+
         void setLightDirection(const Vector3 &dir)
         {
-            LightManager::setLightDirection(lights, activeLightCount, dir);
+            if (activeLightCount == 0 || lights.empty())
+            {
+                LOGW(::pip3D::Debug::LOG_MODULE_RENDER,
+                     "Renderer::setLightDirection called with no active lights (activeLightCount=%d, lightsEmpty=%d)",
+                     activeLightCount,
+                     lights.empty() ? 1 : 0);
+                return;
+            }
+            lights[0].direction = dir;
+            lights[0].direction.normalize();
         }
 
         void setLightTemperature(float kelvin)
         {
-            LightManager::setLightTemperature(lights, activeLightCount, kelvin);
+            if (activeLightCount == 0 || lights.empty())
+            {
+                LOGW(::pip3D::Debug::LOG_MODULE_RENDER,
+                     "Renderer::setLightTemperature called with no active lights (activeLightCount=%d, lightsEmpty=%d)",
+                     activeLightCount,
+                     lights.empty() ? 1 : 0);
+                return;
+            }
+            Color color = Color::fromTemperature(kelvin);
+            lights[0].color = color;
+            lights[0].colorCacheDirty = true;
         }
 
-        Color getLightColor() const { return LightManager::getLightColor(lights, activeLightCount); }
+        Color getLightColor() const
+        {
+            if (activeLightCount == 0 || lights.empty())
+            {
+                LOGW(::pip3D::Debug::LOG_MODULE_RENDER,
+                     "Renderer::getLightColor called with no active lights (activeLightCount=%d, lightsEmpty=%d)",
+                     activeLightCount,
+                     lights.empty() ? 1 : 0);
+                return Color::WHITE;
+            }
+            return lights[0].color;
+        }
 
         void setShadowsEnabled(bool enabled)
         {
@@ -769,7 +907,15 @@ namespace pip3D
 
         void setLightType(LightType type)
         {
-            LightManager::setLightType(lights, activeLightCount, type);
+            if (activeLightCount == 0 || lights.empty())
+            {
+                LOGW(::pip3D::Debug::LOG_MODULE_RENDER,
+                     "Renderer::setLightType called with no active lights (activeLightCount=%d, lightsEmpty=%d)",
+                     activeLightCount,
+                     lights.empty() ? 1 : 0);
+                return;
+            }
+            lights[0].type = type;
         }
 
         void setSkyboxEnabled(bool enabled) { framebuffer.setSkyboxEnabled(enabled); }
@@ -1244,6 +1390,28 @@ namespace pip3D
                     dst = bg.blend(waterColor, alphaByte).rgb565;
                 }
             }
+        }
+    };
+
+    class MultiCameraHelper
+    {
+    public:
+        static int createIsometricCamera(Renderer &renderer, float distance)
+        {
+            int camIdx = renderer.createCamera();
+            if (camIdx < 0)
+                return -1;
+
+            Camera &cam = renderer.getCamera(camIdx);
+            cam.setOrtho(distance, distance, 0.1f, 100.0f);
+
+            float angle = 0.785398f;
+            float dist = distance * 1.5f;
+            cam.position = Vector3(dist * cosf(angle), dist * 0.7f, dist * sinf(angle));
+            cam.target = Vector3(0, 0, 0);
+            cam.markDirty();
+
+            return camIdx;
         }
     };
 

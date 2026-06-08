@@ -1,4 +1,6 @@
-#include "Core.h"
+#include "Core/Events.h"
+#include "Core/Diagnostics.h"
+#include "Core/Resources.h"
 
 namespace pip3D
 {

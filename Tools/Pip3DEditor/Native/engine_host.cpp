@@ -36,9 +36,9 @@
 #endif
 
 #include "Core/Core.h"
-#include "Math/Math.h"
+#include "Math/Algebra.h"
 #include "Rendering/Renderer.h"
-#include "Geometry/PrimitiveShapes.h"
+#include "Geometry/Geometry/Primitives.h"
 #include "PcDisplayBlit.h"
 
 using namespace pip3D;

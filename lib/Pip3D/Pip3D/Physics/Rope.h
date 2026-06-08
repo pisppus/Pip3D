@@ -1,8 +1,8 @@
 #pragma once
 
 #include "Body.h"
-#include "Core/Core.h"
-#include "Core/Instance.h"
+#include "Core/Platform.h"
+#include "Geometry/Instance.h"
 #include "Rendering/Renderer.h"
 
 namespace pip3D

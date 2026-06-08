@@ -3,8 +3,8 @@
 #if !defined(PIP3D_PC)
 #include <Arduino.h>
 #endif
-#include "Core/Core.h"
-#include "Core/Debug/Logging.h"
+#include "Core/Memory.h"
+#include "Debug/Logging.h"
 
 #if defined(__GNUC__) || defined(__clang__)
 #ifndef PIP3D_PREFETCH
