@@ -70,20 +70,25 @@ namespace pip3D
             const Light *lights,
             int lightCount,
             float baseR, float baseG, float baseB,
-            float &outR, float &outG, float &outB)
+            float &outR, float &outG, float &outB,
+            bool skipSpecularAndRim = false)
         {
             const float hemi = normal.y * HEMI_SCALE + AMBIENT_BASE;
-            const float ambientTerm = AMBIENT_BASE + hemi;
+            const float ambientTerm = fmaxf(0.0f, AMBIENT_BASE + hemi);
 
             outR = baseR * ambientTerm;
             outG = baseG * ambientTerm;
             outB = baseB * ambientTerm;
 
-            float NdotV = normal.dot(viewDir);
-            NdotV = (NdotV < 0.0f) ? 0.0f : NdotV;
-            float rim = 1.0f - NdotV;
-            rim *= rim;
-            const float rimAmount = rim * RIM_STRENGTH;
+            float rimAmount = 0.0f;
+            if (!skipSpecularAndRim)
+            {
+                float NdotV = normal.dot(viewDir);
+                NdotV = (NdotV < 0.0f) ? 0.0f : NdotV;
+                float rim = 1.0f - NdotV;
+                rim *= rim;
+                rimAmount = rim * RIM_STRENGTH;
+            }
 
             for (int i = 0; i < lightCount; ++i)
             {
@@ -142,7 +147,7 @@ namespace pip3D
                 const float diffuse = wrappedNdotL * DIFFUSE_STRENGTH * lightIntensityAtten;
 
                 float specular = 0.0f;
-                if (NdotL > 0.0f && SPECULAR_STRENGTH > 0.0f)
+                if (!skipSpecularAndRim && NdotL > 0.0f && SPECULAR_STRENGTH > 0.0f)
                 {
                     float hx = lightDir.x + viewDir.x;
                     float hy = lightDir.y + viewDir.y;
@@ -168,9 +173,8 @@ namespace pip3D
                     }
                 }
 
-                const float lightR = light.cachedR;
-                const float lightG = light.cachedG;
-                const float lightB = light.cachedB;
+                float lightR, lightG, lightB;
+                light.getCachedRGB(lightR, lightG, lightB);
 
                 const float diffuseR = baseR * diffuse;
                 const float diffuseG = baseG * diffuse;
@@ -206,6 +210,7 @@ namespace pip3D
             outG = clamp(outG, 0.0f, 1.0f);
             outB = clamp(outB, 0.0f, 1.0f);
         }
+
 
         __attribute__((always_inline)) static inline uint16_t quantizeColor(float r, float g, float b)
         {

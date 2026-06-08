@@ -179,6 +179,7 @@ namespace pip3D
                    (subdivisions ? subdivisions : 1) * (subdivisions ? subdivisions : 1) * 2,
                    color)
         {
+            setSingleColorLighting(true);
             const float size = (width > depth) ? width : depth;
             autoScale(size);
 
@@ -672,4 +673,3 @@ namespace pip3D
     };
 
 }
-
