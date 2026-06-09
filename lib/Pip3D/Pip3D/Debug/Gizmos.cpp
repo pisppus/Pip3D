@@ -1,8 +1,8 @@
-#include "Gizmos.h"
+#include "Gizmos.hpp"
 
 #if ENABLE_DEBUG_DRAW
 
-#include "Rendering/Renderer.h"
+#include "Rendering/Renderer.hpp"
 #include <math.h>
 
 namespace pip3D

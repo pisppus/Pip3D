@@ -1,7 +1,7 @@
-#include "Logging.h"
+#include "Logging.hpp"
 
 #if defined(PIP3D_PC)
-#include "Core/Platform.h"
+#include "Core/Platform.hpp"
 #include <cstdio>
 #else
 #include <Arduino.h>

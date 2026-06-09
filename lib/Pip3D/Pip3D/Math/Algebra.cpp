@@ -1,4 +1,4 @@
-#include "Algebra.h"
+#include "Algebra.hpp"
 
 namespace pip3D
 {

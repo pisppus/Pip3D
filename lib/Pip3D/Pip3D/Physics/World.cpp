@@ -1,7 +1,7 @@
-#include "World.h"
-#include "Rendering/Renderer.h"
-#include "Debug/Logging.h"
-#include "Debug/Gizmos.h"
+#include "World.hpp"
+#include "Rendering/Renderer.hpp"
+#include "Debug/Logging.hpp"
+#include "Debug/Gizmos.hpp"
 #include <algorithm>
 #include <cmath>
 
