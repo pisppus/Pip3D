@@ -1,4 +1,4 @@
-#include "Shading.h"
+#include "Shading.hpp"
 
 namespace pip3D
 {

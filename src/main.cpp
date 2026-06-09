@@ -12,7 +12,7 @@
 #define TFT_MISO -1
 #define TFT_SCLK 5
 
-#include "Pip3D.h"
+#include "Pip3D.hpp"
 
 using namespace pip3D;
 
