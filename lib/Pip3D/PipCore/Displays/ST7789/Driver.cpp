@@ -2,6 +2,14 @@
 
 #if PIPCORE_DISPLAY_ID(PIPCORE_DISPLAY) == PIPCORE_DISPLAY_TAG_ST7789
 
+#if PIPCORE_TARGET_ESP32
+#include <esp_attr.h>
+#else
+#ifndef IRAM_ATTR
+#define IRAM_ATTR
+#endif
+#endif
+
 #include <PipCore/Displays/ST7789/Driver.hpp>
 #include <algorithm>
 
@@ -26,49 +34,12 @@ namespace pipcore::st7789
         constexpr uint8_t MadctlMV = 0x20;
         constexpr uint8_t MadctlBGR = 0x08;
 
-        [[nodiscard]] inline constexpr uint16_t bswap16(uint16_t v) noexcept { return __builtin_bswap16(v); }
-
         inline void pack16BE(uint8_t *buf, uint16_t a, uint16_t b) noexcept
         {
             buf[0] = static_cast<uint8_t>(a >> 8);
             buf[1] = static_cast<uint8_t>(a & 0xFF);
-            buf[2] = static_cast<uint8_t>(b >> 8);
+            buf[2] = static_cast<uint8_t>(a >> 8);
             buf[3] = static_cast<uint8_t>(b & 0xFF);
-        }
-
-        inline void copySwap565(uint16_t *dst, const uint16_t *src, size_t pixels) noexcept
-        {
-            if (pixels == 0)
-                return;
-
-            const bool canUse32 = (((reinterpret_cast<uintptr_t>(src) | reinterpret_cast<uintptr_t>(dst)) & 1U) == 0U) &&
-                                  ((reinterpret_cast<uintptr_t>(src) & 2U) == (reinterpret_cast<uintptr_t>(dst) & 2U));
-
-            if (canUse32)
-            {
-                if ((reinterpret_cast<uintptr_t>(src) & 2U) != 0U)
-                {
-                    *dst++ = bswap16(*src++);
-                    --pixels;
-                }
-
-                auto *dst32 = reinterpret_cast<uint32_t *>(dst);
-                auto *src32 = reinterpret_cast<const uint32_t *>(src);
-                size_t pairs = pixels >> 1;
-
-                while (pairs--)
-                {
-                    const uint32_t p = __builtin_bswap32(*src32++);
-                    *dst32++ = (p >> 16) | (p << 16);
-                }
-
-                src = reinterpret_cast<const uint16_t *>(src32);
-                dst = reinterpret_cast<uint16_t *>(dst32);
-                pixels &= 1U;
-            }
-
-            while (pixels--)
-                *dst++ = bswap16(*src++);
         }
     }
 
@@ -159,15 +130,6 @@ namespace pipcore::st7789
         if (_transport->writePixels(data, len))
             return true;
         return failFromTransport(IoError::DataTransmit);
-    }
-
-    bool Driver::flushTransport()
-    {
-        if (!_transport)
-            return failFromTransport(IoError::NotReady);
-        if (_transport->flush())
-            return true;
-        return failFromTransport(IoError::QueueResult);
     }
 
     bool Driver::configure(Transport *transport,
@@ -271,6 +233,8 @@ namespace pipcore::st7789
             _lastError = IoError::NotReady;
             return false;
         }
+        if (!_transport->waitComplete())
+            return false;
         return setRotationInternal(rotation);
     }
 
@@ -278,6 +242,8 @@ namespace pipcore::st7789
     {
         _invert = enabled;
         if (!_transport || !_initialized)
+            return;
+        if (!_transport->waitComplete())
             return;
         if (!sendCommand(_invert ? CmdINVON : CmdINVOFF))
             return;
@@ -361,62 +327,23 @@ namespace pipcore::st7789
             return false;
         }
 
-        uint8_t buf[4];
-        if (!_transport->acquireBus())
-            return failFromTransport(IoError::QueueTransmit);
-
-        if (!sendCommand(CmdCASET))
+        if (!_transport->writeAddrWindow(static_cast<uint16_t>(xs32), static_cast<uint16_t>(xe32),
+                                         static_cast<uint16_t>(ys32), static_cast<uint16_t>(ye32)))
         {
-            _transport->releaseBus();
-            return false;
-        }
-        pack16BE(buf, (uint16_t)xs32, (uint16_t)xe32);
-        if (!sendBytes(buf, 4))
-        {
-            _transport->releaseBus();
-            return false;
+            return failFromTransport(IoError::CommandTransmit);
         }
 
-        if (!sendCommand(CmdRASET))
-        {
-            _transport->releaseBus();
-            return false;
-        }
-        pack16BE(buf, (uint16_t)ys32, (uint16_t)ye32);
-        if (!sendBytes(buf, 4))
-        {
-            _transport->releaseBus();
-            return false;
-        }
-
-        const bool ok = sendCommand(CmdRAMWR);
-        _transport->releaseBus();
-        return ok;
+        return true;
     }
 
-    bool Driver::writePixels565(const uint16_t *pixels, size_t pixelCount, bool swapBytes)
+    bool Driver::writePixels565(const uint16_t *pixels, size_t pixelCount)
     {
         if (!_transport || !_initialized || !pixels || !pixelCount)
         {
             _lastError = (_transport && _initialized) ? IoError::InvalidConfig : IoError::NotReady;
             return false;
         }
-
-        if (!swapBytes)
-            return sendPixels(pixels, pixelCount * sizeof(uint16_t));
-
-        constexpr size_t Chunk = 2048;
-        alignas(4) uint16_t tmp[Chunk];
-        while (pixelCount)
-        {
-            const size_t n = std::min(pixelCount, Chunk);
-            copySwap565(tmp, pixels, n);
-            if (!sendPixels(tmp, n * sizeof(uint16_t)))
-                return false;
-            pixels += n;
-            pixelCount -= n;
-        }
-        return true;
+        return sendPixels(pixels, pixelCount * sizeof(uint16_t));
     }
 
     bool Driver::fillScreen565(uint16_t color565, bool swapBytes)
@@ -430,22 +357,30 @@ namespace pipcore::st7789
         if (!setAddrWindow(0, 0, (uint16_t)(_width - 1U), (uint16_t)(_height - 1U)))
             return false;
 
-        constexpr size_t Chunk = 2048;
-        uint16_t tmp[Chunk];
         const uint16_t v = swapBytes ? bswap16(color565) : color565;
-        for (size_t i = 0; i < Chunk; ++i)
-            tmp[i] = v;
+        size_t totalPixels = (size_t)_width * (size_t)_height;
 
-        size_t remaining = (size_t)_width * (size_t)_height;
-        while (remaining)
+        if (!_transport->fillPixels(v, totalPixels))
+            return failFromTransport(IoError::DataTransmit);
+
+        return true;
+    }
+
+    bool Driver::writePixels565Async(const uint16_t *pixels, size_t pixelCount)
+    {
+        if (!_transport || !_initialized || !pixels || !pixelCount)
         {
-            const size_t n = std::min(remaining, Chunk);
-            if (!sendPixels(tmp, n * sizeof(uint16_t)))
-                return false;
-            remaining -= n;
+            _lastError = (_transport && _initialized) ? IoError::InvalidConfig : IoError::NotReady;
+            return false;
         }
+        return _transport->writePixelsAsync(pixels, pixelCount * sizeof(uint16_t));
+    }
 
-        return flushTransport();
+    bool Driver::waitComplete()
+    {
+        if (!_transport)
+            return false;
+        return _transport->waitComplete();
     }
 }
 

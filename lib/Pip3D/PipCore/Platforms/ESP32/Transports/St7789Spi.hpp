@@ -6,7 +6,7 @@
 #error "pipcore::esp32::St7789Spi requires ESP32"
 #endif
 
-struct spi_transaction_t;
+#include <driver/spi_master.h>
 
 namespace pipcore::esp32
 {
@@ -27,16 +27,20 @@ namespace pipcore::esp32
         [[nodiscard]] bool write(const void *data, size_t len) override;
         [[nodiscard]] bool writeCommand(uint8_t cmd) override;
         [[nodiscard]] bool writePixels(const void *data, size_t len) override;
+        [[nodiscard]] bool fillPixels(uint16_t color, size_t count) override;
         [[nodiscard]] bool acquireBus() override;
         void releaseBus() override;
         [[nodiscard]] bool flush() override;
+        [[nodiscard]] bool writePixelsAsync(const void *data, size_t len) override;
+        [[nodiscard]] bool waitComplete() override;
+        [[nodiscard]] bool writeAddrWindow(uint16_t xs, uint16_t xe, uint16_t ys, uint16_t ye) override;
 
     private:
         [[nodiscard]] bool initSpi();
-        [[nodiscard]] bool waitQueued();
-        [[nodiscard]] bool flushQueued();
+        [[nodiscard]] bool waitOldest();
+        [[nodiscard]] bool drainQueue();
         [[nodiscard]] bool fail(st7789::IoError error);
-        [[nodiscard]] inline bool setDcCached(int level);
+        [[nodiscard]] bool writePixelsImpl(const void *data, size_t len, bool useDmaBufferIfNonCapable);
 
         int8_t _pinMosi = -1;
         int8_t _pinSclk = -1;
@@ -46,15 +50,18 @@ namespace pipcore::esp32
         uint32_t _hz = 80000000U;
 
         void *_spiHandle = nullptr;
-        size_t _dmaBufSize = 8192;
         uint8_t *_dmaBuf[2] = {nullptr, nullptr};
-        spi_transaction_t *_trans[2] = {nullptr, nullptr};
-        bool _transInFlight[2] = {false, false};
-        int _dmaNext = 0;
-        int _dmaInflight = 0;
-        int8_t _dcLevel = -1;
         bool _busAcquired = false;
         bool _initialized = false;
         st7789::IoError _lastError = st7789::IoError::None;
+
+        static constexpr size_t HardwareMaxDmaBytes = 65536U;
+        static constexpr size_t DmaBufferBytes = 16384U;
+        static constexpr int MaxAsyncTrans = 2;
+        static constexpr int MaxDmaBufs = 2;
+
+        spi_transaction_t _asyncTrans[MaxAsyncTrans]{};
+        int _asyncNext = 0;
+        int _asyncInFlight = 0;
     };
 }

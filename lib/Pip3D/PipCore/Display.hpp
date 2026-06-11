@@ -24,5 +24,13 @@ namespace pipcore
                                   int16_t h,
                                   const uint16_t *pixels,
                                   int32_t stridePixels) = 0;
+
+        virtual void writeRect565Async(int16_t x,
+                                       int16_t y,
+                                       int16_t w,
+                                       int16_t h,
+                                       const uint16_t *pixels,
+                                       int32_t stridePixels) {}
+        virtual void waitDMA() {}
     };
 }

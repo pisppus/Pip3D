@@ -3,6 +3,14 @@
 #include <cstdint>
 #include <cstddef>
 
+#if defined(ESP_PLATFORM) || defined(ESP32)
+#include <esp_attr.h>
+#else
+#ifndef IRAM_ATTR
+#define IRAM_ATTR
+#endif
+#endif
+
 namespace pipcore::st7789
 {
     enum class IoError : uint8_t
@@ -24,6 +32,37 @@ namespace pipcore::st7789
 
     [[nodiscard]] const char *ioErrorText(IoError error) noexcept;
 
+    [[nodiscard]] inline constexpr uint16_t bswap16(uint16_t v) noexcept { return __builtin_bswap16(v); }
+
+    inline void IRAM_ATTR copySwap565(uint16_t *dst, const uint16_t *src, size_t pixels) noexcept
+    {
+        if (pixels == 0)
+            return;
+
+        const bool canUse32 = (((reinterpret_cast<uintptr_t>(src) | reinterpret_cast<uintptr_t>(dst)) & 3U) == 0U);
+
+        if (canUse32)
+        {
+            auto *dst32 = reinterpret_cast<uint32_t *>(dst);
+            auto *src32 = reinterpret_cast<const uint32_t *>(src);
+            size_t pairs = pixels >> 1;
+
+            while (pairs--)
+            {
+                __builtin_prefetch(src32 + 8, 0, 0);
+                const uint32_t p = __builtin_bswap32(*src32++);
+                *dst32++ = (p >> 16) | (p << 16);
+            }
+
+            src = reinterpret_cast<const uint16_t *>(src32);
+            dst = reinterpret_cast<uint16_t *>(dst32);
+            pixels &= 1U;
+        }
+
+        while (pixels--)
+            *dst++ = bswap16(*src++);
+    }
+
     class Transport
     {
     public:
@@ -37,9 +76,13 @@ namespace pipcore::st7789
         [[nodiscard]] virtual bool write(const void *data, size_t len) = 0;
         [[nodiscard]] virtual bool writeCommand(uint8_t cmd) = 0;
         [[nodiscard]] virtual bool writePixels(const void *data, size_t len) = 0;
+        [[nodiscard]] virtual bool fillPixels(uint16_t color, size_t count) = 0;
         [[nodiscard]] virtual bool acquireBus() = 0;
         virtual void releaseBus() = 0;
         [[nodiscard]] virtual bool flush() = 0;
+        [[nodiscard]] virtual bool writePixelsAsync(const void *data, size_t len) = 0;
+        [[nodiscard]] virtual bool waitComplete() = 0;
+        [[nodiscard]] virtual bool writeAddrWindow(uint16_t xs, uint16_t xe, uint16_t ys, uint16_t ye) = 0;
     };
 
     class Driver
@@ -68,7 +111,9 @@ namespace pipcore::st7789
 
         [[nodiscard]] bool setAddrWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1);
 
-        [[nodiscard]] bool writePixels565(const uint16_t *pixels, size_t pixelCount, bool swapBytes = false);
+        [[nodiscard]] bool writePixels565(const uint16_t *pixels, size_t pixelCount);
+        [[nodiscard]] bool writePixels565Async(const uint16_t *pixels, size_t pixelCount);
+        [[nodiscard]] bool waitComplete();
 
         [[nodiscard]] bool fillScreen565(uint16_t color565, bool swapBytes = false);
 
@@ -80,7 +125,6 @@ namespace pipcore::st7789
         [[nodiscard]] bool sendCommand(uint8_t cmd);
         [[nodiscard]] bool sendBytes(const void *data, size_t len);
         [[nodiscard]] bool sendPixels(const void *data, size_t len);
-        [[nodiscard]] bool flushTransport();
         [[nodiscard]] bool failFromTransport(IoError fallback);
 
     private:
