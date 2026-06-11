@@ -169,7 +169,7 @@ namespace pip3D
             float baseRadius = minDim * 0.018f * sizeScale;
             if (baseRadius < 1.0f)
             {
-                baseRadius = 1.0f;
+                return;
             }
 
             float extra = glow;
@@ -1423,21 +1423,16 @@ namespace pip3D
     public:
         static int createIsometricCamera(Renderer &renderer, float distance)
         {
-            int camIdx = renderer.createCamera();
-            if (camIdx < 0)
-                return -1;
-
-            Camera &cam = renderer.getCamera(camIdx);
-            cam.setOrtho(distance, distance, 0.1f, 100.0f);
-
+            int idx = renderer.createCamera();
+            Camera &c = renderer.getCamera(idx);
+            c.setOrtho(distance, distance, 0.1f, 100.0f);
+            
             float angle = 0.785398f;
             float dist = distance * 1.5f;
-            cam.position = Vector3(dist * cosf(angle), dist * 0.7f, dist * sinf(angle));
-            cam.target = Vector3(0, 0, 0);
-            cam.markDirty();
-
-            return camIdx;
+            c.position = Vector3(dist * cosf(angle), dist * 0.7f, dist * sinf(angle));
+            c.target = Vector3(0.0f, 0.0f, 0.0f);
+            c.markDirty();
+            return idx;
         }
     };
-
 }

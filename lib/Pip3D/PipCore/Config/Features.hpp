@@ -21,22 +21,54 @@
 #include <cstdint>
 
 #if defined(_MSC_VER)
-#include <intrin.h>
+#include <stdlib.h>
+
+#if defined(__cplusplus) && (__cplusplus >= 202002L || (defined(_MSVC_LANG) && _MSVC_LANG >= 202002L))
+#include <type_traits>
+#define PIPCORE_HAS_CONSTEXPR_EVAL 1
+#else
+#define PIPCORE_HAS_CONSTEXPR_EVAL 0
+#endif
+
 namespace pipcore::detail
 {
-    [[nodiscard]] constexpr uint16_t builtin_bswap16(uint16_t v) noexcept
+    [[nodiscard]] inline constexpr uint16_t builtin_bswap16(uint16_t v) noexcept
     {
-        return static_cast<uint16_t>((v << 8) | (v >> 8));
+#if PIPCORE_HAS_CONSTEXPR_EVAL
+        if (std::is_constant_evaluated())
+        {
+            return static_cast<uint16_t>((v << 8) | (v >> 8));
+        }
+        else
+        {
+            return _byteswap_ushort(v);
+        }
+#else
+        return _byteswap_ushort(v);
+#endif
     }
 
-    [[nodiscard]] constexpr uint32_t builtin_bswap32(uint32_t v) noexcept
+    [[nodiscard]] inline constexpr uint32_t builtin_bswap32(uint32_t v) noexcept
     {
-        return ((v & 0x000000FFu) << 24) |
-               ((v & 0x0000FF00u) << 8) |
-               ((v & 0x00FF0000u) >> 8) |
-               ((v & 0xFF000000u) >> 24);
+#if PIPCORE_HAS_CONSTEXPR_EVAL
+        if (std::is_constant_evaluated())
+        {
+            return ((v & 0x000000FFu) << 24) |
+                   ((v & 0x0000FF00u) << 8) |
+                   ((v & 0x00FF0000u) >> 8) |
+                   ((v & 0xFF000000u) >> 24);
+        }
+        else
+        {
+            return _byteswap_ulong(v);
+        }
+#else
+        return _byteswap_ulong(v);
+#endif
     }
 }
+#undef PIPCORE_HAS_CONSTEXPR_EVAL
+
 #ifndef __builtin_bswap16
 #define __builtin_bswap16 ::pipcore::detail::builtin_bswap16
 #endif
