@@ -1,6 +1,6 @@
 {
   "name": "PipCore",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Low-level embedded platform, display, sprite, WiFi, and OTA core for ESP32 firmware projects.",
   "keywords": [
     "esp32",
@@ -14,7 +14,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/pisppus/pipKit.git"
+    "url": "https://github.com/pisppus/pipCore.git"
   },
   "authors": [
     {

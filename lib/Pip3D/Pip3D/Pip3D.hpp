@@ -57,7 +57,7 @@ namespace pip3D
     inline constexpr uint8_t VERSION_MAJOR = 0;
     inline constexpr uint8_t VERSION_MINOR = 2;
     inline constexpr uint8_t VERSION_PATCH = 0;
-    inline constexpr const char *VERSION = "0.2.0 - Alpha";
+    inline constexpr const char *VERSION = "0.3.0 - beta";
 
     inline const char *getVersion()
     {

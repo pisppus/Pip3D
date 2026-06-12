@@ -49,7 +49,7 @@ namespace pipcore::esp32
 
     private:
         static constexpr size_t DmaChunkBytes = 2304U;
-        static constexpr size_t PollChunkBytes = 96U;
+        static constexpr size_t PollChunkBytes = 64U;
 
         int8_t _pinMosi = -1;
         int8_t _pinSclk = -1;

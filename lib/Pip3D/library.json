@@ -1,5 +1,36 @@
 {
   "name": "Pip3D",
+  "version": "0.3.0-beta",
+  "description": "3D software rendering, physics, and particle engine for embedded platforms (ESP32) and desktop simulators.",
+  "keywords": [
+    "3d",
+    "renderer",
+    "physics",
+    "esp32",
+    "graphics",
+    "software-rendering",
+    "shadows",
+    "particles"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pisppus/pip3D.git"
+  },
+  "authors": [
+    {
+      "name": "Pisppus",
+      "email": "pisppus@gmail.com",
+      "maintainer": true
+    }
+  ],
+  "license": "MIT",
+  "frameworks": [
+    "arduino"
+  ],
+  "platforms": [
+    "espressif32"
+  ],
+  "headers": "Pip3D.hpp",
   "build": {
     "flags": [
       "-I.",

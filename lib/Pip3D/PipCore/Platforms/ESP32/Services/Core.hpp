@@ -9,6 +9,7 @@ namespace pipcore::esp32::services
     public:
         void pinModeInput(uint8_t pin, InputMode mode) const noexcept;
         [[nodiscard]] bool digitalRead(uint8_t pin) const noexcept;
+        [[nodiscard]] int16_t analogRead(uint8_t pin) const noexcept;
     };
 
     class Heap
@@ -16,6 +17,8 @@ namespace pipcore::esp32::services
     public:
         void *alloc(size_t bytes, AllocCaps caps) const noexcept;
         void free(void *ptr) const noexcept;
+        void *allocAligned(size_t bytes, size_t align, AllocCaps caps) const noexcept;
+        void freeAligned(void *ptr) const noexcept;
         [[nodiscard]] uint32_t freeHeapTotal() const noexcept;
         [[nodiscard]] uint32_t freeHeapInternal() const noexcept;
         [[nodiscard]] uint32_t largestFreeBlock() const noexcept;
@@ -26,6 +29,7 @@ namespace pipcore::esp32::services
     {
     public:
         [[nodiscard]] uint32_t nowMs() const noexcept;
+        [[nodiscard]] uint64_t nowUs() const noexcept;
     };
 
     class Backlight
