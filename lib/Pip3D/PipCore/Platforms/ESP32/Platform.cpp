@@ -12,6 +12,11 @@ namespace pipcore::esp32
         return _gpio.digitalRead(pin);
     }
 
+    int16_t Platform::analogRead(uint8_t pin) noexcept
+    {
+        return _gpio.analogRead(pin);
+    }
+
     void Platform::configureBacklightPin(uint8_t pin, uint8_t channel, uint32_t freqHz, uint8_t resolutionBits) noexcept
     {
         _backlight.configurePin(pin, channel, freqHz, resolutionBits);
@@ -20,6 +25,11 @@ namespace pipcore::esp32
     uint32_t Platform::nowMs() noexcept
     {
         return _time.nowMs();
+    }
+
+    uint64_t Platform::nowUs() noexcept
+    {
+        return _time.nowUs();
     }
 
     uint8_t Platform::loadMaxBrightnessPercent() noexcept
@@ -66,6 +76,16 @@ namespace pipcore::esp32
     void Platform::free(void *ptr) noexcept
     {
         _heap.free(ptr);
+    }
+
+    void *Platform::allocAligned(size_t bytes, size_t align, AllocCaps caps) noexcept
+    {
+        return _heap.allocAligned(bytes, align, caps);
+    }
+
+    void Platform::freeAligned(void *ptr) noexcept
+    {
+        _heap.freeAligned(ptr);
     }
 
     bool Platform::configDisplay(const DisplayConfig &cfg) noexcept

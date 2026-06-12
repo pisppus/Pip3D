@@ -364,7 +364,7 @@ namespace pip3D
             }
 
             const size_t normalSize = vertexCount * sizeof(Vector3);
-            Vector3 *vertexNormals = (Vector3 *)heap_caps_aligned_alloc(16, normalSize, MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL);
+            Vector3 *vertexNormals = (Vector3 *)pip3D::MemUtils::allocAligned(normalSize, 16, pipcore::AllocCaps::PreferInternal);
 
             if (unlikely(!vertexNormals))
             {
@@ -439,7 +439,7 @@ namespace pip3D
                 vertices[i].normal.set(vertexNormals[i]);
             }
 
-            heap_caps_free(vertexNormals);
+            pip3D::MemUtils::freeAligned(vertexNormals);
         }
 
         MESH_HOT_PATH MESH_FORCE_INLINE void setPosition(float x, float y, float z)

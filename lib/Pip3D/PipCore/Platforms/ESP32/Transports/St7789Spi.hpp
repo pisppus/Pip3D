@@ -26,18 +26,27 @@ namespace pipcore::esp32
         void delayMs(uint32_t ms) override;
         [[nodiscard]] bool write(const void *data, size_t len) override;
         [[nodiscard]] bool writeCommand(uint8_t cmd) override;
-        [[nodiscard]] bool writePixels(const void *data, size_t len) override;
         [[nodiscard]] bool fillPixels(uint16_t color, size_t count) override;
         [[nodiscard]] bool acquireBus() override;
         void releaseBus() override;
-        [[nodiscard]] bool flush() override;
-        [[nodiscard]] bool writePixelsAsync(const void *data, size_t len) override;
+        [[nodiscard]] inline bool flush() override { return waitComplete(); }
+
+        [[nodiscard]] inline bool IRAM_ATTR __attribute__((always_inline)) writePixels(const void *data, size_t len) override
+        {
+            return writePixelsImpl(data, len, true);
+        }
+
+        [[nodiscard]] inline bool IRAM_ATTR __attribute__((always_inline)) writePixelsAsync(const void *data, size_t len) override
+        {
+            return writePixelsImpl(data, len, false);
+        }
+
         [[nodiscard]] bool waitComplete() override;
+        [[nodiscard]] bool waitOldest() override;
         [[nodiscard]] bool writeAddrWindow(uint16_t xs, uint16_t xe, uint16_t ys, uint16_t ye) override;
 
     private:
         [[nodiscard]] bool initSpi();
-        [[nodiscard]] bool waitOldest();
         [[nodiscard]] bool drainQueue();
         [[nodiscard]] bool fail(st7789::IoError error);
         [[nodiscard]] bool writePixelsImpl(const void *data, size_t len, bool useDmaBufferIfNonCapable);
@@ -61,7 +70,13 @@ namespace pipcore::esp32
         static constexpr int MaxDmaBufs = 2;
 
         spi_transaction_t _asyncTrans[MaxAsyncTrans]{};
+        spi_transaction_t _addrTrans[5]{};
         int _asyncNext = 0;
         int _asyncInFlight = 0;
+
+        uint16_t _lastXs = 0xFFFF;
+        uint16_t _lastXe = 0xFFFF;
+        uint16_t _lastYs = 0xFFFF;
+        uint16_t _lastYe = 0xFFFF;
     };
 }

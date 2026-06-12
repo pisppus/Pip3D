@@ -1,56 +1,8 @@
 #pragma once
 
 #include "Core/Platform.hpp"
-
-#if defined(PIP3D_PC)
-inline bool psramFound()
-{
-    return false;
-}
-
-inline void *ps_malloc(size_t size)
-{
-    return std::malloc(size);
-}
-
-#ifndef MALLOC_CAP_DMA
-#define MALLOC_CAP_DMA 0
-#define MALLOC_CAP_INTERNAL 0
-#define MALLOC_CAP_SPIRAM 0
-#define MALLOC_CAP_8BIT 0
-#endif
-
-inline void *heap_caps_aligned_alloc(size_t align, size_t size, unsigned int)
-{
-#if defined(_MSC_VER)
-    return _aligned_malloc(size, align);
-#else
-    const size_t alignedSize = (size + align - 1u) / align * align;
-    return std::aligned_alloc(align, alignedSize);
-#endif
-}
-
-inline void *heap_caps_malloc(size_t size, unsigned int)
-{
-#if defined(_MSC_VER)
-    const size_t align = 16u;
-    return _aligned_malloc(size, align);
-#else
-    return std::malloc(size);
-#endif
-}
-
-inline void heap_caps_free(void *ptr)
-{
-#if defined(_MSC_VER)
-    _aligned_free(ptr);
-#else
-    std::free(ptr);
-#endif
-}
-#else
-#include <esp_heap_caps.h>
-#endif
+#include <PipCore/Platform.hpp>
+#include <PipCore/Platforms/Select.hpp>
 
 namespace pip3D
 {
@@ -58,79 +10,50 @@ namespace pip3D
     {
         static size_t getFreeHeap()
         {
-#if defined(PIP3D_PC)
-            return 0;
-#else
-            return ESP.getFreeHeap();
-#endif
+            return pipcore::GetPlatform()->freeHeapTotal();
         }
 
         static size_t getFreePSRAM()
         {
-#if defined(PIP3D_PC)
-            return 0;
-#else
-            return ESP.getFreePsram();
-#endif
+            uint32_t total = pipcore::GetPlatform()->freeHeapTotal();
+            uint32_t internal = pipcore::GetPlatform()->freeHeapInternal();
+            return (total > internal) ? (total - internal) : 0;
         }
 
         static size_t getLargestFreeBlock()
         {
-#if defined(PIP3D_PC)
-            return 0;
-#else
-            return ESP.getMaxAllocHeap();
-#endif
+            return pipcore::GetPlatform()->largestFreeBlock();
         }
 
-        static void *allocAligned(size_t size, size_t align = 4)
+        static void *allocAligned(size_t size, size_t align = 16, pipcore::AllocCaps caps = pipcore::AllocCaps::Default)
         {
-            (void)align;
-
-            if (size > 1024)
-            {
-                if (psramFound())
-                {
-                    return ps_malloc(size);
-                }
-            }
-            return malloc(size);
+            return pipcore::GetPlatform()->allocAligned(size, align, caps);
         }
 
-        static void freeAligned(void *ptr)
+        static void freeAligned(void *alignedPtr)
         {
-            if (ptr)
-                free(ptr);
+            pipcore::GetPlatform()->freeAligned(alignedPtr);
         }
 
         static void *allocData(size_t size, size_t align = 16)
         {
-            if (size == 0)
-            {
-                return nullptr;
-            }
+            pipcore::AllocCaps caps = pipcore::AllocCaps::Default;
 
-#ifdef PIP3D_USE_PSRAM
-            if (psramFound())
+#ifndef PIP3D_USE_PSRAM
+            caps = pipcore::AllocCaps::PreferInternal;
+#else
+            if (size < 1024)
             {
-                void *ptr = heap_caps_aligned_alloc(align, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-                if (ptr)
-                {
-                    return ptr;
-                }
+                caps = pipcore::AllocCaps::PreferInternal;
             }
 #endif
 
-            return heap_caps_aligned_alloc(align, size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+            return allocAligned(size, align, caps);
         }
 
         static void freeData(void *ptr)
         {
-            if (!ptr)
-            {
-                return;
-            }
-            heap_caps_free(ptr);
+            freeAligned(ptr);
         }
 
         static bool isInPSRAM(void *ptr)
@@ -139,7 +62,8 @@ namespace pip3D
             (void)ptr;
             return false;
 #else
-            return ((uint32_t)ptr >= 0x3F800000 && (uint32_t)ptr < 0x3FC00000);
+            uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
+            return (addr >= 0x3F800000 && addr < 0x3FC00000);
 #endif
         }
     };

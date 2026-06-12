@@ -42,7 +42,7 @@
 #endif
 
 #ifndef PIP3D_DISPLAY_ROTATION
-#define PIP3D_DISPLAY_ROTATION 1 // Стандартный поворот по умолчанию (ландшафтный)
+#define PIP3D_DISPLAY_ROTATION 1
 #endif
 
 namespace pip3D
@@ -1050,7 +1050,7 @@ namespace pip3D
 
             const uint16_t instColor565 = instance->color().rgb565;
             float baseR, baseG, baseB;
-            MeshRenderer::decodeColorToFloat(instColor565, baseR, baseG, baseB); 
+            MeshRenderer::decodeColorToFloat(instColor565, baseR, baseG, baseB);
 
             bool useUniformColor = mesh->getSingleColorLighting();
             uint16_t uniformColor = 0;
@@ -1072,7 +1072,6 @@ namespace pip3D
                                            true);
                 uniformColor = Shading::quantizeColor(finalR, finalG, finalB);
             }
-
 
             const uint16_t vertexCountUsed = mesh->numVertices();
             const uint16_t faceCount = mesh->numFaces();
@@ -1426,7 +1425,7 @@ namespace pip3D
             int idx = renderer.createCamera();
             Camera &c = renderer.getCamera(idx);
             c.setOrtho(distance, distance, 0.1f, 100.0f);
-            
+
             float angle = 0.785398f;
             float dist = distance * 1.5f;
             c.position = Vector3(dist * cosf(angle), dist * 0.7f, dist * sinf(angle));
