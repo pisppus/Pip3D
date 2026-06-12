@@ -6,6 +6,10 @@
 #include <PipCore/Platforms/Desktop/Runtime.hpp>
 #include <cstdlib>
 
+#if defined(_MSC_VER) || defined(__MINGW32__)
+#include <malloc.h>
+#endif
+
 namespace pipcore::desktop
 {
     namespace
@@ -21,6 +25,11 @@ namespace pipcore::desktop
         return Runtime::instance().nowMs();
     }
 
+    uint64_t Platform::nowUs() noexcept
+    {
+        return Runtime::instance().nowMicros();
+    }
+
     void Platform::pinModeInput(uint8_t pin, InputMode mode) noexcept
     {
         Runtime::instance().pinModeInput(pin, mode);
@@ -29,6 +38,11 @@ namespace pipcore::desktop
     bool Platform::digitalRead(uint8_t pin) noexcept
     {
         return Runtime::instance().digitalRead(pin);
+    }
+
+    int16_t Platform::analogRead(uint8_t pin) noexcept
+    {
+        return _gpio.analogRead(pin);
     }
 
     uint8_t Platform::loadMaxBrightnessPercent() noexcept
@@ -55,6 +69,39 @@ namespace pipcore::desktop
     void Platform::free(void *ptr) noexcept
     {
         std::free(ptr);
+    }
+
+    void *Platform::allocAligned(size_t bytes, size_t align, AllocCaps) noexcept
+    {
+        if (bytes == 0)
+            return nullptr;
+
+#if defined(_MSC_VER) || defined(__MINGW32__)
+        return _aligned_malloc(bytes, align);
+#else
+        void *ptr = nullptr;
+        if (align < sizeof(void *))
+        {
+            align = sizeof(void *);
+        }
+        if (posix_memalign(&ptr, align, bytes) == 0)
+        {
+            return ptr;
+        }
+        return nullptr;
+#endif
+    }
+
+    void Platform::freeAligned(void *ptr) noexcept
+    {
+        if (!ptr)
+            return;
+
+#if defined(_MSC_VER) || defined(__MINGW32__)
+        _aligned_free(ptr);
+#else
+        std::free(ptr);
+#endif
     }
 
     bool Platform::configDisplay(const DisplayConfig &cfg) noexcept
@@ -153,7 +200,7 @@ namespace pipcore::desktop
     void Platform::OtaBackend::notify() noexcept
     {
         if (_callback)
-            _callback(_status, _callbackUser);
+            _callback(_status, _cbUser);
     }
 }
 

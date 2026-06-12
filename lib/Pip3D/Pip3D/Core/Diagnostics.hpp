@@ -4,15 +4,20 @@
 #include <stdint.h>
 #include <array>
 #include <cstring>
-
-#include <Arduino.h>
+#include <PipCore/Platform.hpp>
+#include <PipCore/Platforms/Select.hpp>
 
 namespace pip3D
 {
+    inline uint64_t getSystemMicros()
+    {
+        return pipcore::GetPlatform()->nowUs();
+    }
+
     inline float getDeltaTime()
     {
         static uint32_t lastMicros = 0;
-        uint32_t now = micros();
+        uint32_t now = getSystemMicros();
         if (lastMicros == 0)
         {
             lastMicros = now;
@@ -48,11 +53,11 @@ namespace pip3D
     public:
         PerfCounter() = default;
 
-        void begin() { lastTime = micros(); }
+        void begin() { lastTime = getSystemMicros(); }
 
         void endFrame()
         {
-            const uint32_t now = micros();
+            const uint32_t now = getSystemMicros();
             frameTime = now - lastTime;
             frameCount++;
 
@@ -165,7 +170,7 @@ namespace pip3D
 
             if (idx != -1)
             {
-                sections[idx].startTime = micros();
+                sections[idx].startTime = getSystemMicros();
                 sections[idx].active = true;
                 currentSection = idx;
             }
@@ -178,7 +183,7 @@ namespace pip3D
                 Section &sec = sections[currentSection];
                 if (sec.active)
                 {
-                    uint32_t elapsed = micros() - sec.startTime;
+                    uint32_t elapsed = getSystemMicros() - sec.startTime;
                     sec.totalTime += elapsed;
                     sec.callCount++;
                     sec.active = false;

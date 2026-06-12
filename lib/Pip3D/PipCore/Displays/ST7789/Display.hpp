@@ -13,6 +13,8 @@ namespace pipcore::st7789
     class Display final : public pipcore::Display
     {
     public:
+        static inline constexpr size_t StageTargetPixels = 4096;
+
         Display() = default;
         ~Display() override;
 
@@ -58,6 +60,9 @@ namespace pipcore::st7789
                                int32_t stridePixels) override;
 
         void waitDMA() override { (void)_drv.waitComplete(); }
+
+    private:
+        void freeLineBuf() noexcept;
 
     private:
         pipcore::Platform *_platform = nullptr;

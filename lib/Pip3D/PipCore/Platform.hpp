@@ -88,9 +88,11 @@ namespace pipcore
     public:
         virtual ~Platform() = default;
         [[nodiscard]] virtual uint32_t nowMs() noexcept = 0;
+        [[nodiscard]] virtual uint64_t nowUs() noexcept = 0;
 
         virtual void pinModeInput(uint8_t, InputMode) noexcept {}
         [[nodiscard]] virtual bool digitalRead(uint8_t) noexcept { return false; }
+        [[nodiscard]] virtual int16_t analogRead(uint8_t pin) noexcept { return 0; }
 
         virtual void configureBacklightPin(uint8_t, uint8_t = 0, uint32_t = 5000, uint8_t = 12) noexcept {}
         [[nodiscard]] virtual uint8_t loadMaxBrightnessPercent() noexcept { return 100; }
@@ -99,6 +101,8 @@ namespace pipcore
 
         virtual void *alloc(size_t bytes, AllocCaps caps = AllocCaps::Default) noexcept = 0;
         virtual void free(void *ptr) noexcept = 0;
+        [[nodiscard]] virtual void *allocAligned(size_t bytes, size_t align, AllocCaps caps = AllocCaps::Default) noexcept = 0;
+        virtual void freeAligned(void *ptr) noexcept = 0;
 
         [[nodiscard]] virtual bool configDisplay(const DisplayConfig &) noexcept
         {

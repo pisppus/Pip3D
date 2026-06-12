@@ -41,6 +41,7 @@ namespace pipcore::desktop
 
         void pinModeInput(uint8_t pin, pipcore::InputMode mode) noexcept;
         [[nodiscard]] bool digitalRead(uint8_t pin) const noexcept;
+        [[nodiscard]] int16_t analogRead(uint8_t pin) const noexcept;
 
         [[nodiscard]] uint32_t nowMs() noexcept;
         [[nodiscard]] uint64_t nowMicros() noexcept;
@@ -97,7 +98,6 @@ namespace pipcore::desktop
         void toggleRgb565Preview() noexcept;
         void toggleConsole() noexcept;
         void stepBack() noexcept;
-        void logLine(const char *message) noexcept;
         void handleKey(int key, bool down) noexcept;
         void pushSerialChar(char ch) noexcept;
         [[nodiscard]] bool pinPressed(uint8_t pin) const noexcept;
@@ -184,6 +184,8 @@ namespace pipcore::desktop
         bool _prevDown = false;
         bool _nextDown = false;
         bool _selectDown = false;
+        bool _upDown = false;
+        bool _downDown = false;
     };
 }
 

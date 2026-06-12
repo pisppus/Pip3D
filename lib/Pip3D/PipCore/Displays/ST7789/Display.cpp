@@ -3,13 +3,12 @@
 #if PIPCORE_DISPLAY_ID(PIPCORE_DISPLAY) == PIPCORE_DISPLAY_TAG_ST7789
 
 #if PIPCORE_TARGET_ESP32
-#include <esp_heap_caps.h>
-#if __has_include(<esp_memory_utils.h>)
-#include <esp_memory_utils.h>
-#endif
-#if __has_include(<soc/soc_memory_layout.h>)
-#include <soc/soc_memory_layout.h>
-#endif
+#include <esp_attr.h>
+#include <esp_log.h>
+#define DISPLAY_HOT_FUNC IRAM_ATTR
+#else
+#include <cstdio>
+#define DISPLAY_HOT_FUNC
 #endif
 
 #include <PipCore/Displays/ST7789/Display.hpp>
@@ -19,19 +18,19 @@
 
 namespace pipcore::st7789
 {
-    namespace
+    Display::~Display()
     {
-        constexpr size_t StageTargetPixels = 4096;
+        freeLineBuf();
     }
 
-    Display::~Display()
+    void Display::freeLineBuf() noexcept
     {
         if (_lineBuf && _platform)
         {
             _platform->free(_lineBuf);
-            _lineBuf = nullptr;
-            _lineBufCapPixels = 0;
         }
+        _lineBuf = nullptr;
+        _lineBufCapPixels = 0;
     }
 
     bool Display::configure(pipcore::Platform *platform,
@@ -44,30 +43,45 @@ namespace pipcore::st7789
                             int16_t xOffset,
                             int16_t yOffset)
     {
-        _platform = platform;
-
-        if (_lineBuf && _platform)
+        if (!platform)
         {
-            _platform->free(_lineBuf);
-            _lineBuf = nullptr;
-            _lineBufCapPixels = 0;
+            freeLineBuf();
+            return false;
         }
+
+        _platform = platform;
+        freeLineBuf();
 
         constexpr size_t fixedCap = StageTargetPixels * 2;
-        if (_platform)
+        _lineBuf = static_cast<uint16_t *>(_platform->alloc(fixedCap * sizeof(uint16_t), AllocCaps::PreferInternal));
+
+        if (!_lineBuf)
         {
-            _lineBuf = static_cast<uint16_t *>(_platform->alloc(fixedCap * sizeof(uint16_t), AllocCaps::PreferInternal));
-            if (_lineBuf)
-            {
-                _lineBufCapPixels = fixedCap;
-            }
+#if PIPCORE_TARGET_ESP32
+            ESP_LOGW("ST7789", "OOM: Failed to allocate line buffer (%d bytes) in internal RAM! Falling back to slow stack-buffered mode.", (int)(fixedCap * sizeof(uint16_t)));
+#else
+            std::printf("[ST7789 Warning] Failed to allocate line buffer (%d bytes)! Falling back to slow stack-buffered mode.\n", (int)(fixedCap * sizeof(uint16_t)));
+#endif
+
+            _lineBufCapPixels = 0;
+        }
+        else
+        {
+            _lineBufCapPixels = fixedCap;
         }
 
-        return _drv.configure(transport, width, height, order, invert, swap, xOffset, yOffset);
+        const bool success = _drv.configure(transport, width, height, order, invert, swap, xOffset, yOffset);
+        if (!success)
+        {
+            freeLineBuf();
+            return false;
+        }
+
+        return true;
     }
 
-    void Display::writeRect565(int16_t x, int16_t y, int16_t w, int16_t h,
-                               const uint16_t *pixels, int32_t stridePixels)
+    DISPLAY_HOT_FUNC void Display::writeRect565(int16_t x, int16_t y, int16_t w, int16_t h,
+                                                const uint16_t *pixels, int32_t stridePixels)
     {
         if (!pixels || w <= 0 || h <= 0 || stridePixels < w)
             return;
@@ -77,28 +91,46 @@ namespace pipcore::st7789
         if (dispW <= 0 || dispH <= 0)
             return;
 
-        int32_t x0 = x;
-        int32_t y0 = y;
-        int32_t x1 = static_cast<int32_t>(x) + w - 1;
-        int32_t y1 = static_cast<int32_t>(y) + h - 1;
-        if (x1 < 0 || y1 < 0 || x0 >= dispW || y0 >= dispH)
-            return;
+        int16_t x0, y0, x1, y1;
+        int16_t cW, cH;
 
-        x0 = std::max<int32_t>(x0, 0);
-        y0 = std::max<int32_t>(y0, 0);
-        x1 = std::min<int32_t>(x1, dispW - 1);
-        y1 = std::min<int32_t>(y1, dispH - 1);
+        if (x >= 0 && y >= 0 && (x + w) <= dispW && (y + h) <= dispH)
+        {
+            x0 = x;
+            y0 = y;
+            x1 = x + w - 1;
+            y1 = y + h - 1;
+            cW = w;
+            cH = h;
+        }
+        else
+        {
+            x0 = x;
+            y0 = y;
+            const int32_t tx1 = static_cast<int32_t>(x) + w - 1;
+            const int32_t ty1 = static_cast<int32_t>(y) + h - 1;
+            if (tx1 < 0 || ty1 < 0 || x0 >= dispW || y0 >= dispH)
+                return;
 
-        const int16_t cW = static_cast<int16_t>(x1 - x0 + 1);
-        const int16_t cH = static_cast<int16_t>(y1 - y0 + 1);
+            x0 = std::max<int16_t>(x0, 0);
+            y0 = std::max<int16_t>(y0, 0);
+            x1 = static_cast<int16_t>(std::min<int32_t>(tx1, dispW - 1));
+            y1 = static_cast<int16_t>(std::min<int32_t>(ty1, dispH - 1));
 
-        pixels += static_cast<size_t>(y0 - y) * stridePixels + (x0 - x);
+            cW = static_cast<int16_t>(x1 - x0 + 1);
+            cH = static_cast<int16_t>(y1 - y0 + 1);
+
+            pixels += static_cast<size_t>(y0 - y) * stridePixels + (x0 - x);
+        }
 
         if (!_drv.setAddrWindow(static_cast<uint16_t>(x0), static_cast<uint16_t>(y0), static_cast<uint16_t>(x1), static_cast<uint16_t>(y1)))
             return;
 
         const bool swap = _drv.swapBytes();
         const size_t totalPixels = static_cast<size_t>(cW) * static_cast<size_t>(cH);
+
+        uint16_t *const localLineBuf = _lineBuf;
+        const size_t localLineBufCap = _lineBufCapPixels;
 
         if ((cH == 1 || stridePixels == cW) && !swap)
         {
@@ -109,78 +141,134 @@ namespace pipcore::st7789
             return;
         }
 
-        if (_lineBuf && _lineBufCapPixels >= static_cast<size_t>(cW) * 2)
+        if (stridePixels == cW && swap && localLineBuf)
         {
-            const size_t halfCap = _lineBufCapPixels / 2;
-            uint16_t *bufs[2] = {_lineBuf, _lineBuf + halfCap};
+            const size_t halfCap = localLineBufCap >> 1;
+            uint16_t *bufs[2] = {localLineBuf, localLineBuf + halfCap};
+            int bufIdx = 0;
+
+            size_t remaining = totalPixels;
+            const uint16_t *srcPtr = pixels;
+            bool activeTrans[2] = {false, false};
+
+            while (remaining > 0)
+            {
+                const size_t chunk = std::min(remaining, halfCap);
+
+                if (activeTrans[bufIdx])
+                {
+                    (void)_drv.waitOldest();
+                    activeTrans[bufIdx] = false;
+                }
+
+                copySwap565(bufs[bufIdx], srcPtr, chunk);
+                if (!_drv.writePixels565Async(bufs[bufIdx], chunk))
+                    return;
+
+                activeTrans[bufIdx] = true;
+                srcPtr += chunk;
+                remaining -= chunk;
+                bufIdx ^= 1;
+            }
+            return;
+        }
+
+        if (localLineBuf && localLineBufCap >= static_cast<size_t>(cW) * 2)
+        {
+            const size_t halfCap = localLineBufCap >> 1;
+            uint16_t *bufs[2] = {localLineBuf, localLineBuf + halfCap};
             int bufIdx = 0;
 
             const size_t rowsPerBatch = std::max<size_t>(1, halfCap / static_cast<size_t>(cW));
             int16_t yy = 0;
-            bool first = true;
+            bool activeTrans[2] = {false, false};
 
             while (yy < cH)
             {
                 const int16_t batchRows = static_cast<int16_t>(std::min<size_t>(rowsPerBatch, static_cast<size_t>(cH - yy)));
+
+                if (activeTrans[bufIdx])
+                {
+                    (void)_drv.waitOldest();
+                    activeTrans[bufIdx] = false;
+                }
+
                 uint16_t *activeBuf = bufs[bufIdx];
                 size_t off = 0;
 
-                for (int16_t rowIdx = 0; rowIdx < batchRows; ++rowIdx)
+                const uint16_t *row = pixels + static_cast<size_t>(yy) * stridePixels;
+
+                if (!swap)
                 {
-                    const uint16_t *row = pixels + static_cast<size_t>(yy + rowIdx) * stridePixels;
-                    if (!swap)
+#pragma GCC unroll 4
+                    for (int16_t rowIdx = 0; rowIdx < batchRows; ++rowIdx)
                     {
                         std::memcpy(activeBuf + off, row, static_cast<size_t>(cW) * sizeof(uint16_t));
+                        off += static_cast<size_t>(cW);
+                        row += stridePixels;
                     }
-                    else
+                }
+                else
+                {
+#pragma GCC unroll 4
+                    for (int16_t rowIdx = 0; rowIdx < batchRows; ++rowIdx)
                     {
                         copySwap565(activeBuf + off, row, static_cast<size_t>(cW));
+                        off += static_cast<size_t>(cW);
+                        row += stridePixels;
                     }
-                    off += static_cast<size_t>(cW);
                 }
-
-                if (!first)
-                {
-                    (void)_drv.waitComplete();
-                }
-                first = false;
 
                 if (!_drv.writePixels565Async(activeBuf, off))
                 {
                     return;
                 }
+                activeTrans[bufIdx] = true;
 
                 yy = static_cast<int16_t>(yy + batchRows);
                 bufIdx ^= 1;
             }
-
-            (void)_drv.waitComplete();
             return;
         }
 
-        for (int16_t yy = 0; yy < cH; ++yy)
+        constexpr size_t StackBufPixels = 128;
+        uint16_t temp[StackBufPixels];
+
+        if (!swap)
         {
-            const uint16_t *row = pixels + static_cast<size_t>(yy) * stridePixels;
-            if (!swap)
+            const uint16_t *row = pixels;
+#pragma GCC unroll 4
+            for (int16_t yy = 0; yy < cH; ++yy)
             {
                 if (!_drv.writePixels565(row, static_cast<size_t>(cW)))
                     return;
+                row += stridePixels;
             }
-            else
+        }
+        else
+        {
+            const uint16_t *row = pixels;
+            for (int16_t yy = 0; yy < cH; ++yy)
             {
-                for (int16_t xx = 0; xx < cW; ++xx)
+                size_t remaining = static_cast<size_t>(cW);
+                const uint16_t *srcPtr = row;
+                while (remaining > 0)
                 {
-                    uint16_t swapped = bswap16(row[xx]);
-                    if (!_drv.writePixels565(&swapped, 1))
+                    const size_t chunk = std::min<size_t>(remaining, StackBufPixels);
+                    copySwap565(temp, srcPtr, chunk);
+                    if (!_drv.writePixels565(temp, chunk))
                         return;
+                    srcPtr += chunk;
+                    remaining -= chunk;
                 }
+                row += stridePixels;
             }
         }
         (void)_drv.waitComplete();
     }
 
-    void Display::writeRect565Async(int16_t x, int16_t y, int16_t w, int16_t h,
-                                    const uint16_t *pixels, int32_t stridePixels)
+    DISPLAY_HOT_FUNC void Display::writeRect565Async(int16_t x, int16_t y, int16_t w, int16_t h,
+                                                     const uint16_t *pixels, int32_t stridePixels)
     {
         if (!pixels || w <= 0 || h <= 0 || stridePixels < w)
             return;
@@ -190,22 +278,37 @@ namespace pipcore::st7789
         if (dispW <= 0 || dispH <= 0)
             return;
 
-        int32_t x0 = x;
-        int32_t y0 = y;
-        int32_t x1 = static_cast<int32_t>(x) + w - 1;
-        int32_t y1 = static_cast<int32_t>(y) + h - 1;
-        if (x1 < 0 || y1 < 0 || x0 >= dispW || y0 >= dispH)
-            return;
+        int16_t x0, y0, x1, y1;
+        int16_t cW, cH;
 
-        x0 = std::max<int32_t>(x0, 0);
-        y0 = std::max<int32_t>(y0, 0);
-        x1 = std::min<int32_t>(x1, dispW - 1);
-        y1 = std::min<int32_t>(y1, dispH - 1);
+        if (x >= 0 && y >= 0 && (x + w) <= dispW && (y + h) <= dispH)
+        {
+            x0 = x;
+            y0 = y;
+            x1 = x + w - 1;
+            y1 = y + h - 1;
+            cW = w;
+            cH = h;
+        }
+        else
+        {
+            x0 = x;
+            y0 = y;
+            const int32_t tx1 = static_cast<int32_t>(x) + w - 1;
+            const int32_t ty1 = static_cast<int32_t>(y) + h - 1;
+            if (tx1 < 0 || ty1 < 0 || x0 >= dispW || y0 >= dispH)
+                return;
 
-        const int16_t cW = static_cast<int16_t>(x1 - x0 + 1);
-        const int16_t cH = static_cast<int16_t>(y1 - y0 + 1);
+            x0 = std::max<int16_t>(x0, 0);
+            y0 = std::max<int16_t>(y0, 0);
+            x1 = static_cast<int16_t>(std::min<int32_t>(tx1, dispW - 1));
+            y1 = static_cast<int16_t>(std::min<int32_t>(ty1, dispH - 1));
 
-        pixels += static_cast<size_t>(y0 - y) * stridePixels + (x0 - x);
+            cW = static_cast<int16_t>(x1 - x0 + 1);
+            cH = static_cast<int16_t>(y1 - y0 + 1);
+
+            pixels += static_cast<size_t>(y0 - y) * stridePixels + (x0 - x);
+        }
 
         if (!_drv.setAddrWindow(static_cast<uint16_t>(x0), static_cast<uint16_t>(y0), static_cast<uint16_t>(x1), static_cast<uint16_t>(y1)))
             return;
@@ -217,11 +320,13 @@ namespace pipcore::st7789
         }
         else
         {
+            const uint16_t *row = pixels;
+#pragma GCC unroll 4
             for (int16_t yy = 0; yy < cH; ++yy)
             {
-                const uint16_t *row = pixels + static_cast<size_t>(yy) * stridePixels;
                 if (!_drv.writePixels565Async(row, static_cast<size_t>(cW)))
                     return;
+                row += stridePixels;
             }
         }
     }

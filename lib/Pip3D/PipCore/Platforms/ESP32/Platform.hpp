@@ -48,10 +48,12 @@ namespace pipcore::esp32
 
         void pinModeInput(uint8_t pin, InputMode mode) noexcept override;
         [[nodiscard]] bool digitalRead(uint8_t pin) noexcept override;
+        [[nodiscard]] int16_t analogRead(uint8_t pin) noexcept override;
 
         void configureBacklightPin(uint8_t pin, uint8_t channel = 0, uint32_t freqHz = 5000, uint8_t resolutionBits = 12) noexcept override;
 
         [[nodiscard]] uint32_t nowMs() noexcept override;
+        [[nodiscard]] uint64_t nowUs() noexcept override;
         [[nodiscard]] uint8_t loadMaxBrightnessPercent() noexcept override;
         void storeMaxBrightnessPercent(uint8_t percent) noexcept override;
 
@@ -59,6 +61,8 @@ namespace pipcore::esp32
 
         void *alloc(size_t bytes, AllocCaps caps = AllocCaps::Default) noexcept override;
         void free(void *ptr) noexcept override;
+        [[nodiscard]] void *allocAligned(size_t bytes, size_t align, AllocCaps caps = AllocCaps::Default) noexcept override;
+        void freeAligned(void *ptr) noexcept override;
 
         [[nodiscard]] bool configDisplay(const DisplayConfig &cfg) noexcept override;
         [[nodiscard]] bool beginDisplay(uint8_t rotation) noexcept override;

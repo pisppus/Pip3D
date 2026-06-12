@@ -7,5 +7,6 @@
 #include <PipCore/Prefs.hpp>
 #include <PipCore/Graphics/Sprite.hpp>
 #include <PipCore/Input/Button.hpp>
+#include <PipCore/Input/Joystick.hpp>
 #include <PipCore/Network/Wifi.hpp>
 #include <PipCore/Update/Ota.hpp>

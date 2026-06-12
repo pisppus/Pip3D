@@ -924,6 +924,27 @@ namespace pipcore::desktop
         return pressed;
     }
 
+    int16_t Runtime::analogRead(uint8_t pin) const noexcept
+    {
+        if (pin == 34)
+        {
+            if (_prevDown)
+                return 0;
+            if (_nextDown)
+                return 4095;
+            return 2048;
+        }
+        if (pin == 35)
+        {
+            if (_upDown)
+                return 0;
+            if (_downDown)
+                return 4095;
+            return 2048;
+        }
+        return 0;
+    }
+
     uint32_t Runtime::nowMs() noexcept
     {
         pumpEvents();
@@ -1504,6 +1525,14 @@ namespace pipcore::desktop
     {
         switch (key)
         {
+        case WXK_UP:
+        case 'W':
+            _upDown = down;
+            break;
+        case WXK_DOWN:
+        case 'S':
+            _downDown = down;
+            break;
         case WXK_LEFT:
         case 'A':
             _prevDown = down;

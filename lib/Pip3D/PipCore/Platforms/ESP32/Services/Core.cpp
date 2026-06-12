@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include <esp_heap_caps.h>
 #include <esp_system.h>
+#include <esp_timer.h>
 
 #include <algorithm>
 
@@ -26,6 +27,11 @@ namespace pipcore::esp32::services
     bool Gpio::digitalRead(uint8_t pin) const noexcept
     {
         return ::digitalRead(pin) != 0;
+    }
+
+    int16_t Gpio::analogRead(uint8_t pin) const noexcept
+    {
+        return ::analogRead(pin);
     }
 
     void *Heap::alloc(size_t bytes, AllocCaps caps) const noexcept
@@ -55,6 +61,33 @@ namespace pipcore::esp32::services
         pipcore::debug::memoryEvent(pipcore::debug::MemoryEvent::Free, "platform.free", ptr, nullptr, 0, 0);
     }
 
+    void *Heap::allocAligned(size_t bytes, size_t align, AllocCaps caps) const noexcept
+    {
+        if (bytes == 0)
+            return nullptr;
+
+        uint32_t caps_val = MALLOC_CAP_8BIT;
+        const char *tag = "platform.allocAligned";
+        if (caps == AllocCaps::PreferInternal)
+        {
+            caps_val = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+            tag = "platform.allocAligned.internal";
+        }
+
+        void *ptr = heap_caps_aligned_alloc(align, bytes, caps_val);
+        pipcore::debug::memoryEvent(ptr ? pipcore::debug::MemoryEvent::Alloc : pipcore::debug::MemoryEvent::AllocFail,
+                                    tag, ptr, nullptr, bytes, caps_val);
+        return ptr;
+    }
+
+    void Heap::freeAligned(void *ptr) const noexcept
+    {
+        if (!ptr)
+            return;
+        heap_caps_free(ptr);
+        pipcore::debug::memoryEvent(pipcore::debug::MemoryEvent::Free, "platform.freeAligned", ptr, nullptr, 0, 0);
+    }
+
     uint32_t Heap::freeHeapTotal() const noexcept
     {
         return esp_get_free_heap_size();
@@ -78,6 +111,11 @@ namespace pipcore::esp32::services
     uint32_t Time::nowMs() const noexcept
     {
         return millis();
+    }
+
+    uint64_t Time::nowUs() const noexcept
+    {
+        return esp_timer_get_time();
     }
 
     void Backlight::configurePin(uint8_t pin, uint8_t channel, uint32_t freqHz, uint8_t resolutionBits) noexcept

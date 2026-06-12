@@ -31,10 +31,9 @@ namespace pipcore::st7789
     };
 
     [[nodiscard]] const char *ioErrorText(IoError error) noexcept;
-
     [[nodiscard]] inline constexpr uint16_t bswap16(uint16_t v) noexcept { return __builtin_bswap16(v); }
 
-    inline void IRAM_ATTR copySwap565(uint16_t *dst, const uint16_t *src, size_t pixels) noexcept
+    inline void IRAM_ATTR __attribute__((always_inline)) copySwap565(uint16_t *dst, const uint16_t *src, size_t pixels) noexcept
     {
         if (pixels == 0)
             return;
@@ -82,6 +81,7 @@ namespace pipcore::st7789
         [[nodiscard]] virtual bool flush() = 0;
         [[nodiscard]] virtual bool writePixelsAsync(const void *data, size_t len) = 0;
         [[nodiscard]] virtual bool waitComplete() = 0;
+        [[nodiscard]] virtual bool waitOldest() = 0;
         [[nodiscard]] virtual bool writeAddrWindow(uint16_t xs, uint16_t xe, uint16_t ys, uint16_t ye) = 0;
     };
 
@@ -102,6 +102,7 @@ namespace pipcore::st7789
         [[nodiscard]] bool begin(uint8_t rotation);
         [[nodiscard]] bool setRotation(uint8_t rotation);
         void reset();
+
         [[nodiscard]] IoError lastError() const noexcept { return _lastError; }
         [[nodiscard]] const char *lastErrorText() const noexcept { return ioErrorText(_lastError); }
 
@@ -109,11 +110,67 @@ namespace pipcore::st7789
         [[nodiscard]] uint16_t height() const noexcept { return _height; }
         [[nodiscard]] bool swapBytes() const noexcept { return _swap; }
 
-        [[nodiscard]] bool setAddrWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1);
+        [[nodiscard]] inline bool __attribute__((always_inline)) waitComplete()
+        {
+            if (!_transport)
+                return false;
+            return _transport->waitComplete();
+        }
 
-        [[nodiscard]] bool writePixels565(const uint16_t *pixels, size_t pixelCount);
-        [[nodiscard]] bool writePixels565Async(const uint16_t *pixels, size_t pixelCount);
-        [[nodiscard]] bool waitComplete();
+        [[nodiscard]] inline bool __attribute__((always_inline)) waitOldest()
+        {
+            if (!_transport)
+                return false;
+            return _transport->waitOldest();
+        }
+
+        [[nodiscard]] inline bool __attribute__((always_inline)) setAddrWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
+        {
+            if (!_transport || !_initialized || !_width || !_height || x1 < x0 || y1 < y0)
+            {
+                _lastError = (_transport && _initialized) ? IoError::InvalidConfig : IoError::NotReady;
+                return false;
+            }
+            if (x0 >= _width || y0 >= _height)
+                return true;
+
+            if (x1 >= _width)
+                x1 = static_cast<uint16_t>(_width - 1U);
+            if (y1 >= _height)
+                y1 = static_cast<uint16_t>(_height - 1U);
+
+            const uint16_t xs = static_cast<uint16_t>(x0 + _xStart);
+            const uint16_t xe = static_cast<uint16_t>(x1 + _xStart);
+            const uint16_t ys = static_cast<uint16_t>(y0 + _yStart);
+            const uint16_t ye = static_cast<uint16_t>(y1 + _yStart);
+
+            if (!_transport->writeAddrWindow(xs, xe, ys, ye))
+            {
+                return failFromTransport(IoError::CommandTransmit);
+            }
+
+            return true;
+        }
+
+        [[nodiscard]] inline bool __attribute__((always_inline)) writePixels565(const uint16_t *pixels, size_t pixelCount)
+        {
+            if (!_transport || !_initialized || !pixels || !pixelCount)
+            {
+                _lastError = (_transport && _initialized) ? IoError::InvalidConfig : IoError::NotReady;
+                return false;
+            }
+            return sendPixels(pixels, pixelCount * sizeof(uint16_t));
+        }
+
+        [[nodiscard]] inline bool __attribute__((always_inline)) writePixels565Async(const uint16_t *pixels, size_t pixelCount)
+        {
+            if (!_transport || !_initialized || !pixels || !pixelCount)
+            {
+                _lastError = (_transport && _initialized) ? IoError::InvalidConfig : IoError::NotReady;
+                return false;
+            }
+            return _transport->writePixelsAsync(pixels, pixelCount * sizeof(uint16_t));
+        }
 
         [[nodiscard]] bool fillScreen565(uint16_t color565, bool swapBytes = false);
 
@@ -122,10 +179,47 @@ namespace pipcore::st7789
     private:
         [[nodiscard]] bool hardReset();
         [[nodiscard]] bool setRotationInternal(uint8_t rotation);
-        [[nodiscard]] bool sendCommand(uint8_t cmd);
-        [[nodiscard]] bool sendBytes(const void *data, size_t len);
-        [[nodiscard]] bool sendPixels(const void *data, size_t len);
-        [[nodiscard]] bool failFromTransport(IoError fallback);
+        [[nodiscard]] inline bool __attribute__((always_inline)) failFromTransport(IoError fallback)
+        {
+            IoError err = fallback;
+            if (_transport)
+            {
+                const IoError transportErr = _transport->lastError();
+                if (transportErr != IoError::None)
+                {
+                    err = transportErr;
+                }
+            }
+            _lastError = err;
+            return false;
+        }
+
+        inline bool __attribute__((always_inline)) sendCommand(uint8_t cmd)
+        {
+            if (!_transport)
+                return failFromTransport(IoError::NotReady);
+            if (_transport->writeCommand(cmd))
+                return true;
+            return failFromTransport(IoError::CommandTransmit);
+        }
+
+        inline bool __attribute__((always_inline)) sendBytes(const void *data, size_t len)
+        {
+            if (!_transport)
+                return failFromTransport(IoError::NotReady);
+            if (_transport->write(data, len))
+                return true;
+            return failFromTransport(IoError::DataTransmit);
+        }
+
+        inline bool __attribute__((always_inline)) sendPixels(const void *data, size_t len)
+        {
+            if (!_transport)
+                return failFromTransport(IoError::NotReady);
+            if (_transport->writePixels(data, len))
+                return true;
+            return failFromTransport(IoError::DataTransmit);
+        }
 
     private:
         Transport *_transport = nullptr;

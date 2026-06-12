@@ -92,8 +92,7 @@ namespace pip3D
             size_t bufferSize = totalPixels * sizeof(uint16_t);
             bufferSize = (bufferSize + DMA_ALIGNMENT - 1) & ~(DMA_ALIGNMENT - 1);
 
-            buffer = (uint16_t *)heap_caps_aligned_alloc(DMA_ALIGNMENT, bufferSize,
-                                                         MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+            buffer = (uint16_t *)pip3D::MemUtils::allocAligned(bufferSize, DMA_ALIGNMENT, pipcore::AllocCaps::PreferInternal);
 
             if (!buffer)
             {
@@ -107,8 +106,8 @@ namespace pip3D
 
             memset(buffer, 0, bufferSize);
 
-            skyboxColorCache = (uint16_t *)heap_caps_malloc(SCREEN_HEIGHT * 2 * sizeof(uint16_t),
-                                                            MALLOC_CAP_INTERNAL);
+            skyboxColorCache = (uint16_t *)pip3D::MemUtils::allocAligned(SCREEN_HEIGHT * 2 * sizeof(uint16_t), 4, pipcore::AllocCaps::PreferInternal);
+
             if (!skyboxColorCache)
             {
                 LOGW(::pip3D::Debug::LOG_MODULE_RENDER,
@@ -482,12 +481,12 @@ namespace pip3D
         {
             if (buffer)
             {
-                heap_caps_free(buffer);
+                pip3D::MemUtils::freeAligned(buffer);
                 buffer = nullptr;
             }
             if (skyboxColorCache)
             {
-                heap_caps_free(skyboxColorCache);
+                pip3D::MemUtils::freeAligned(skyboxColorCache);
                 skyboxColorCache = nullptr;
             }
         }
