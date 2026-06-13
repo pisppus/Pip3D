@@ -298,7 +298,7 @@ namespace pip3D
 
     void rotateDeg(float yawDegrees, float pitchDegrees)
     {
-      rotateRad(yawDegrees * DEG2RAD, pitchDegrees * DEG2RAD);
+      rotateRad(yawDegrees * kDegToRad, pitchDegrees * kDegToRad);
     }
 
     void rotateRad(float yawRad, float pitchRad)
@@ -335,8 +335,8 @@ namespace pip3D
     void orbit(const Vector3 &center, float radius, float azimuth,
                float elevation, bool degrees = true)
     {
-      const float az = degrees ? azimuth * DEG2RAD : azimuth;
-      const float el = degrees ? elevation * DEG2RAD : elevation;
+      const float az = degrees ? azimuth * kDegToRad : azimuth;
+      const float el = degrees ? elevation * kDegToRad : elevation;
       const float cosEl = cosf(el);
 
       position = Vector3(center.x + radius * cosEl * cosf(az),
@@ -440,7 +440,7 @@ namespace pip3D
   private:
     void setFisheyeProjection(float aspect) const
     {
-      float fovRad = fov * DEG2RAD;
+      float fovRad = fov * kDegToRad;
       float f = 1.0f / tanf(fovRad * 0.5f);
 
       cache.proj.identity();
@@ -526,7 +526,7 @@ namespace pip3D
     {
       if (fabsf(joyX) > 0.1f || fabsf(joyY) > 0.1f)
       {
-        const float radSpeed = rotSpd * deltaTime * DEG2RAD;
+        const float radSpeed = rotSpd * deltaTime * kDegToRad;
         azimuth += joyX * radSpeed;
         const float halfPi = 1.57079632679489661923f;
         elevation = fmaxf(-halfPi + 0.1f,

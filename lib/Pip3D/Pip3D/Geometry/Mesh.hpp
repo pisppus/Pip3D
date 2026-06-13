@@ -537,9 +537,9 @@ namespace pip3D
             if (cache.transformHash == newHash && cache.transformValid)
                 return;
 
-            float radX = rotation.x * DEG2RAD;
-            float radY = rotation.y * DEG2RAD;
-            float radZ = rotation.z * DEG2RAD;
+            float radX = rotation.x * kDegToRad;
+            float radY = rotation.y * kDegToRad;
+            float radZ = rotation.z * kDegToRad;
 
             float cx = FastMath::fastCos(radX), sx = FastMath::fastSin(radX);
             float cy = FastMath::fastCos(radY), sy = FastMath::fastSin(radY);

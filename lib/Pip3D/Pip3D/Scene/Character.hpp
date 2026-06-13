@@ -260,7 +260,7 @@ namespace pip3D
                 float invLen = FastMath::fastInvSqrt(moveLenSq);
                 moveDir *= invLen;
 
-                float targetYaw = atan2f(moveDir.x, moveDir.z) * RAD2DEG;
+                float targetYaw = atan2f(moveDir.x, moveDir.z) * kRadToDeg;
                 float yawDelta = targetYaw - yaw;
                 while (yawDelta > 180.0f)
                     yawDelta -= 360.0f;
@@ -393,7 +393,7 @@ namespace pip3D
 
         void applyToCamera(Camera &cam, const Vector3 &offset) const
         {
-            float yawRad = yaw * DEG2RAD;
+            float yawRad = yaw * kDegToRad;
             float s = sinf(yawRad);
             float c = cosf(yawRad);
 
@@ -415,7 +415,7 @@ namespace pip3D
 
         void applyFirstPerson(Camera &cam) const
         {
-            float yawRad = yaw * DEG2RAD;
+            float yawRad = yaw * kDegToRad;
             float s = sinf(yawRad);
             float c = cosf(yawRad);
 

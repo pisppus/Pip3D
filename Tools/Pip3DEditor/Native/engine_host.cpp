@@ -223,8 +223,8 @@ static Color parseHexColor(const std::string &hex, const Color &fallback = Color
 
 static Vector3 rotationToForward(const Vector3 &rotationDegrees)
 {
-    const float pitch = rotationDegrees.x * DEG2RAD;
-    const float yaw = rotationDegrees.y * DEG2RAD;
+    const float pitch = rotationDegrees.x * kDegToRad;
+    const float yaw = rotationDegrees.y * kDegToRad;
     const float cp = cosf(pitch);
     const float sp = sinf(pitch);
     const float cy = cosf(yaw);
@@ -1538,7 +1538,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             float ny = 1.0f - sy * 2.0f;
 
             float aspect = static_cast<float>(VIEW_WIDTH) / static_cast<float>(VIEW_HEIGHT);
-            float tanHalfFov = tanf(cam.fov * DEG2RAD * 0.5f);
+            float tanHalfFov = tanf(cam.fov * kDegToRad * 0.5f);
 
             Vector3 dir = cam.forward();
             dir += cam.right() * (nx * aspect * tanHalfFov);

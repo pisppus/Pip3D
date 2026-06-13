@@ -561,7 +561,7 @@ namespace pip3D
             }
 
             const float aspect = viewport.height > 0 ? (float)viewport.width / (float)viewport.height : 1.0f;
-            const float tanHalfFov = tanf(cam.fov * DEG2RAD * 0.5f);
+            const float tanHalfFov = tanf(cam.fov * kDegToRad * 0.5f);
             if (tanHalfFov <= 1e-6f)
             {
                 return;
@@ -1012,7 +1012,7 @@ namespace pip3D
                 float distForward = toCenter.dot(cam.forward());
                 if (distForward > cam.nearPlane)
                 {
-                    float fovRad = cam.fov * DEG2RAD;
+                    float fovRad = cam.fov * kDegToRad;
                     float tanHalf = tanf(fovRad * 0.5f);
                     if (tanHalf > 1e-6f)
                     {
