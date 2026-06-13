@@ -197,45 +197,42 @@ namespace pip3D
             int32_t depth = depthStart;
             uint16_t count = countTotal;
 
+            // Развернутый цикл по 4 пикселя (полностью безветвленный)
             while (count >= 4)
             {
                 PIP3D_PREFETCH(buf + 16);
                 PIP3D_PREFETCH(fb + 16);
 
-                int16_t depth0 = static_cast<int16_t>(depth);
-                int16_t currentDepth0 = buf[0] & ~SHADOW_FLAG;
-                if (depth0 < currentDepth0)
-                {
-                    buf[0] = depth0;
-                    fb[0] = color;
-                }
+                // Пиксель 0
+                int16_t d0 = static_cast<int16_t>(depth);
+                int16_t curr0 = buf[0] & ~SHADOW_FLAG;
+                int16_t mask0 = (d0 - curr0) >> 15; // 0xFFFF если d0 < curr0, иначе 0x0000
+                buf[0] = (d0 & mask0) | (buf[0] & ~mask0);
+                fb[0] = (color & mask0) | (fb[0] & ~mask0);
                 depth += depthStep;
 
-                int16_t depth1 = static_cast<int16_t>(depth);
-                int16_t currentDepth1 = buf[1] & ~SHADOW_FLAG;
-                if (depth1 < currentDepth1)
-                {
-                    buf[1] = depth1;
-                    fb[1] = color;
-                }
+                // Пиксель 1
+                int16_t d1 = static_cast<int16_t>(depth);
+                int16_t curr1 = buf[1] & ~SHADOW_FLAG;
+                int16_t mask1 = (d1 - curr1) >> 15;
+                buf[1] = (d1 & mask1) | (buf[1] & ~mask1);
+                fb[1] = (color & mask1) | (fb[1] & ~mask1);
                 depth += depthStep;
 
-                int16_t depth2 = static_cast<int16_t>(depth);
-                int16_t currentDepth2 = buf[2] & ~SHADOW_FLAG;
-                if (depth2 < currentDepth2)
-                {
-                    buf[2] = depth2;
-                    fb[2] = color;
-                }
+                // Пиксель 2
+                int16_t d2 = static_cast<int16_t>(depth);
+                int16_t curr2 = buf[2] & ~SHADOW_FLAG;
+                int16_t mask2 = (d2 - curr2) >> 15;
+                buf[2] = (d2 & mask2) | (buf[2] & ~mask2);
+                fb[2] = (color & mask2) | (fb[2] & ~mask2);
                 depth += depthStep;
 
-                int16_t depth3 = static_cast<int16_t>(depth);
-                int16_t currentDepth3 = buf[3] & ~SHADOW_FLAG;
-                if (depth3 < currentDepth3)
-                {
-                    buf[3] = depth3;
-                    fb[3] = color;
-                }
+                // Пиксель 3
+                int16_t d3 = static_cast<int16_t>(depth);
+                int16_t curr3 = buf[3] & ~SHADOW_FLAG;
+                int16_t mask3 = (d3 - curr3) >> 15;
+                buf[3] = (d3 & mask3) | (buf[3] & ~mask3);
+                fb[3] = (color & mask3) | (fb[3] & ~mask3);
                 depth += depthStep;
 
                 buf += 4;
@@ -243,15 +240,15 @@ namespace pip3D
                 count -= 4;
             }
 
+            // Остаточные пиксели (также безветвленные)
             while (count > 0)
             {
                 int16_t d = static_cast<int16_t>(depth);
-                int16_t currentDepth = *buf & ~SHADOW_FLAG;
-                if (d < currentDepth)
-                {
-                    *buf = d;
-                    *fb = color;
-                }
+                int16_t curr = *buf & ~SHADOW_FLAG;
+                int16_t mask = (d - curr) >> 15;
+                *buf = (d & mask) | (*buf & ~mask);
+                *fb = (color & mask) | (*fb & ~mask);
+
                 depth += depthStep;
                 ++buf;
                 ++fb;

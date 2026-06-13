@@ -119,7 +119,7 @@ namespace pip3D
         }
         void setEuler(float pitch, float yaw, float roll)
         {
-            rotation = Quaternion::fromEuler(pitch * DEG2RAD, yaw * DEG2RAD, roll * DEG2RAD);
+            rotation = Quaternion::fromEuler(pitch * kDegToRad, yaw * kDegToRad, roll * kDegToRad);
             transformDirty = boundsDirty = true;
             cachedProjectionFrameStamp = 0;
         }
