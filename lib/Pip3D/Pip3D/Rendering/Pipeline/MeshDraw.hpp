@@ -445,7 +445,8 @@ namespace pip3D
                              int activeLightCount,
                              bool backfaceCullingEnabled,
                              uint32_t &statsTrianglesTotal,
-                             uint32_t &statsTrianglesBackfaceCulled)
+                             uint32_t &statsTrianglesBackfaceCulled,
+                             ShadingMode shadingMode = SHADING_FLAT)
         {
             if (!mesh || !mesh->isVisible())
                 return;
@@ -458,16 +459,12 @@ namespace pip3D
                 return;
 
             const uint16_t meshColor565 = mesh->color().rgb565;
-            float baseR;
-            float baseG;
-            float baseB;
+            float baseR, baseG, baseB;
             decodeColorToFloat(meshColor565, baseR, baseG, baseB);
 
             const uint16_t faceCount = mesh->numFaces();
             if (faceCount == 0)
-            {
                 return;
-            }
 
             bool useUniformColor = mesh->getSingleColorLighting();
             uint16_t uniformColor = 0;
@@ -521,6 +518,31 @@ namespace pip3D
                 mesh->setCachedProjectionFrameStamp(frameStamp);
             }
 
+            thread_local static std::vector<Vector3> vertexColors;
+            if (shadingMode == SHADING_GOURAUD && !useUniformColor)
+            {
+                if (vertexColors.size() < vertexCountUsed)
+                    vertexColors.resize(vertexCountUsed);
+
+                const Vector3 camPos = camera.position;
+                for (uint16_t vi = 0; vi < vertexCountUsed; ++vi)
+                {
+                    Vector3 v = worldVerts[vi];
+                    Vector3 n = mesh->normal(vi);
+                    Vector3 viewDir = camPos - v;
+                    viewDir.normalize();
+
+                    float r, g, b;
+                    Shading::calculateLighting(v, n, viewDir,
+                                               lights, activeLightCount,
+                                               baseR, baseG, baseB,
+                                               r, g, b);
+                    vertexColors[vi] = Vector3(r, g, b);
+                }
+            }
+
+            const DisplayConfig &framebufferConfig = framebuffer.getConfig();
+
             for (uint16_t i = 0; i < faceCount; ++i)
             {
                 const Face &face = mesh->face(i);
@@ -570,19 +592,41 @@ namespace pip3D
 
                     float facing = 0.0f;
                     if (usePerspectiveFacing)
-                    {
                         facing = faceNormal.dot(camera.position - v0);
-                    }
                     else
-                    {
                         facing = faceNormal.dot(cameraBackward);
-                    }
 
                     if (facing <= 0.0f)
                     {
                         statsTrianglesBackfaceCulled++;
                         continue;
                     }
+                }
+
+                if (shadingMode == SHADING_GOURAUD && !useUniformColor && !partiallyClipped)
+                {
+                    const Vector3 &c0 = vertexColors[i0];
+                    const Vector3 &c1 = vertexColors[i1];
+                    const Vector3 &c2 = vertexColors[i2];
+
+                    Vector3 lp0 = p0;
+                    Vector3 lp1 = p1;
+                    Vector3 lp2 = p2;
+                    lp0.y -= (float)bandTop;
+                    lp1.y -= (float)bandTop;
+                    lp2.y -= (float)bandTop;
+
+                    Rasterizer::fillTriangleSmooth(
+                        (int16_t)lp0.x, (int16_t)lp0.y, lp0.z,
+                        (int16_t)lp1.x, (int16_t)lp1.y, lp1.z,
+                        (int16_t)lp2.x, (int16_t)lp2.y, lp2.z,
+                        c0.x, c0.y, c0.z,
+                        c1.x, c1.y, c1.z,
+                        c2.x, c2.y, c2.z,
+                        framebuffer.getBuffer(),
+                        zBuffer,
+                        framebufferConfig);
+                    continue;
                 }
 
                 drawTriangle3D_Clipped_Preprojected(v0, v1, v2,

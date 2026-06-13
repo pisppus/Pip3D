@@ -16,6 +16,14 @@
 #define PIP3D_RESTRICT
 #endif
 
+#if defined(__GNUC__) || defined(__clang__)
+#define PIP3D_PREFETCH_R(ptr) __builtin_prefetch((ptr), 0, 0)
+#define PIP3D_PREFETCH_W(ptr) __builtin_prefetch((ptr), 1, 0)
+#else
+#define PIP3D_PREFETCH_R(ptr) ((void)0)
+#define PIP3D_PREFETCH_W(ptr) ((void)0)
+#endif
+
 #if defined(ESP_PLATFORM) || defined(ESP32)
 #include <esp_attr.h>
 #define PIP3D_FAST_DATA DRAM_ATTR

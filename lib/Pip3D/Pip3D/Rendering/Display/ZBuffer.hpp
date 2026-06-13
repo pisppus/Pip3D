@@ -5,6 +5,7 @@
 #endif
 #include "Core/Memory.hpp"
 #include "Debug/Logging.hpp"
+#include "Math/Algebra.hpp"
 
 #if defined(__GNUC__) || defined(__clang__)
 #ifndef PIP3D_PREFETCH
@@ -197,21 +198,18 @@ namespace pip3D
             int32_t depth = depthStart;
             uint16_t count = countTotal;
 
-            // Развернутый цикл по 4 пикселя (полностью безветвленный)
             while (count >= 4)
             {
-                PIP3D_PREFETCH(buf + 16);
-                PIP3D_PREFETCH(fb + 16);
+                PIP3D_PREFETCH_W(buf + 16);
+                PIP3D_PREFETCH_W(fb + 16);
 
-                // Пиксель 0
                 int16_t d0 = static_cast<int16_t>(depth);
                 int16_t curr0 = buf[0] & ~SHADOW_FLAG;
-                int16_t mask0 = (d0 - curr0) >> 15; // 0xFFFF если d0 < curr0, иначе 0x0000
+                int16_t mask0 = (d0 - curr0) >> 15;
                 buf[0] = (d0 & mask0) | (buf[0] & ~mask0);
                 fb[0] = (color & mask0) | (fb[0] & ~mask0);
                 depth += depthStep;
 
-                // Пиксель 1
                 int16_t d1 = static_cast<int16_t>(depth);
                 int16_t curr1 = buf[1] & ~SHADOW_FLAG;
                 int16_t mask1 = (d1 - curr1) >> 15;
@@ -219,7 +217,6 @@ namespace pip3D
                 fb[1] = (color & mask1) | (fb[1] & ~mask1);
                 depth += depthStep;
 
-                // Пиксель 2
                 int16_t d2 = static_cast<int16_t>(depth);
                 int16_t curr2 = buf[2] & ~SHADOW_FLAG;
                 int16_t mask2 = (d2 - curr2) >> 15;
@@ -227,7 +224,6 @@ namespace pip3D
                 fb[2] = (color & mask2) | (fb[2] & ~mask2);
                 depth += depthStep;
 
-                // Пиксель 3
                 int16_t d3 = static_cast<int16_t>(depth);
                 int16_t curr3 = buf[3] & ~SHADOW_FLAG;
                 int16_t mask3 = (d3 - curr3) >> 15;
@@ -240,7 +236,6 @@ namespace pip3D
                 count -= 4;
             }
 
-            // Остаточные пиксели (также безветвленные)
             while (count > 0)
             {
                 int16_t d = static_cast<int16_t>(depth);

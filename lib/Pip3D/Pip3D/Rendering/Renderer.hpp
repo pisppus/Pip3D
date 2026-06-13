@@ -45,16 +45,12 @@
 #define PIP3D_DISPLAY_ROTATION 1
 #endif
 
+class PhysicsWorld;
+
 namespace pip3D
 {
-
     class Renderer
     {
-    public:
-        enum ShadingMode
-        {
-            SHADING_FLAT = 0
-        };
 
     private:
         static constexpr int BAND_COUNT = SCREEN_BAND_COUNT;
@@ -62,6 +58,14 @@ namespace pip3D
 
         FrameBuffer framebuffer;
         ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer;
+
+        static constexpr size_t MAX_QUEUE_ELEMENTS = 64;
+        MeshInstance *shadowQueue[MAX_QUEUE_ELEMENTS];
+        MeshInstance *opaqueQueue[MAX_QUEUE_ELEMENTS];
+        size_t shadowQueueCount = 0;
+        size_t opaqueQueueCount = 0;
+
+        PhysicsWorld *physicsWorld = nullptr;
 #if defined(PIP3D_PC)
         bool pcDisplayReady;
 #else
@@ -278,6 +282,26 @@ namespace pip3D
             }
         }
 
+        void setPhysicsWorld(PhysicsWorld *world) { physicsWorld = world; }
+        void draw(MeshInstance *instance)
+        {
+            if (unlikely(!instance || !instance->isVisible()))
+                return;
+
+            if (shadowsEnabled && instance->getMesh() && instance->getMesh()->getCastShadows())
+            {
+                if (shadowQueueCount < MAX_QUEUE_ELEMENTS)
+                {
+                    shadowQueue[shadowQueueCount++] = instance;
+                }
+            }
+
+            if (opaqueQueueCount < MAX_QUEUE_ELEMENTS)
+            {
+                opaqueQueue[opaqueQueueCount++] = instance;
+            }
+        }
+
         Renderer(const Renderer &) = delete;
         Renderer &operator=(const Renderer &) = delete;
         Renderer(Renderer &&) = delete;
@@ -449,10 +473,27 @@ namespace pip3D
             perfCounter.endFrame();
         }
 
+        void flushQueue()
+        {
+            for (size_t i = 0; i < shadowQueueCount; ++i)
+            {
+                drawMeshInstanceShadow(shadowQueue[i]);
+            }
+
+            for (size_t i = 0; i < opaqueQueueCount; ++i)
+            {
+                drawMeshInstanceInternal(opaqueQueue[i], false, true);
+            }
+        }
+
         void beginFrameBand(int bandIndex)
         {
             if (!isInitialized())
                 return;
+
+            shadowQueueCount = 0;
+            opaqueQueueCount = 0;
+
             if (bandIndex < 0)
                 bandIndex = 0;
             if (bandIndex >= BAND_COUNT)
@@ -972,7 +1013,8 @@ namespace pip3D
                                    activeLightCount,
                                    backfaceCullingEnabled,
                                    statsTrianglesTotal,
-                                   statsTrianglesBackfaceCulled);
+                                   statsTrianglesBackfaceCulled,
+                                   shadingMode);
         }
 
         void drawMesh(Mesh *mesh, ShadingMode mode)
@@ -1106,6 +1148,30 @@ namespace pip3D
                 instance->setCachedProjectionFrameStamp(frameStamp);
             }
 
+            thread_local static std::vector<Vector3> vertexColors;
+            if (shadingMode == SHADING_GOURAUD && !useUniformColor)
+            {
+                if (vertexColors.size() < vertexCountUsed)
+                    vertexColors.resize(vertexCountUsed);
+
+                const Vector3 camPos = cam.position;
+                for (uint16_t vi = 0; vi < vertexCountUsed; ++vi)
+                {
+                    Vector3 localNormal = mesh->vert(vi).normal.get();
+                    Vector3 worldNormal = worldTransform.transformNormal(localNormal);
+                    Vector3 v = worldVerts[vi];
+                    Vector3 viewDir = camPos - v;
+                    viewDir.normalize();
+
+                    float r, g, b;
+                    Shading::calculateLighting(v, worldNormal, viewDir,
+                                               activeLights, activeLightCount,
+                                               baseR, baseG, baseB,
+                                               r, g, b);
+                    vertexColors[vi] = Vector3(r, g, b);
+                }
+            }
+
             for (uint16_t i = 0; i < faceCount; ++i)
             {
                 const Face &face = mesh->face(i);
@@ -1155,6 +1221,32 @@ namespace pip3D
                         statsTrianglesBackfaceCulled++;
                         continue;
                     }
+                }
+
+                if (shadingMode == SHADING_GOURAUD && !useUniformColor && !partiallyClipped)
+                {
+                    const Vector3 &c0 = vertexColors[face.v0];
+                    const Vector3 &c1 = vertexColors[face.v1];
+                    const Vector3 &c2 = vertexColors[face.v2];
+
+                    Vector3 lp0 = p0;
+                    Vector3 lp1 = p1;
+                    Vector3 lp2 = p2;
+                    lp0.y -= (float)bandTop;
+                    lp1.y -= (float)bandTop;
+                    lp2.y -= (float)bandTop;
+
+                    Rasterizer::fillTriangleSmooth(
+                        (int16_t)lp0.x, (int16_t)lp0.y, lp0.z,
+                        (int16_t)lp1.x, (int16_t)lp1.y, lp1.z,
+                        (int16_t)lp2.x, (int16_t)lp2.y, lp2.z,
+                        c0.x, c0.y, c0.z,
+                        c1.x, c1.y, c1.z,
+                        c2.x, c2.y, c2.z,
+                        framebuffer.getBuffer(),
+                        zBuffer,
+                        framebufferConfig);
+                    continue;
                 }
 
                 MeshRenderer::drawTriangle3D_Preprojected(v0, v1, v2,
@@ -1236,9 +1328,21 @@ namespace pip3D
             if (!shouldRenderShadowForBounds(instance->center(), instance->radius()))
                 return;
 
+            ShadowSettings activeSettings = shadowSettings;
+            if (physicsWorld)
+            {
+                RaycastHit hit;
+                Ray downRay(instance->pos(), Vector3(0.0f, -1.0f, 0.0f));
+                if (physicsWorld->raycast(downRay, hit, 30.0f))
+                {
+                    Vector3 hitPointWithOffset = hit.point + hit.normal * activeSettings.shadowOffset;
+                    activeSettings.plane = ShadowProjector::ShadowPlane::fromPointAndNormal(hitPointWithOffset, hit.normal);
+                }
+            }
+
             ShadowRenderer::drawMeshInstanceShadow(instance,
                                                    shadowsEnabled,
-                                                   shadowSettings,
+                                                   activeSettings,
                                                    cameras[activeCameraIndex],
                                                    lights.data(),
                                                    activeLightCount,
