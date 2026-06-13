@@ -1,9 +1,10 @@
 #pragma once
 
+#include <algorithm>
+
 #include "Core/Viewport.hpp"
 #include "Rendering/Display/ZBuffer.hpp"
 #include "Shading.hpp"
-#include <algorithm>
 
 namespace pip3D
 {
@@ -11,131 +12,242 @@ namespace pip3D
     class Rasterizer
     {
     public:
-        static void accumulateShadowTriangle(float x0, float y0, float z0,
-                                             float x1, float y1, float z1,
-                                             float x2, float y2, float z2,
-                                             int16_t *shadowDepthBuffer,
-                                             const DisplayConfig &config)
+        struct ShadowParams
         {
-            const int16_t width = config.width;
-            const int16_t height = config.height;
-            const int16_t clearDepth = ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::clearDepthValue();
+            uint16_t *frameBuffer;
+            int16_t *zbBase;
+            int16_t width;
+            int16_t height;
+            int32_t dz_dx_fixed;
+            int32_t dz_dy_fixed;
+            uint32_t s_rb;
+            uint32_t s_g;
+            uint8_t alpha;
+            bool softEdges;
+            int startTopGlobal;
+            int endBottomGlobal;
+            int16_t offsetY;
+        };
 
-            if (!shadowDepthBuffer)
+    private:
+        __attribute__((always_inline)) static inline void fillShadowHalf(
+            float xa0, float ya0,
+            float xa1, float ya1,
+            float xb0, float yb0,
+            float xb1, float yb1,
+            int startY, int endYExclusive,
+            int32_t z_start_fixed_base,
+            int clampStartY,
+            const ShadowParams &params)
+        {
+            float dya = ya1 - ya0;
+            float dyb = yb1 - yb0;
+            if (unlikely(fabsf(dya) < 1e-6f || fabsf(dyb) < 1e-6f))
                 return;
 
-            if (y0 > y1)
-            {
-                std::swap(x0, x1);
-                std::swap(y0, y1);
-                std::swap(z0, z1);
-            }
-            if (y1 > y2)
-            {
-                std::swap(x1, x2);
-                std::swap(y1, y2);
-                std::swap(z1, z2);
-            }
-            if (y0 > y1)
-            {
-                std::swap(x0, x1);
-                std::swap(y0, y1);
-                std::swap(z0, z1);
-            }
+            float invDya = FastMath::fastReciprocal(dya);
+            float invDyb = FastMath::fastReciprocal(dyb);
 
-            if (y0 == y2)
+            float dx_dy_A = (xa1 - xa0) * invDya;
+            float dx_dy_B = (xb1 - xb0) * invDyb;
+
+            int clampEndY = endYExclusive > params.height ? params.height : endYExclusive;
+            if (unlikely(clampStartY >= clampEndY))
                 return;
 
-            float dy1 = y1 - y0;
-            float dy2 = y2 - y0;
-            if (fabsf(dy1) < 1e-6f && fabsf(dy2) < 1e-6f)
-                return;
-            const float depthScale = 32638.0f;
+            float initY = static_cast<float>(clampStartY) + 0.5f;
+            float leftX = xa0 + dx_dy_A * (initY - ya0);
+            float rightX = xb0 + dx_dy_B * (initY - yb0);
 
-            auto rasterHalf = [&](float xa0, float ya0, float za0,
-                                  float xa1, float ya1, float za1,
-                                  float xb0, float yb0, float zb0,
-                                  float xb1, float yb1, float zb1,
-                                  int startY, int endYExclusive)
+            int32_t leftX_fixed = static_cast<int32_t>(leftX * 65536.0f);
+            int32_t rightX_fixed = static_cast<int32_t>(rightX * 65536.0f);
+            int32_t dx_dy_A_fixed = static_cast<int32_t>(dx_dy_A * 65536.0f);
+            int32_t dx_dy_B_fixed = static_cast<int32_t>(dx_dy_B * 65536.0f);
+
+            if (leftX_fixed > rightX_fixed)
             {
-                float dya = ya1 - ya0;
-                float dyb = yb1 - yb0;
-                if (fabsf(dya) < 1e-6f || fabsf(dyb) < 1e-6f)
-                    return;
+                std::swap(leftX_fixed, rightX_fixed);
+                std::swap(dx_dy_A_fixed, dx_dy_B_fixed);
+            }
 
-                float invDya = 1.0f / dya;
-                float invDyb = 1.0f / dyb;
+            int32_t z_row_fixed = z_start_fixed_base;
 
-                for (int y = startY; y < endYExclusive; ++y)
+            for (int y = clampStartY; y < clampEndY; ++y)
+            {
+                int16_t xStart = static_cast<int16_t>((leftX_fixed + 65535) >> 16);
+                int16_t xEnd = static_cast<int16_t>((rightX_fixed + 65535) >> 16) - 1;
+
+                if (xStart < 0)
+                    xStart = 0;
+                if (xEnd >= params.width)
+                    xEnd = params.width - 1;
+
+                if (xStart <= xEnd)
                 {
-                    if (y < 0 || y >= height)
-                        continue;
+                    int16_t x = xStart;
+                    int16_t count = xEnd - xStart + 1;
+                    int32_t depth_fixed = z_row_fixed + params.dz_dx_fixed * x;
 
-                    float sampleY = static_cast<float>(y) + 0.5f;
-                    float tA = (sampleY - ya0) * invDya;
-                    float tB = (sampleY - yb0) * invDyb;
+                    int16_t *__restrict__ row = params.zbBase + static_cast<size_t>(y) * params.width;
+                    int16_t yLocal = static_cast<int16_t>(y - params.offsetY);
+                    uint16_t *__restrict__ fb = params.frameBuffer + static_cast<size_t>(yLocal) * params.width;
 
-                    float leftX = xa0 + (xa1 - xa0) * tA;
-                    float rightX = xb0 + (xb1 - xb0) * tB;
-                    float leftZ = za0 + (za1 - za0) * tA;
-                    float rightZ = zb0 + (zb1 - zb0) * tB;
-
-                    if (leftX > rightX)
+                    uint8_t edgeAlpha = params.alpha;
+                    if (params.softEdges)
                     {
-                        std::swap(leftX, rightX);
-                        std::swap(leftZ, rightZ);
+                        if (unlikely(y == params.startTopGlobal || y == params.endBottomGlobal - 1))
+                        {
+                            edgeAlpha = params.alpha >> 1;
+                        }
                     }
 
-                    int16_t xStart = static_cast<int16_t>(ceilf(leftX));
-                    int16_t xEnd = static_cast<int16_t>(ceilf(rightX)) - 1;
-                    if (xStart < 0)
-                        xStart = 0;
-                    if (xEnd >= width)
-                        xEnd = width - 1;
-                    if (xStart > xEnd)
-                        continue;
+                    const uint32_t a = edgeAlpha >> 3;
+                    const uint32_t inv_a = 32 - a;
+                    const uint32_t s_rb_a = params.s_rb * a;
+                    const uint32_t s_g_a = params.s_g * a;
 
-                    float dx = rightX - leftX;
-                    float zStep = fabsf(dx) > 1e-6f ? (rightZ - leftZ) / dx : 0.0f;
-                    float z = leftZ + zStep * ((static_cast<float>(xStart) + 0.5f) - leftX);
-                    int32_t depth = static_cast<int32_t>(z * depthScale);
-                    int32_t depthStep = static_cast<int32_t>(zStep * depthScale);
-
-                    int16_t *row = shadowDepthBuffer + static_cast<size_t>(y) * width;
-                    for (int16_t x = xStart; x <= xEnd; ++x)
+                    if (x & 1)
                     {
-                        int16_t shadowDepth = static_cast<int16_t>(depth);
-                        if (row[x] == clearDepth || shadowDepth < row[x])
-                            row[x] = shadowDepth;
-                        depth += depthStep;
+                        const int16_t stored = row[x];
+                        if (stored >= 0 && stored != 0x7F7F)
+                        {
+                            const int16_t shadowDepth = static_cast<int16_t>(depth_fixed >> 12);
+                            const int16_t backTolerance = 10 + (stored >> 11);
+                            if ((stored - shadowDepth) >= -backTolerance)
+                            {
+                                const uint32_t bgColor = fb[x];
+                                const uint32_t rb = (bgColor & 0xF81F);
+                                const uint32_t g = (bgColor & 0x07E0);
+                                const uint32_t blended_rb = ((rb * inv_a + s_rb_a) >> 5) & 0xF81F;
+                                const uint32_t blended_g = ((g * inv_a + s_g_a) >> 5) & 0x07E0;
+
+                                fb[x] = static_cast<uint16_t>(blended_rb | blended_g);
+                                row[x] = static_cast<int16_t>(stored | 0x8000);
+                            }
+                        }
+                        depth_fixed += params.dz_dx_fixed;
+                        x++;
+                        count--;
+                    }
+
+                    uint32_t *__restrict__ row32 = reinterpret_cast<uint32_t *>(&row[x]);
+                    uint32_t *__restrict__ fb32 = reinterpret_cast<uint32_t *>(&fb[x]);
+                    int16_t count32 = count >> 1;
+
+                    PIP3D_PREFETCH_W(row32);
+                    PIP3D_PREFETCH_W(fb32);
+
+                    while (count32 > 0)
+                    {
+                        PIP3D_PREFETCH_W(row32 + 8);
+                        PIP3D_PREFETCH_W(fb32 + 8);
+
+                        uint32_t z_pack = row32[0];
+
+                        if ((z_pack & 0x80008000) == 0x80008000 || z_pack == 0x7F7F7F7F)
+                        {
+                            depth_fixed += params.dz_dx_fixed << 1;
+                            row32++;
+                            fb32++;
+                            count32--;
+                            continue;
+                        }
+
+                        int16_t stored0 = static_cast<int16_t>(z_pack & 0xFFFF);
+                        int16_t stored1 = static_cast<int16_t>(z_pack >> 16);
+
+                        int16_t shadowDepth0 = static_cast<int16_t>(depth_fixed >> 12);
+                        int16_t shadowDepth1 = static_cast<int16_t>((depth_fixed + params.dz_dx_fixed) >> 12);
+
+                        bool write0 = false;
+                        bool write1 = false;
+
+                        if (stored0 >= 0 && stored0 != 0x7F7F)
+                        {
+                            int16_t backTolerance = 10 + (stored0 >> 11);
+                            if ((stored0 - shadowDepth0) >= -backTolerance)
+                            {
+                                write0 = true;
+                                stored0 |= 0x8000;
+                            }
+                        }
+
+                        if (stored1 >= 0 && stored1 != 0x7F7F)
+                        {
+                            int16_t backTolerance = 10 + (stored1 >> 11);
+                            if ((stored1 - shadowDepth1) >= -backTolerance)
+                            {
+                                write1 = true;
+                                stored1 |= 0x8000;
+                            }
+                        }
+
+                        if (write0 || write1)
+                        {
+                            uint32_t bg_pack = fb32[0];
+                            uint32_t m_pack = bg_pack;
+
+                            if (write0)
+                            {
+                                uint32_t bg0 = bg_pack & 0xFFFF;
+                                uint32_t rb = bg0 & 0xF81F;
+                                uint32_t g = bg0 & 0x07E0;
+                                uint32_t blended_rb = ((rb * inv_a + s_rb_a) >> 5) & 0xF81F;
+                                uint32_t blended_g = ((g * inv_a + s_g_a) >> 5) & 0x07E0;
+                                m_pack = (m_pack & 0xFFFF0000) | (blended_rb | blended_g);
+                            }
+
+                            if (write1)
+                            {
+                                uint32_t bg1 = bg_pack >> 16;
+                                uint32_t rb = bg1 & 0xF81F;
+                                uint32_t g = bg1 & 0x07E0;
+                                uint32_t blended_rb = ((rb * inv_a + s_rb_a) >> 5) & 0xF81F;
+                                uint32_t blended_g = ((g * inv_a + s_g_a) >> 5) & 0x07E0;
+                                m_pack = (m_pack & 0x0000FFFF) | ((blended_rb | blended_g) << 16);
+                            }
+
+                            fb32[0] = m_pack;
+                            row32[0] = static_cast<uint32_t>(stored0) | (static_cast<uint32_t>(stored1) << 16);
+                        }
+
+                        depth_fixed += params.dz_dx_fixed << 1;
+                        row32++;
+                        fb32++;
+                        count32--;
+                    }
+
+                    x = static_cast<int16_t>(reinterpret_cast<int16_t *>(row32) - row);
+                    count = xEnd - x + 1;
+                    if (count > 0)
+                    {
+                        const int16_t stored = row[x];
+                        if (stored >= 0 && stored != 0x7F7F)
+                        {
+                            const int16_t shadowDepth = static_cast<int16_t>(depth_fixed >> 12);
+                            const int16_t backTolerance = 10 + (stored >> 11);
+                            if ((stored - shadowDepth) >= -backTolerance)
+                            {
+                                const uint32_t bgColor = fb[x];
+                                const uint32_t rb = (bgColor & 0xF81F);
+                                const uint32_t g = (bgColor & 0x07E0);
+                                const uint32_t blended_rb = ((rb * inv_a + s_rb_a) >> 5) & 0xF81F;
+                                const uint32_t blended_g = ((g * inv_a + s_g_a) >> 5) & 0x07E0;
+
+                                fb[x] = static_cast<uint16_t>(blended_rb | blended_g);
+                                row[x] = static_cast<int16_t>(stored | 0x8000);
+                            }
+                        }
                     }
                 }
-            };
 
-            int startTop = static_cast<int>(ceilf(y0 - 0.5f));
-            int endTopExclusive = static_cast<int>(ceilf(y1 - 0.5f));
-            int startBottom = static_cast<int>(ceilf(y1 - 0.5f));
-            int endBottomExclusive = static_cast<int>(ceilf(y2 - 0.5f));
-
-            if (fabsf(y1 - y0) > 1e-6f)
-            {
-                rasterHalf(x0, y0, z0,
-                           x1, y1, z1,
-                           x0, y0, z0,
-                           x2, y2, z2,
-                           startTop, endTopExclusive);
-            }
-
-            if (fabsf(y2 - y1) > 1e-6f)
-            {
-                rasterHalf(x1, y1, z1,
-                           x2, y2, z2,
-                           x0, y0, z0,
-                           x2, y2, z2,
-                           startBottom, endBottomExclusive);
+                leftX_fixed += dx_dy_A_fixed;
+                rightX_fixed += dx_dy_B_fixed;
+                z_row_fixed += params.dz_dy_fixed;
             }
         }
 
+    public:
         static void fillShadowTriangle(float x0, float y0, float z0,
                                        float x1, float y1, float z1,
                                        float x2, float y2, float z2,
@@ -151,7 +263,7 @@ namespace pip3D
             const int16_t width = config.width;
             const int16_t height = config.height;
 
-            if (!frameBuffer || !zBuffer)
+            if (unlikely(!frameBuffer || !zBuffer))
                 return;
 
             if (y0 > y1)
@@ -175,163 +287,375 @@ namespace pip3D
 
             if (y0 == y2)
                 return;
-            if (fabsf(x0 - x1) < 1e-6f && fabsf(x1 - x2) < 1e-6f)
+            if (unlikely(fabsf(x0 - x1) < 1e-6f && fabsf(x1 - x2) < 1e-6f))
                 return;
 
-            const uint16_t sr = (shadowColor >> 11) & 0x1F;
-            const uint16_t sg = (shadowColor >> 5) & 0x3F;
-            const uint16_t sb = shadowColor & 0x1F;
+            const uint32_t s_rb = shadowColor & 0xF81F;
+            const uint32_t s_g = shadowColor & 0x07E0;
+
+            float dx02 = x0 - x2;
+            float dy12 = y1 - y2;
+            float dy02 = y0 - y2;
+            float dx12 = x1 - x2;
+
+            float det = dx02 * dy12 - dy02 * dx12;
+            if (unlikely(fabsf(det) < 1e-6f))
+                return;
 
             const float depthScale = 32638.0f;
-            const int16_t clearDepth = ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::clearDepthValue();
-            const int16_t shadowMask = ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::shadowFlagMask();
-            const int16_t invShadowMask = static_cast<int16_t>(~shadowMask);
-            const int16_t *__restrict__ zbBaseConst = zBuffer->getBufferPtr();
-            int16_t *__restrict__ zbBase = const_cast<int16_t *>(zbBaseConst);
-            auto rasterHalf = [&](float xa0, float ya0, float za0,
-                                  float xa1, float ya1, float za1,
-                                  float xb0, float yb0, float zb0,
-                                  float xb1, float yb1, float zb1,
-                                  int startY, int endYExclusive)
-            {
-                float dya = ya1 - ya0;
-                float dyb = yb1 - yb0;
-                if (fabsf(dya) < 1e-6f || fabsf(dyb) < 1e-6f)
-                    return;
+            float invDet = FastMath::fastReciprocal(det);
 
-                float invDya = 1.0f / dya;
-                float invDyb = 1.0f / dyb;
+            float dz02 = z0 - z2;
+            float dz12 = z1 - z2;
 
-                for (int y = startY; y < endYExclusive; ++y)
-                {
-                    if (y < 0 || y >= height)
-                        continue;
+            float dz_dx = (dz02 * dy12 - dy02 * dz12) * invDet;
+            float dz_dy = (dx02 * dz12 - dz02 * dx12) * invDet;
 
-                    float sampleY = static_cast<float>(y) + 0.5f;
-                    float tA = (sampleY - ya0) * invDya;
-                    float tB = (sampleY - yb0) * invDyb;
+            float dz_dx_scaled = dz_dx * depthScale;
+            float dz_dy_scaled = dz_dy * depthScale;
+            float z2_scaled = z2 * depthScale;
 
-                    float xaf = xa0 + (xa1 - xa0) * tA;
-                    float xbf = xb0 + (xb1 - xb0) * tB;
-                    float za = za0 + (za1 - za0) * tA;
-                    float zb = zb0 + (zb1 - zb0) * tB;
-
-                    if (xaf > xbf)
-                    {
-                        std::swap(xaf, xbf);
-                        std::swap(za, zb);
-                    }
-
-                    int16_t xStart = static_cast<int16_t>(ceilf(xaf));
-                    int16_t xEnd = static_cast<int16_t>(ceilf(xbf)) - 1;
-                    if (xStart < 0)
-                        xStart = 0;
-                    if (xEnd >= width)
-                        xEnd = width - 1;
-                    if (xStart > xEnd)
-                        continue;
-
-                    uint8_t edgeAlpha = alpha;
-                    if (softEdges)
-                    {
-                        float edgeDist = 1.0f;
-                        if (fabsf(sampleY - y0) < 0.51f || fabsf(sampleY - y2) < 0.51f)
-                            edgeDist = 0.5f;
-                        edgeAlpha = static_cast<uint8_t>(alpha * edgeDist);
-                    }
-
-                    const uint16_t invEdgeAlpha = 255 - edgeAlpha;
-                    float dx = xbf - xaf;
-                    float zStep = fabsf(dx) > 1e-6f ? (zb - za) / dx : 0.0f;
-                    float z = za + zStep * ((static_cast<float>(xStart) + 0.5f) - xaf);
-
-                    int32_t depth = static_cast<int32_t>(z * depthScale);
-                    int32_t depthStep = static_cast<int32_t>(zStep * depthScale);
-
-                    int16_t yLocal = static_cast<int16_t>(y - offsetY);
-                    size_t index = static_cast<size_t>(yLocal) * width + xStart;
-                    int16_t *__restrict__ zbRow = zbBase + static_cast<size_t>(y) * width;
-
-                    for (int16_t x = xStart; x <= xEnd; ++x, ++index)
-                    {
-                        const int16_t stored = zbRow[x];
-                        const int16_t depthNoShadow = static_cast<int16_t>(stored & invShadowMask);
-                        if (depthNoShadow == clearDepth || (stored & shadowMask) != 0)
-                        {
-                            depth += depthStep;
-                            continue;
-                        }
-
-                        const int16_t shadowDepth = static_cast<int16_t>(depth);
-                        const int16_t frontTolerance = 40 + (depthNoShadow >> 10);
-                        const int16_t backTolerance = 10 + (depthNoShadow >> 11);
-                        const int16_t depthDelta = static_cast<int16_t>(depthNoShadow - shadowDepth);
-                        if (depthDelta < -backTolerance)
-                        {
-                            depth += depthStep;
-                            continue;
-                        }
-
-                        uint16_t bgColor = frameBuffer[index];
-                        uint16_t br = (bgColor >> 11) & 0x1F;
-                        uint16_t bg = (bgColor >> 5) & 0x3F;
-                        uint16_t bb = bgColor & 0x1F;
-
-                        uint16_t r = (br * invEdgeAlpha + sr * edgeAlpha) >> 8;
-                        uint16_t g = (bg * invEdgeAlpha + sg * edgeAlpha) >> 8;
-                        uint16_t b = (bb * invEdgeAlpha + sb * edgeAlpha) >> 8;
-
-                        frameBuffer[index] = static_cast<uint16_t>((r << 11) | (g << 5) | b);
-                        zbRow[x] = static_cast<int16_t>(stored | shadowMask);
-
-                        depth += depthStep;
-                    }
-                }
-            };
+            const float FP_SCALE = 4096.0f;
+            int32_t dz_dx_fixed = static_cast<int32_t>(dz_dx_scaled * FP_SCALE);
+            int32_t dz_dy_fixed = static_cast<int32_t>(dz_dy_scaled * FP_SCALE);
 
             int startTop = static_cast<int>(ceilf(y0 - 0.5f));
             int endTopExclusive = static_cast<int>(ceilf(y1 - 0.5f));
             int startBottom = static_cast<int>(ceilf(y1 - 0.5f));
             int endBottomExclusive = static_cast<int>(ceilf(y2 - 0.5f));
 
-            if (fabsf(y1 - y0) > 1e-6f)
+            int clampStartY_top = startTop < 0 ? 0 : startTop;
+            int clampStartY_bottom = startBottom < 0 ? 0 : startBottom;
+
+            bool runTop = (clampStartY_top < endTopExclusive) && (clampStartY_top < height);
+            bool runBottom = (clampStartY_bottom < endBottomExclusive) && (clampStartY_bottom < height);
+            if (!runTop && !runBottom)
+                return;
+
+            int16_t *__restrict__ zbBase = const_cast<int16_t *>(zBuffer->getBufferPtr());
+
+            ShadowParams params;
+            params.frameBuffer = frameBuffer;
+            params.zbBase = zbBase;
+            params.width = width;
+            params.height = height;
+            params.dz_dx_fixed = dz_dx_fixed;
+            params.dz_dy_fixed = dz_dy_fixed;
+            params.s_rb = s_rb;
+            params.s_g = s_g;
+            params.alpha = alpha;
+            params.softEdges = softEdges;
+            params.startTopGlobal = startTop;
+            params.endBottomGlobal = endBottomExclusive;
+            params.offsetY = offsetY;
+
+            if (runTop)
             {
-                rasterHalf(x0, y0, z0,
-                           x1, y1, z1,
-                           x0, y0, z0,
-                           x2, y2, z2,
-                           startTop, endTopExclusive);
+                float z_base_top_scaled = z2_scaled + dz_dy_scaled * (static_cast<float>(clampStartY_top) + 0.5f - y2) - dz_dx_scaled * x2 + dz_dx_scaled * 0.5f;
+                int32_t z_start_fixed_base_top = static_cast<int32_t>(z_base_top_scaled * FP_SCALE);
+
+                fillShadowHalf(x0, y0, x1, y1,
+                               x0, y0, x2, y2,
+                               startTop, endTopExclusive,
+                               z_start_fixed_base_top,
+                               clampStartY_top,
+                               params);
             }
 
-            if (fabsf(y2 - y1) > 1e-6f)
+            if (runBottom)
             {
-                rasterHalf(x1, y1, z1,
-                           x2, y2, z2,
-                           x0, y0, z0,
-                           x2, y2, z2,
-                           startBottom, endBottomExclusive);
+                float z_base_bottom_scaled = z2_scaled + dz_dy_scaled * (static_cast<float>(clampStartY_bottom) + 0.5f - y2) - dz_dx_scaled * x2 + dz_dx_scaled * 0.5f;
+                int32_t z_start_fixed_base_bottom = static_cast<int32_t>(z_base_bottom_scaled * FP_SCALE);
+
+                fillShadowHalf(x1, y1, x2, y2,
+                               x0, y0, x2, y2,
+                               startBottom, endBottomExclusive,
+                               z_start_fixed_base_bottom,
+                               clampStartY_bottom,
+                               params);
             }
         }
 
-        __attribute__((always_inline, hot)) static inline void IRAM_ATTR fillTriangleSmooth(int16_t x0, int16_t y0, float z0,
-                                                                                            int16_t x1, int16_t y1, float z1,
-                                                                                            int16_t x2, int16_t y2, float z2,
-                                                                                            float r0, float g0, float b0,
-                                                                                            float r1, float g1, float b1,
-                                                                                            float r2, float g2, float b2,
-                                                                                            uint16_t *frameBuffer,
-                                                                                            ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
-                                                                                            const DisplayConfig &config)
+    public:
+        struct SmoothParams
+        {
+            uint16_t *frameBuffer;
+            int16_t *zbBase;
+            int16_t width;
+            int16_t height;
+            int32_t dz_dx_fixed;
+            int32_t dz_dy_fixed;
+            int32_t dr_dx_fixed;
+            int32_t dr_dy_fixed;
+            int32_t dg_dx_fixed;
+            int32_t dg_dy_fixed;
+            int32_t db_dx_fixed;
+            int32_t db_dy_fixed;
+            int16_t shadowMask;
+            int16_t invShadowMask;
+        };
+
+    private:
+        __attribute__((always_inline, hot)) static inline void fillSmoothHalf(
+            float xa0, float ya0,
+            float xa1, float ya1,
+            float xb0, float yb0,
+            float xb1, float yb1,
+            int startY, int endYExclusive,
+            int32_t z_start_fixed_base,
+            int32_t r_start_fixed_base,
+            int32_t g_start_fixed_base,
+            int32_t b_start_fixed_base,
+            int clampStartY,
+            const SmoothParams &params)
+        {
+            float dya = ya1 - ya0;
+            float dyb = yb1 - yb0;
+            if (unlikely(fabsf(dya) < 1e-6f || fabsf(dyb) < 1e-6f))
+                return;
+
+            float invDya = FastMath::fastReciprocal(dya);
+            float invDyb = FastMath::fastReciprocal(dyb);
+
+            float dx_dy_A = (xa1 - xa0) * invDya;
+            float dx_dy_B = (xb1 - xb0) * invDyb;
+
+            int clampEndY = endYExclusive > params.height ? params.height : endYExclusive;
+            if (unlikely(clampStartY >= clampEndY))
+                return;
+
+            float initY = static_cast<float>(clampStartY) + 0.5f;
+            float leftX = xa0 + dx_dy_A * (initY - ya0);
+            float rightX = xb0 + dx_dy_B * (initY - yb0);
+
+            int32_t leftX_fixed = static_cast<int32_t>(leftX * 65536.0f);
+            int32_t rightX_fixed = static_cast<int32_t>(rightX * 65536.0f);
+            int32_t dx_dy_A_fixed = static_cast<int32_t>(dx_dy_A * 65536.0f);
+            int32_t dx_dy_B_fixed = static_cast<int32_t>(dx_dy_B * 65536.0f);
+
+            if (leftX_fixed > rightX_fixed)
+            {
+                std::swap(leftX_fixed, rightX_fixed);
+                std::swap(dx_dy_A_fixed, dx_dy_B_fixed);
+            }
+
+            int32_t z_row_fixed = z_start_fixed_base;
+            int32_t r_row_fixed = r_start_fixed_base;
+            int32_t g_row_fixed = g_start_fixed_base;
+            int32_t b_row_fixed = b_start_fixed_base;
+
+            static const int32_t kBayerMatrix10Bit[4][4] = {
+                {0, 512, 128, 640},
+                {768, 256, 896, 384},
+                {192, 704, 64, 576},
+                {960, 448, 832, 320}};
+
+            for (int y = clampStartY; y < clampEndY; ++y)
+            {
+                int16_t xStart = static_cast<int16_t>((leftX_fixed + 65535) >> 16);
+                int16_t xEnd = static_cast<int16_t>((rightX_fixed + 65535) >> 16) - 1;
+
+                if (xStart < 0)
+                    xStart = 0;
+                if (xEnd >= params.width)
+                    xEnd = params.width - 1;
+
+                if (xStart <= xEnd)
+                {
+                    int32_t depth_fixed = z_row_fixed + params.dz_dx_fixed * xStart;
+                    int32_t r_fixed = r_row_fixed + params.dr_dx_fixed * xStart;
+                    int32_t g_fixed = g_row_fixed + params.dg_dx_fixed * xStart;
+                    int32_t b_fixed = b_row_fixed + params.db_dx_fixed * xStart;
+
+                    int16_t *__restrict__ zPtr = params.zbBase + static_cast<size_t>(y) * params.width + xStart;
+                    uint16_t *__restrict__ fbPtr = params.frameBuffer + static_cast<size_t>(y) * params.width + xStart;
+
+                    const int32_t *bayerRow = kBayerMatrix10Bit[y & 3];
+
+                    const int32_t bayer0 = bayerRow[xStart & 3];
+                    const int32_t bayer1 = bayerRow[(xStart + 1) & 3];
+                    const int32_t bayer2 = bayerRow[(xStart + 2) & 3];
+                    const int32_t bayer3 = bayerRow[(xStart + 3) & 3];
+
+                    PIP3D_PREFETCH_W(zPtr);
+                    PIP3D_PREFETCH_W(fbPtr);
+
+                    int16_t count = xEnd - xStart + 1;
+
+                    while (count >= 4)
+                    {
+                        PIP3D_PREFETCH_W(zPtr + 16);
+                        PIP3D_PREFETCH_W(fbPtr + 16);
+
+                        {
+                            const int16_t stored = zPtr[0];
+                            const int16_t depthNoShadow = static_cast<int16_t>(stored & params.invShadowMask);
+                            const int16_t d = static_cast<int16_t>(depth_fixed >> 14);
+
+                            if (d < depthNoShadow)
+                            {
+                                zPtr[0] = static_cast<int16_t>((stored & params.shadowMask) | d);
+
+                                int32_t ir = (r_fixed + bayer0) >> 10;
+                                int32_t ig = (g_fixed + bayer0) >> 10;
+                                int32_t ib = (b_fixed + bayer0) >> 10;
+
+                                uint16_t rc = ir < 0 ? 0 : (ir > 31 ? 31 : ir);
+                                uint16_t gc = ig < 0 ? 0 : (ig > 63 ? 63 : ig);
+                                uint16_t bc = ib < 0 ? 0 : (ib > 31 ? 31 : ib);
+
+                                fbPtr[0] = (rc << 11) | (gc << 5) | bc;
+                            }
+                            depth_fixed += params.dz_dx_fixed;
+                            r_fixed += params.dr_dx_fixed;
+                            g_fixed += params.dg_dx_fixed;
+                            b_fixed += params.db_dx_fixed;
+                        }
+
+                        {
+                            const int16_t stored = zPtr[1];
+                            const int16_t depthNoShadow = static_cast<int16_t>(stored & params.invShadowMask);
+                            const int16_t d = static_cast<int16_t>(depth_fixed >> 14);
+
+                            if (d < depthNoShadow)
+                            {
+                                zPtr[1] = static_cast<int16_t>((stored & params.shadowMask) | d);
+
+                                int32_t ir = (r_fixed + bayer1) >> 10;
+                                int32_t ig = (g_fixed + bayer1) >> 10;
+                                int32_t ib = (b_fixed + bayer1) >> 10;
+
+                                uint16_t rc = ir < 0 ? 0 : (ir > 31 ? 31 : ir);
+                                uint16_t gc = ig < 0 ? 0 : (ig > 63 ? 63 : ig);
+                                uint16_t bc = ib < 0 ? 0 : (ib > 31 ? 31 : ib);
+
+                                fbPtr[1] = (rc << 11) | (gc << 5) | bc;
+                            }
+                            depth_fixed += params.dz_dx_fixed;
+                            r_fixed += params.dr_dx_fixed;
+                            g_fixed += params.dg_dx_fixed;
+                            b_fixed += params.db_dx_fixed;
+                        }
+
+                        {
+                            const int16_t stored = zPtr[2];
+                            const int16_t depthNoShadow = static_cast<int16_t>(stored & params.invShadowMask);
+                            const int16_t d = static_cast<int16_t>(depth_fixed >> 14);
+
+                            if (d < depthNoShadow)
+                            {
+                                zPtr[2] = static_cast<int16_t>((stored & params.shadowMask) | d);
+
+                                int32_t ir = (r_fixed + bayer2) >> 10;
+                                int32_t ig = (g_fixed + bayer2) >> 10;
+                                int32_t ib = (b_fixed + bayer2) >> 10;
+
+                                uint16_t rc = ir < 0 ? 0 : (ir > 31 ? 31 : ir);
+                                uint16_t gc = ig < 0 ? 0 : (ig > 63 ? 63 : ig);
+                                uint16_t bc = ib < 0 ? 0 : (ib > 31 ? 31 : ib);
+
+                                fbPtr[2] = (rc << 11) | (gc << 5) | bc;
+                            }
+                            depth_fixed += params.dz_dx_fixed;
+                            r_fixed += params.dr_dx_fixed;
+                            g_fixed += params.dg_dx_fixed;
+                            b_fixed += params.db_dx_fixed;
+                        }
+
+                        {
+                            const int16_t stored = zPtr[3];
+                            const int16_t depthNoShadow = static_cast<int16_t>(stored & params.invShadowMask);
+                            const int16_t d = static_cast<int16_t>(depth_fixed >> 14);
+
+                            if (d < depthNoShadow)
+                            {
+                                zPtr[3] = static_cast<int16_t>((stored & params.shadowMask) | d);
+
+                                int32_t ir = (r_fixed + bayer3) >> 10;
+                                int32_t ig = (g_fixed + bayer3) >> 10;
+                                int32_t ib = (b_fixed + bayer3) >> 10;
+
+                                uint16_t rc = ir < 0 ? 0 : (ir > 31 ? 31 : ir);
+                                uint16_t gc = ig < 0 ? 0 : (ig > 63 ? 63 : ig);
+                                uint16_t bc = ib < 0 ? 0 : (ib > 31 ? 31 : ib);
+
+                                fbPtr[3] = (rc << 11) | (gc << 5) | bc;
+                            }
+                            depth_fixed += params.dz_dx_fixed;
+                            r_fixed += params.dr_dx_fixed;
+                            g_fixed += params.dg_dx_fixed;
+                            b_fixed += params.db_dx_fixed;
+                        }
+
+                        zPtr += 4;
+                        fbPtr += 4;
+                        count -= 4;
+                    }
+
+                    int16_t remIndex = 0;
+                    while (count > 0)
+                    {
+                        const int16_t stored = zPtr[0];
+                        const int16_t depthNoShadow = static_cast<int16_t>(stored & params.invShadowMask);
+                        const int16_t d = static_cast<int16_t>(depth_fixed >> 14);
+
+                        if (d < depthNoShadow)
+                        {
+                            zPtr[0] = static_cast<int16_t>((stored & params.shadowMask) | d);
+
+                            const int32_t bayerValue = bayerRow[(xStart + remIndex) & 3];
+                            int32_t ir = (r_fixed + bayerValue) >> 10;
+                            int32_t ig = (g_fixed + bayerValue) >> 10;
+                            int32_t ib = (b_fixed + bayerValue) >> 10;
+
+                            uint16_t rc = ir < 0 ? 0 : (ir > 31 ? 31 : ir);
+                            uint16_t gc = ig < 0 ? 0 : (ig > 63 ? 63 : ig);
+                            uint16_t bc = ib < 0 ? 0 : (ib > 31 ? 31 : ib);
+
+                            fbPtr[0] = (rc << 11) | (gc << 5) | bc;
+                        }
+
+                        depth_fixed += params.dz_dx_fixed;
+                        r_fixed += params.dr_dx_fixed;
+                        g_fixed += params.dg_dx_fixed;
+                        b_fixed += params.db_dx_fixed;
+
+                        zPtr++;
+                        fbPtr++;
+                        remIndex++;
+                        count--;
+                    }
+                }
+
+                leftX_fixed += dx_dy_A_fixed;
+                rightX_fixed += dx_dy_B_fixed;
+                z_row_fixed += params.dz_dy_fixed;
+                r_row_fixed += params.dr_dy_fixed;
+                g_row_fixed += params.dg_dy_fixed;
+                b_row_fixed += params.db_dy_fixed;
+            }
+        }
+
+    public:
+        __attribute__((always_inline, hot)) static inline void IRAM_ATTR fillTriangleSmooth(
+            int16_t x0, int16_t y0, float z0,
+            int16_t x1, int16_t y1, float z1,
+            int16_t x2, int16_t y2, float z2,
+            float r0, float g0, float b0,
+            float r1, float g1, float b1,
+            float r2, float g2, float b2,
+            uint16_t *frameBuffer,
+            ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+            const DisplayConfig &config)
         {
             const int16_t width = config.width;
             const int16_t height = config.height;
 
-            const float depthScale = 32638.0f;
-            int16_t *const zBufferData = const_cast<int16_t *>(zBuffer ? zBuffer->getBufferPtr() : nullptr);
-            const int16_t shadowMask = ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::shadowFlagMask();
-            const int16_t invShadowMask = static_cast<int16_t>(~shadowMask);
+            if (unlikely(!frameBuffer || !zBuffer))
+                return;
 
-            if (!frameBuffer || !zBuffer || !zBufferData)
+            int16_t *const zBufferData = const_cast<int16_t *>(zBuffer->getBufferPtr());
+            if (unlikely(!zBufferData))
                 return;
 
             if (y0 > y1)
@@ -364,374 +688,140 @@ namespace pip3D
 
             if (y0 == y2)
                 return;
-            if (x0 == x1 && x1 == x2)
+            if (unlikely(x0 == x1 && x1 == x2))
                 return;
 
-            int16_t dy1 = y1 - y0;
-            int16_t dy2 = y2 - y0;
-            if (dy1 == 0 && dy2 == 0)
+            float dx02 = (float)(x0 - x2);
+            float dy12 = (float)(y1 - y2);
+            float dy02 = (float)(y0 - y2);
+            float dx12 = (float)(x1 - x2);
+
+            float det = dx02 * dy12 - dy02 * dx12;
+            if (unlikely(fabsf(det) < 1e-6f))
                 return;
 
-            float dax_step = 0, dbx_step = 0;
-            float dz1_step = 0, dz2_step = 0;
-            float dr1_step = 0, dg1_step = 0, db1_step = 0;
-            float dr2_step = 0, dg2_step = 0, db2_step = 0;
+            float invDet = FastMath::fastReciprocal(det);
 
-            if (dy1)
+            float dz02 = z0 - z2;
+            float dz12 = z1 - z2;
+            float dz_dx = (dz02 * dy12 - dy02 * dz12) * invDet;
+            float dz_dy = (dx02 * dz12 - dz02 * dx12) * invDet;
+
+            float dr02 = r0 - r2;
+            float dr12 = r1 - r2;
+            float dr_dx = (dr02 * dy12 - dy02 * dr12) * invDet;
+            float dr_dy = (dx02 * dr12 - dr02 * dx12) * invDet;
+
+            float dg02 = g0 - g2;
+            float dg12 = g1 - g2;
+            float dg_dx = (dg02 * dy12 - dy02 * dg12) * invDet;
+            float dg_dy = (dx02 * dg12 - dg02 * dx12) * invDet;
+
+            float db02 = b0 - b2;
+            float db12 = b1 - b2;
+            float db_dx = (db02 * dy12 - dy02 * db12) * invDet;
+            float db_dy = (dx02 * db12 - db02 * dx12) * invDet;
+
+            const float depthScale = 32638.0f * 16384.0f;
+            const float r_scale = 31.0f * 1024.0f;
+            const float g_scale = 63.0f * 1024.0f;
+            const float b_scale = 31.0f * 1024.0f;
+
+            int32_t dz_dx_fixed = static_cast<int32_t>(dz_dx * depthScale);
+            int32_t dz_dy_fixed = static_cast<int32_t>(dz_dy * depthScale);
+
+            int32_t dr_dx_fixed = static_cast<int32_t>(dr_dx * r_scale);
+            int32_t dr_dy_fixed = static_cast<int32_t>(dr_dy * r_scale);
+
+            int32_t dg_dx_fixed = static_cast<int32_t>(dg_dx * g_scale);
+            int32_t dg_dy_fixed = static_cast<int32_t>(dg_dy * g_scale);
+
+            int32_t db_dx_fixed = static_cast<int32_t>(db_dx * b_scale);
+            int32_t db_dy_fixed = static_cast<int32_t>(db_dy * b_scale);
+
+            const int16_t shadowMask = ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::shadowFlagMask();
+            const int16_t invShadowMask = static_cast<int16_t>(~shadowMask);
+
+            SmoothParams params;
+            params.frameBuffer = frameBuffer;
+            params.zbBase = zBufferData;
+            params.width = width;
+            params.height = height;
+            params.dz_dx_fixed = dz_dx_fixed;
+            params.dz_dy_fixed = dz_dy_fixed;
+            params.dr_dx_fixed = dr_dx_fixed;
+            params.dr_dy_fixed = dr_dy_fixed;
+            params.dg_dx_fixed = dg_dx_fixed;
+            params.dg_dy_fixed = dg_dy_fixed;
+            params.db_dx_fixed = db_dx_fixed;
+            params.db_dy_fixed = db_dy_fixed;
+            params.shadowMask = shadowMask;
+            params.invShadowMask = invShadowMask;
+
+            int startTop = static_cast<int>(ceilf((float)y0 - 0.5f));
+            int endTopExclusive = static_cast<int>(ceilf((float)y1 - 0.5f));
+            int startBottom = static_cast<int>(ceilf((float)y1 - 0.5f));
+            int endBottomExclusive = static_cast<int>(ceilf((float)y2 - 0.5f));
+
+            int clampStartY_top = startTop < 0 ? 0 : startTop;
+            int clampStartY_bottom = startBottom < 0 ? 0 : startBottom;
+
+            bool runTop = (clampStartY_top < endTopExclusive) && (clampStartY_top < height);
+            bool runBottom = (clampStartY_bottom < endBottomExclusive) && (clampStartY_bottom < height);
+            if (!runTop && !runBottom)
+                return;
+
+            float z2_scaled = (float)z2 * depthScale;
+            float r2_scaled = r2 * r_scale;
+            float g2_scaled = g2 * g_scale;
+            float b2_scaled = b2 * b_scale;
+
+            if (runTop)
             {
-                float invDy1 = 1.0f / dy1;
-                dax_step = (float)(x1 - x0) * invDy1;
-                dz1_step = (z1 - z0) * invDy1;
-                dr1_step = (r1 - r0) * invDy1;
-                dg1_step = (g1 - g0) * invDy1;
-                db1_step = (b1 - b0) * invDy1;
-            }
-            if (dy2)
-            {
-                float invDy2 = 1.0f / dy2;
-                dbx_step = (float)(x2 - x0) * invDy2;
-                dz2_step = (z2 - z0) * invDy2;
-                dr2_step = (r2 - r0) * invDy2;
-                dg2_step = (g2 - g0) * invDy2;
-                db2_step = (b2 - b0) * invDy2;
-            }
+                float dy_init = static_cast<float>(clampStartY_top) + 0.5f - (float)y2;
 
-            float ax = x0, bx = x0;
-            float az = z0, bz = z0;
-            float ar = r0, ag = g0, ab = b0;
-            float br = r0, bg = g0, bb = b0;
+                float z_base = z2_scaled + (dz_dy * depthScale) * dy_init - (dz_dx * depthScale) * (float)x2 + (dz_dx * depthScale) * 0.5f;
+                int32_t z_start_fixed = static_cast<int32_t>(z_base);
 
-            if (dy1)
-            {
-                for (int16_t y = y0; y <= y1; y++)
-                {
-                    if (y < 0 || y >= height)
-                    {
-                        ax += dax_step;
-                        az += dz1_step;
-                        ar += dr1_step;
-                        ag += dg1_step;
-                        ab += db1_step;
-                        bx += dbx_step;
-                        bz += dz2_step;
-                        br += dr2_step;
-                        bg += dg2_step;
-                        bb += db2_step;
-                        continue;
-                    }
+                float r_base = r2_scaled + (dr_dy * r_scale) * dy_init - (dr_dx * r_scale) * (float)x2 + (dr_dx * r_scale) * 0.5f;
+                int32_t r_start_fixed = static_cast<int32_t>(r_base);
 
-                    float xaf = ax;
-                    float xbf = bx;
-                    float za = az, zb = bz;
-                    float ra = ar, ga = ag, ba = ab;
-                    float rb = br, gb = bg, bb2 = bb;
+                float g_base = g2_scaled + (dg_dy * g_scale) * dy_init - (dg_dx * g_scale) * (float)x2 + (dg_dx * g_scale) * 0.5f;
+                int32_t g_start_fixed = static_cast<int32_t>(g_base);
 
-                    if (xaf > xbf)
-                    {
-                        std::swap(xaf, xbf);
-                        std::swap(za, zb);
-                        std::swap(ra, rb);
-                        std::swap(ga, gb);
-                        std::swap(ba, bb2);
-                    }
+                float b_base = b2_scaled + (db_dy * b_scale) * dy_init - (db_dx * b_scale) * (float)x2 + (db_dx * b_scale) * 0.5f;
+                int32_t b_start_fixed = static_cast<int32_t>(b_base);
 
-                    int16_t x_start = static_cast<int16_t>(ceilf(xaf));
-                    int16_t x_end = static_cast<int16_t>(ceilf(xbf)) - 1;
-                    if (x_start < 0)
-                        x_start = 0;
-                    if (x_end >= width)
-                        x_end = width - 1;
-
-                    if (x_start <= x_end && x_start < width && x_end >= 0)
-                    {
-                        float dx = xbf - xaf;
-                        float invDx = dx != 0.0f ? 1.0f / dx : 0.0f;
-                        float z_step = (zb - za) * invDx;
-                        float r_step = (rb - ra) * invDx;
-                        float g_step = (gb - ga) * invDx;
-                        float b_step = (bb2 - ba) * invDx;
-
-                        float offset = (float)x_start - xaf;
-                        float z = za + z_step * offset;
-                        float r = ra + r_step * offset;
-                        float g = ga + g_step * offset;
-                        float b = ba + b_step * offset;
-
-                        int32_t depthStep = static_cast<int32_t>(z_step * depthScale);
-                        int32_t depth = static_cast<int32_t>(z * depthScale);
-
-                        size_t index = (size_t)y * width + x_start;
-                        int16_t *zbRow = zBufferData + static_cast<size_t>(y) * width;
-                        uint16_t span = (uint16_t)(x_end - x_start + 1);
-                        int16_t x = x_start;
-
-                        while (span >= 4)
-                        {
-                            int16_t stored = zbRow[x];
-                            int16_t depthNoShadow = static_cast<int16_t>(stored & invShadowMask);
-                            if (static_cast<int16_t>(depth) < depthNoShadow)
-                            {
-                                zbRow[x] = static_cast<int16_t>((stored & shadowMask) | static_cast<int16_t>(depth));
-                                frameBuffer[index] = Shading::applyDithering(r, g, b, x, y);
-                            }
-                            depth += depthStep;
-                            r += r_step;
-                            g += g_step;
-                            b += b_step;
-                            index++;
-                            x++;
-
-                            stored = zbRow[x];
-                            depthNoShadow = static_cast<int16_t>(stored & invShadowMask);
-                            if (static_cast<int16_t>(depth) < depthNoShadow)
-                            {
-                                zbRow[x] = static_cast<int16_t>((stored & shadowMask) | static_cast<int16_t>(depth));
-                                frameBuffer[index] = Shading::applyDithering(r, g, b, x, y);
-                            }
-                            depth += depthStep;
-                            r += r_step;
-                            g += g_step;
-                            b += b_step;
-                            index++;
-                            x++;
-
-                            stored = zbRow[x];
-                            depthNoShadow = static_cast<int16_t>(stored & invShadowMask);
-                            if (static_cast<int16_t>(depth) < depthNoShadow)
-                            {
-                                zbRow[x] = static_cast<int16_t>((stored & shadowMask) | static_cast<int16_t>(depth));
-                                frameBuffer[index] = Shading::applyDithering(r, g, b, x, y);
-                            }
-                            depth += depthStep;
-                            r += r_step;
-                            g += g_step;
-                            b += b_step;
-                            index++;
-                            x++;
-
-                            stored = zbRow[x];
-                            depthNoShadow = static_cast<int16_t>(stored & invShadowMask);
-                            if (static_cast<int16_t>(depth) < depthNoShadow)
-                            {
-                                zbRow[x] = static_cast<int16_t>((stored & shadowMask) | static_cast<int16_t>(depth));
-                                frameBuffer[index] = Shading::applyDithering(r, g, b, x, y);
-                            }
-                            depth += depthStep;
-                            r += r_step;
-                            g += g_step;
-                            b += b_step;
-                            index++;
-                            x++;
-
-                            span -= 4;
-                        }
-
-                        while (span > 0)
-                        {
-                            const int16_t stored = zbRow[x];
-                            const int16_t depthNoShadow = static_cast<int16_t>(stored & invShadowMask);
-                            if (static_cast<int16_t>(depth) < depthNoShadow)
-                            {
-                                zbRow[x] = static_cast<int16_t>((stored & shadowMask) | static_cast<int16_t>(depth));
-                                frameBuffer[index] = Shading::applyDithering(r, g, b, x, y);
-                            }
-                            depth += depthStep;
-                            r += r_step;
-                            g += g_step;
-                            b += b_step;
-                            index++;
-                            x++;
-                            span--;
-                        }
-                    }
-
-                    ax += dax_step;
-                    az += dz1_step;
-                    ar += dr1_step;
-                    ag += dg1_step;
-                    ab += db1_step;
-                    bx += dbx_step;
-                    bz += dz2_step;
-                    br += dr2_step;
-                    bg += dg2_step;
-                    bb += db2_step;
-                }
+                fillSmoothHalf((float)x0, (float)y0, (float)x1, (float)y1,
+                               (float)x0, (float)y0, (float)x2, (float)y2,
+                               startTop, endTopExclusive,
+                               z_start_fixed, r_start_fixed, g_start_fixed, b_start_fixed,
+                               clampStartY_top,
+                               params);
             }
 
-            dy1 = y2 - y1;
-            if (dy1)
+            if (runBottom)
             {
-                float invDy1 = 1.0f / dy1;
-                dax_step = (float)(x2 - x1) * invDy1;
-                dz1_step = (z2 - z1) * invDy1;
-                dr1_step = (r2 - r1) * invDy1;
-                dg1_step = (g2 - g1) * invDy1;
-                db1_step = (b2 - b1) * invDy1;
+                float dy_init = static_cast<float>(clampStartY_bottom) + 0.5f - (float)y2;
 
-                ax = x1;
-                az = z1;
-                ar = r1;
-                ag = g1;
-                ab = b1;
-                bx = x0 + dbx_step * (float)(y1 - y0);
-                bz = z0 + dz2_step * (float)(y1 - y0);
-                br = r0 + dr2_step * (float)(y1 - y0);
-                bg = g0 + dg2_step * (float)(y1 - y0);
-                bb = b0 + db2_step * (float)(y1 - y0);
+                float z_base = z2_scaled + (dz_dy * depthScale) * dy_init - (dz_dx * depthScale) * (float)x2 + (dz_dx * depthScale) * 0.5f;
+                int32_t z_start_fixed = static_cast<int32_t>(z_base);
 
-                for (int16_t y = y1 + 1; y <= y2; y++)
-                {
-                    if (y < 0 || y >= height)
-                    {
-                        ax += dax_step;
-                        az += dz1_step;
-                        ar += dr1_step;
-                        ag += dg1_step;
-                        ab += db1_step;
-                        bx += dbx_step;
-                        bz += dz2_step;
-                        br += dr2_step;
-                        bg += dg2_step;
-                        bb += db2_step;
-                        continue;
-                    }
+                float r_base = r2_scaled + (dr_dy * r_scale) * dy_init - (dr_dx * r_scale) * (float)x2 + (dr_dx * r_scale) * 0.5f;
+                int32_t r_start_fixed = static_cast<int32_t>(r_base);
 
-                    float xaf = ax;
-                    float xbf = bx;
-                    float za = az, zb = bz;
-                    float ra = ar, ga = ag, ba = ab;
-                    float rb = br, gb = bg, bb2 = bb;
+                float g_base = g2_scaled + (dg_dy * g_scale) * dy_init - (dg_dx * g_scale) * (float)x2 + (dg_dx * g_scale) * 0.5f;
+                int32_t g_start_fixed = static_cast<int32_t>(g_base);
 
-                    if (xaf > xbf)
-                    {
-                        std::swap(xaf, xbf);
-                        std::swap(za, zb);
-                        std::swap(ra, rb);
-                        std::swap(ga, gb);
-                        std::swap(ba, bb2);
-                    }
+                float b_base = b2_scaled + (db_dy * b_scale) * dy_init - (db_dx * b_scale) * (float)x2 + (db_dx * b_scale) * 0.5f;
+                int32_t b_start_fixed = static_cast<int32_t>(b_base);
 
-                    int16_t x_start = static_cast<int16_t>(ceilf(xaf));
-                    int16_t x_end = static_cast<int16_t>(ceilf(xbf)) - 1;
-                    if (x_start < 0)
-                        x_start = 0;
-                    if (x_end >= width)
-                        x_end = width - 1;
-
-                    if (x_start <= x_end && x_start < width && x_end >= 0)
-                    {
-                        float dx = xbf - xaf;
-                        float invDx = dx != 0.0f ? 1.0f / dx : 0.0f;
-                        float z_step = (zb - za) * invDx;
-                        float r_step = (rb - ra) * invDx;
-                        float g_step = (gb - ga) * invDx;
-                        float b_step = (bb2 - ba) * invDx;
-
-                        float offset = (float)x_start - xaf;
-                        float z = za + z_step * offset;
-                        float r = ra + r_step * offset;
-                        float g = ga + g_step * offset;
-                        float b = ba + b_step * offset;
-
-                        int32_t depthStep = static_cast<int32_t>(z_step * depthScale);
-                        int32_t depth = static_cast<int32_t>(z * depthScale);
-
-                        size_t index = (size_t)y * width + x_start;
-                        int16_t *zbRow = zBufferData + static_cast<size_t>(y) * width;
-                        uint16_t span = (uint16_t)(x_end - x_start + 1);
-                        int16_t x = x_start;
-
-                        while (span >= 4)
-                        {
-                            int16_t stored = zbRow[x];
-                            int16_t depthNoShadow = static_cast<int16_t>(stored & invShadowMask);
-                            if (static_cast<int16_t>(depth) < depthNoShadow)
-                            {
-                                zbRow[x] = static_cast<int16_t>((stored & shadowMask) | static_cast<int16_t>(depth));
-                                frameBuffer[index] = Shading::applyDithering(r, g, b, x, y);
-                            }
-                            depth += depthStep;
-                            r += r_step;
-                            g += g_step;
-                            b += b_step;
-                            index++;
-                            x++;
-
-                            stored = zbRow[x];
-                            depthNoShadow = static_cast<int16_t>(stored & invShadowMask);
-                            if (static_cast<int16_t>(depth) < depthNoShadow)
-                            {
-                                zbRow[x] = static_cast<int16_t>((stored & shadowMask) | static_cast<int16_t>(depth));
-                                frameBuffer[index] = Shading::applyDithering(r, g, b, x, y);
-                            }
-                            depth += depthStep;
-                            r += r_step;
-                            g += g_step;
-                            b += b_step;
-                            index++;
-                            x++;
-
-                            stored = zbRow[x];
-                            depthNoShadow = static_cast<int16_t>(stored & invShadowMask);
-                            if (static_cast<int16_t>(depth) < depthNoShadow)
-                            {
-                                zbRow[x] = static_cast<int16_t>((stored & shadowMask) | static_cast<int16_t>(depth));
-                                frameBuffer[index] = Shading::applyDithering(r, g, b, x, y);
-                            }
-                            depth += depthStep;
-                            r += r_step;
-                            g += g_step;
-                            b += b_step;
-                            index++;
-                            x++;
-
-                            stored = zbRow[x];
-                            depthNoShadow = static_cast<int16_t>(stored & invShadowMask);
-                            if (static_cast<int16_t>(depth) < depthNoShadow)
-                            {
-                                zbRow[x] = static_cast<int16_t>((stored & shadowMask) | static_cast<int16_t>(depth));
-                                frameBuffer[index] = Shading::applyDithering(r, g, b, x, y);
-                            }
-                            depth += depthStep;
-                            r += r_step;
-                            g += g_step;
-                            b += b_step;
-                            index++;
-                            x++;
-
-                            span -= 4;
-                        }
-
-                        while (span > 0)
-                        {
-                            const int16_t stored = zbRow[x];
-                            const int16_t depthNoShadow = static_cast<int16_t>(stored & invShadowMask);
-                            if (static_cast<int16_t>(depth) < depthNoShadow)
-                            {
-                                zbRow[x] = static_cast<int16_t>((stored & shadowMask) | static_cast<int16_t>(depth));
-                                frameBuffer[index] = Shading::applyDithering(r, g, b, x, y);
-                            }
-                            depth += depthStep;
-                            r += r_step;
-                            g += g_step;
-                            b += b_step;
-                            index++;
-                            x++;
-                            span--;
-                        }
-                    }
-
-                    ax += dax_step;
-                    az += dz1_step;
-                    ar += dr1_step;
-                    ag += dg1_step;
-                    ab += db1_step;
-                    bx += dbx_step;
-                    bz += dz2_step;
-                    br += dr2_step;
-                    bg += dg2_step;
-                    bb += db2_step;
-                }
+                fillSmoothHalf((float)x1, (float)y1, (float)x2, (float)y2,
+                               (float)x0, (float)y0, (float)x2, (float)y2,
+                               startBottom, endBottomExclusive,
+                               z_start_fixed, r_start_fixed, g_start_fixed, b_start_fixed,
+                               clampStartY_bottom,
+                               params);
             }
         }
 
@@ -746,8 +836,9 @@ namespace pip3D
             const int16_t width = config.width;
             const int16_t height = config.height;
 
-            if (!frameBuffer || !zBuffer)
+            if (unlikely(!frameBuffer || !zBuffer))
                 return;
+
             if (y0 > y1)
             {
                 std::swap(x0, x1);
@@ -769,73 +860,88 @@ namespace pip3D
 
             if (y0 == y2)
                 return;
-            if (x0 == x1 && x1 == x2)
+            if (unlikely(x0 == x1 && x1 == x2))
                 return;
 
-            float dy1 = y1 - y0;
-            float dy2 = y2 - y0;
+            float dx02 = x0 - x2;
+            float dy12 = y1 - y2;
+            float dy02 = y0 - y2;
+            float dx12 = x1 - x2;
 
-            if (fabsf(dy1) < 1e-6f && fabsf(dy2) < 1e-6f)
+            float det = dx02 * dy12 - dy02 * dx12;
+            if (unlikely(fabsf(det) < 1e-6f))
                 return;
+
+            float invDet = FastMath::fastReciprocal(det);
+
+            float dz02 = z0 - z2;
+            float dz12 = z1 - z2;
+            float dz_dx = (dz02 * dy12 - dy02 * dz12) * invDet;
+            float dz_dy = (dx02 * dz12 - dz02 * dx12) * invDet;
+
             const float depthScale = 32638.0f;
+            float dz_dx_scaled = dz_dx * depthScale;
+            float dz_dy_scaled = dz_dy * depthScale;
+            float z2_scaled = z2 * depthScale;
 
-            auto rasterHalf = [&](float xa0, float ya0, float za0,
-                                  float xa1, float ya1, float za1,
-                                  float xb0, float yb0, float zb0,
-                                  float xb1, float yb1, float zb1,
-                                  int startY, int endYExclusive)
+            int startTop = static_cast<int>(ceilf(y0 - 0.5f));
+            int endTopExclusive = static_cast<int>(ceilf(y1 - 0.5f));
+            int startBottom = static_cast<int>(ceilf(y1 - 0.5f));
+            int endBottomExclusive = static_cast<int>(ceilf(y2 - 0.5f));
+
+            int clampStartY_top = startTop < 0 ? 0 : startTop;
+            int clampStartY_bottom = startBottom < 0 ? 0 : startBottom;
+
+            if (endTopExclusive > height)
+                endTopExclusive = height;
+            if (endBottomExclusive > height)
+                endBottomExclusive = height;
+
+            bool runTop = (clampStartY_top < endTopExclusive) && (clampStartY_top < height);
+            bool runBottom = (clampStartY_bottom < endBottomExclusive) && (clampStartY_bottom < height);
+            if (!runTop && !runBottom)
+                return;
+
+            float dy02_val = y2 - y0;
+            float dy01_val = y1 - y0;
+            float dy12_val = y2 - y1;
+
+            int32_t step_02 = (fabsf(dy02_val) > 1e-6f) ? static_cast<int32_t>(((x2 - x0) / dy02_val) * 65536.0f) : 0;
+            int32_t step_01 = (fabsf(dy01_val) > 1e-6f) ? static_cast<int32_t>(((x1 - x0) / dy01_val) * 65536.0f) : 0;
+            int32_t step_12 = (fabsf(dy12_val) > 1e-6f) ? static_cast<int32_t>(((x2 - x1) / dy12_val) * 65536.0f) : 0;
+
+            if (runTop)
             {
-                float dya = ya1 - ya0;
-                float dyb = yb1 - yb0;
-                if (fabsf(dya) < 1e-6f || fabsf(dyb) < 1e-6f)
-                    return;
+                float slope_02 = (x2 - x0) / dy02_val;
+                float slope_01 = (x1 - x0) / dy01_val;
+                float dy_init = (static_cast<float>(clampStartY_top) + 0.5f) - y0;
 
-                float invDya = 1.0f / dya;
-                float invDyb = 1.0f / dyb;
+                int32_t x02_fixed = static_cast<int32_t>((x0 + slope_02 * dy_init) * 65536.0f);
+                int32_t x01_fixed = static_cast<int32_t>((x0 + slope_01 * dy_init) * 65536.0f);
 
-                for (int y = startY; y < endYExclusive; ++y)
+                for (int y = clampStartY_top; y < endTopExclusive; ++y)
                 {
-                    if (y < 0 || y >= height)
-                        continue;
+                    int16_t xa = static_cast<int16_t>((x02_fixed + 65535) >> 16);
+                    int16_t xb = static_cast<int16_t>((x01_fixed + 65535) >> 16);
 
-                    float sampleY = static_cast<float>(y) + 0.5f;
+                    if (xa > xb)
+                        std::swap(xa, xb);
 
-                    float tA = (sampleY - ya0) * invDya;
-                    float tB = (sampleY - yb0) * invDyb;
+                    int16_t x_start = xa;
+                    int16_t x_end = xb - 1;
 
-                    float xaf = xa0 + (xa1 - xa0) * tA;
-                    float xbf = xb0 + (xb1 - xb0) * tB;
-                    float za = za0 + (za1 - za0) * tA;
-                    float zb = zb0 + (zb1 - zb0) * tB;
-
-                    if (xaf > xbf)
-                    {
-                        std::swap(xaf, xbf);
-                        std::swap(za, zb);
-                    }
-
-                    int16_t x_start = static_cast<int16_t>(ceilf(xaf));
-                    int16_t x_end = static_cast<int16_t>(ceilf(xbf)) - 1;
                     if (x_start < 0)
                         x_start = 0;
-                    if (x_start >= width)
-                        continue;
                     if (x_end >= width)
                         x_end = width - 1;
 
                     if (x_start <= x_end)
                     {
-                        float dx = xbf - xaf;
-                        float z_step = fabsf(dx) > 1e-6f ? (zb - za) / dx : 0.0f;
-                        float z = za + z_step * ((static_cast<float>(x_start) + 0.5f) - xaf);
+                        float z_row_base = z2_scaled + (static_cast<float>(y) + 0.5f - y2) * dz_dy_scaled - x2 * dz_dx_scaled + dz_dx_scaled * 0.5f;
+                        int32_t depthStart = static_cast<int32_t>(z_row_base + static_cast<float>(x_start) * dz_dx_scaled);
+                        int32_t depthStep = static_cast<int32_t>(dz_dx_scaled);
 
-                        int32_t depthStep = static_cast<int32_t>(z_step * depthScale);
-                        int32_t depthStart = static_cast<int32_t>(z * depthScale);
-                        const int16_t localY = static_cast<int16_t>(y);
-                        if (localY < 0 || localY >= SCREEN_BAND_HEIGHT)
-                            continue;
-
-                        zBuffer->testAndSetScanline(static_cast<uint16_t>(localY),
+                        zBuffer->testAndSetScanline(static_cast<uint16_t>(y),
                                                     static_cast<uint16_t>(x_start),
                                                     static_cast<uint16_t>(x_end),
                                                     depthStart,
@@ -843,32 +949,57 @@ namespace pip3D
                                                     frameBuffer,
                                                     color);
                     }
+
+                    x02_fixed += step_02;
+                    x01_fixed += step_01;
                 }
-            };
-
-            int startTop = static_cast<int>(ceilf(y0 - 0.5f));
-            int endTopExclusive = static_cast<int>(ceilf(y1 - 0.5f));
-            int startBottom = static_cast<int>(ceilf(y1 - 0.5f));
-            int endBottomExclusive = static_cast<int>(ceilf(y2 - 0.5f));
-
-            if (fabsf(y1 - y0) > 1e-6f)
-            {
-                rasterHalf(x0, y0, z0,
-                           x1, y1, z1,
-                           x0, y0, z0,
-                           x2, y2, z2,
-                           startTop, endTopExclusive);
             }
 
-            if (fabsf(y2 - y1) > 1e-6f)
+            if (runBottom)
             {
-                rasterHalf(x1, y1, z1,
-                           x2, y2, z2,
-                           x0, y0, z0,
-                           x2, y2, z2,
-                           startBottom, endBottomExclusive);
+                float slope_02 = (x2 - x0) / dy02_val;
+                float slope_12 = (x2 - x1) / dy12_val;
+                float dy_init_bottom = (static_cast<float>(clampStartY_bottom) + 0.5f) - y1;
+                float dy_init_long = (static_cast<float>(clampStartY_bottom) + 0.5f) - y0;
+
+                int32_t x12_fixed = static_cast<int32_t>((x1 + slope_12 * dy_init_bottom) * 65536.0f);
+                int32_t x02_bottom_fixed = static_cast<int32_t>((x0 + slope_02 * dy_init_long) * 65536.0f);
+
+                for (int y = clampStartY_bottom; y < endBottomExclusive; ++y)
+                {
+                    int16_t xa = static_cast<int16_t>((x02_bottom_fixed + 65535) >> 16);
+                    int16_t xb = static_cast<int16_t>((x12_fixed + 65535) >> 16);
+
+                    if (xa > xb)
+                        std::swap(xa, xb);
+
+                    int16_t x_start = xa;
+                    int16_t x_end = xb - 1;
+
+                    if (x_start < 0)
+                        x_start = 0;
+                    if (x_end >= width)
+                        x_end = width - 1;
+
+                    if (x_start <= x_end)
+                    {
+                        float z_row_base = z2_scaled + (static_cast<float>(y) + 0.5f - y2) * dz_dy_scaled - x2 * dz_dx_scaled + dz_dx_scaled * 0.5f;
+                        int32_t depthStart = static_cast<int32_t>(z_row_base + static_cast<float>(x_start) * dz_dx_scaled);
+                        int32_t depthStep = static_cast<int32_t>(dz_dx_scaled);
+
+                        zBuffer->testAndSetScanline(static_cast<uint16_t>(y),
+                                                    static_cast<uint16_t>(x_start),
+                                                    static_cast<uint16_t>(x_end),
+                                                    depthStart,
+                                                    depthStep,
+                                                    frameBuffer,
+                                                    color);
+                    }
+
+                    x02_bottom_fixed += step_02;
+                    x12_fixed += step_12;
+                }
             }
         }
     };
-
 }

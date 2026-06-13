@@ -3,6 +3,12 @@
 
 namespace pip3D
 {
+    enum ShadingMode
+    {
+        SHADING_FLAT = 0,
+        SHADING_GOURAUD = 1
+    };
+
 #ifndef PIP3D_SCREEN_WIDTH
 #define PIP3D_SCREEN_WIDTH 320
 #endif
