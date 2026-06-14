@@ -90,7 +90,7 @@ namespace pip3D
 
         if (r.init(cfg))
         {
-            r.setSkyboxWithLighting(SKYBOX_DAY);
+            r.setSkyboxWithLighting(DAY);
             r.setShadowsEnabled(true);
             r.setShadowPlaneY(0.0f);
         }

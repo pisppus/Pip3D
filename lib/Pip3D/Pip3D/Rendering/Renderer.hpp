@@ -54,14 +54,13 @@ namespace pip3D
 
     private:
     private:
-        // Моментальный снимок текущего кадра под нужды воды (0 кадров лага!)
         void updateReflectionBufferOnDemand()
         {
             if (!reflectionBuffer)
                 return;
 
             const DisplayConfig &fbCfg = framebuffer.getConfig();
-            int16_t bandY = currentBandOffsetY(); // Автоматически понимает текущий банд кадра
+            int16_t bandY = currentBandOffsetY();
             const uint16_t *fb = framebuffer.getBuffer();
             if (!fb)
                 return;
@@ -96,7 +95,6 @@ namespace pip3D
         uint16_t reflectionWidth = 0;
         uint16_t reflectionHeight = 0;
 
-        // Быстрый даунсэмплинг текущего банда в глобальный буфер
         void updateReflectionBuffer(int bandIndex)
         {
             if (!reflectionBuffer)
@@ -108,7 +106,6 @@ namespace pip3D
             if (!fb)
                 return;
 
-            // Определяем, какие строки в низкополигональном буфере соответствуют нашему банду
             int16_t startRefly = bandY / 2;
             int16_t endRefly = (bandY + fbCfg.height) / 2;
 
@@ -121,7 +118,6 @@ namespace pip3D
                 uint16_t *dstRow = reflectionBuffer + refly * reflectionWidth;
                 const uint16_t *srcRow = fb + fbY * fbCfg.width;
 
-                // Развернутый цикл с шагом 4 для повышения IPC и лучшего использования шины памяти
                 int16_t reflx = 0;
                 for (; reflx < reflectionWidth - 3; reflx += 4)
                 {
@@ -516,9 +512,6 @@ namespace pip3D
 
             viewport = Viewport(0, 0, cfg.width, cfg.height);
 
-            // =========================================================================
-            // НАЧАЛО БЛОКА ИНИЦИАЛИЗАЦИИ БУФЕРА ОТРАЖЕНИЙ (SSPR)
-            // =========================================================================
             if (reflectionBuffer)
             {
                 MemUtils::freeAligned(reflectionBuffer);
@@ -529,7 +522,6 @@ namespace pip3D
             reflectionHeight = cfg.height / 2;
             size_t reflSize = reflectionWidth * reflectionHeight * sizeof(uint16_t);
 
-            // Выделяем выровненную по 16 байт память в быстром ОЗУ для низкополигонального отражения
             reflectionBuffer = (uint16_t *)MemUtils::allocAligned(reflSize, 16, pipcore::AllocCaps::PreferInternal);
             if (reflectionBuffer)
             {
@@ -543,9 +535,6 @@ namespace pip3D
                 LOGW(::pip3D::Debug::LOG_MODULE_RENDER,
                      "Renderer::init: SSPR reflection buffer allocation failed (OOM)!");
             }
-            // =========================================================================
-            // КОНЕЦ БЛОКА ИНИЦИАЛИЗАЦИИ БУФЕРА ОТРАЖЕНИЙ
-            // =========================================================================
 
             LOGI(::pip3D::Debug::LOG_MODULE_RENDER,
                  "Renderer::init OK: viewport %dx%d",
@@ -676,9 +665,6 @@ namespace pip3D
 
             const DisplayConfig &fbCfg = framebuffer.getConfig();
             int16_t bandY = static_cast<int16_t>(bandIndex * fbCfg.height);
-
-            // МЫ УДАЛИЛИ ОТСЮДА updateReflectionBuffer(bandIndex);
-            // Так как теперь буфер пишется эффективнее "по требованию".
 
             framebuffer.endFrameRegion(0, bandY, fbCfg.width, fbCfg.height);
 
@@ -1154,7 +1140,6 @@ namespace pip3D
             if (!mesh)
                 return;
 
-            // Перед прорисовкой воды "замораживаем" текущее состояние геометрии в буфер отражений
             updateReflectionBufferOnDemand();
 
             MeshRenderer::drawWaterMesh(mesh,

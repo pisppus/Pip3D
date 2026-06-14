@@ -148,10 +148,10 @@ namespace pip3D
             if (t > 1.0f)
                 t = 1.0f;
 
-            static Skybox skyNight(SKYBOX_NIGHT);
-            static Skybox skyDawn(SKYBOX_DAWN);
-            static Skybox skyDay(SKYBOX_DAY);
-            static Skybox skySunset(SKYBOX_SUNSET);
+            static Skybox skyNight(NIGHT);
+            static Skybox skyDawn(DAWN);
+            static Skybox skyDay(DAY);
+            static Skybox skySunset(SUNSET);
 
             const float TEMP_DAY = 5500.0f;
             const float TEMP_SUNSET = 2500.0f;

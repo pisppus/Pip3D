@@ -198,7 +198,6 @@ namespace pip3D
             int32_t depth = depthStart;
             uint16_t count = countTotal;
 
-            // Восстанавливаем оригинальную маску - только SHADOW_FLAG (0x8000)
             const int16_t invFlagsMask = static_cast<int16_t>(~SHADOW_FLAG);
 
             while (count >= 4)

@@ -8,7 +8,6 @@
 
 namespace pip3D
 {
-    // Добавляем предварительное объявление структуры Sky
     struct Sky;
 
     class Rasterizer
@@ -1005,13 +1004,13 @@ namespace pip3D
         }
 
         static void fillTriangleTransparent(float x0, float y0, float z0,
-                                             float x1, float y1, float z1,
-                                             float x2, float y2, float z2,
-                                             uint16_t color,
-                                             uint8_t alpha,
-                                             uint16_t *frameBuffer,
-                                             ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
-                                             const DisplayConfig &config)
+                                            float x1, float y1, float z1,
+                                            float x2, float y2, float z2,
+                                            uint16_t color,
+                                            uint8_t alpha,
+                                            uint16_t *frameBuffer,
+                                            ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+                                            const DisplayConfig &config)
         {
             const int16_t width = config.width;
             const int16_t height = config.height;
@@ -1019,9 +1018,24 @@ namespace pip3D
             if (unlikely(!frameBuffer || !zBuffer))
                 return;
 
-            if (y0 > y1) { std::swap(x0, x1); std::swap(y0, y1); std::swap(z0, z1); }
-            if (y1 > y2) { std::swap(x1, x2); std::swap(y1, y2); std::swap(z1, z2); }
-            if (y0 > y1) { std::swap(x0, x1); std::swap(y0, y1); std::swap(z0, z1); }
+            if (y0 > y1)
+            {
+                std::swap(x0, x1);
+                std::swap(y0, y1);
+                std::swap(z0, z1);
+            }
+            if (y1 > y2)
+            {
+                std::swap(x1, x2);
+                std::swap(y1, y2);
+                std::swap(z1, z2);
+            }
+            if (y0 > y1)
+            {
+                std::swap(x0, x1);
+                std::swap(y0, y1);
+                std::swap(z0, z1);
+            }
 
             if (y0 == y2)
                 return;
@@ -1078,7 +1092,8 @@ namespace pip3D
             const int16_t shadowMask = ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::shadowFlagMask();
             const int16_t invShadowMask = static_cast<int16_t>(~shadowMask);
 
-            auto drawSpan = [&](int y, int16_t x_start, int16_t x_end, int32_t depthStart, int32_t depthStep) {
+            auto drawSpan = [&](int y, int16_t x_start, int16_t x_end, int32_t depthStart, int32_t depthStep)
+            {
                 size_t index = static_cast<size_t>(y) * width + x_start;
                 const int16_t *__restrict__ zb = zBuffer->getBufferPtr() + index;
                 uint16_t *__restrict__ fb = frameBuffer + index;
@@ -1086,12 +1101,14 @@ namespace pip3D
                 int32_t depth = depthStart;
                 int16_t count = x_end - x_start + 1;
 
-                while (count > 0) {
+                while (count > 0)
+                {
                     const int16_t stored = *zb;
                     const int16_t depthNoShadow = static_cast<int16_t>(stored & invShadowMask);
                     const int16_t d = static_cast<int16_t>(depth >> 14);
 
-                    if (d < depthNoShadow) {
+                    if (d < depthNoShadow)
+                    {
                         Color bg(*fb);
                         *fb = bg.blend(Color(color), alpha).rgb565;
                     }
@@ -1207,9 +1224,24 @@ namespace pip3D
             if (unlikely(!zBufferPtr))
                 return;
 
-            if (y0 > y1) { std::swap(x0, x1); std::swap(y0, y1); std::swap(z0, z1); }
-            if (y1 > y2) { std::swap(x1, x2); std::swap(y1, y2); std::swap(z1, z2); }
-            if (y0 > y1) { std::swap(x0, x1); std::swap(y0, y1); std::swap(z0, z1); }
+            if (y0 > y1)
+            {
+                std::swap(x0, x1);
+                std::swap(y0, y1);
+                std::swap(z0, z1);
+            }
+            if (y1 > y2)
+            {
+                std::swap(x1, x2);
+                std::swap(y1, y2);
+                std::swap(z1, z2);
+            }
+            if (y0 > y1)
+            {
+                std::swap(x0, x1);
+                std::swap(y0, y1);
+                std::swap(z0, z1);
+            }
 
             if (y0 == y2)
                 return;
@@ -1265,16 +1297,18 @@ namespace pip3D
 
             const int16_t invFlagsMask = static_cast<int16_t>(~Z_SHADOW_FLAG);
 
-            auto drawSpan = [&](int y, int16_t x_start, int16_t x_end, int32_t depthStart, int32_t depthStep) {
+            auto drawSpan = [&](int y, int16_t x_start, int16_t x_end, int32_t depthStart, int32_t depthStep)
+            {
                 int16_t globalY = bandTop + y;
                 int32_t depth = depthStart;
 
-                // Волны и зеркальная координата (Один раз на строку!)
                 int16_t perspY = SCREEN_HEIGHT - globalY;
-                if (perspY < 0) perspY = 0;
+                if (perspY < 0)
+                    perspY = 0;
 
                 int32_t angle = (perspY * perspY * 18 / SCREEN_HEIGHT + static_cast<int32_t>(time * 120.0f)) % 360;
-                if (angle < 0) angle += 360;
+                if (angle < 0)
+                    angle += 360;
 
                 float sinVal = FastMath::fastSin(static_cast<float>(angle) * kDegToRad);
                 float amp = 6.0f * (static_cast<float>(SCREEN_HEIGHT) / 240.0f);
@@ -1284,63 +1318,70 @@ namespace pip3D
                 int16_t mirrorY = 2 * wl - globalY + ripple;
 
                 bool waterSkyFallback = false;
-                if (mirrorY < 0) {
+                if (mirrorY < 0)
+                {
                     waterSkyFallback = true;
                     mirrorY = 0;
                 }
-                if (mirrorY >= SCREEN_HEIGHT) {
+                if (mirrorY >= SCREEN_HEIGHT)
+                {
                     mirrorY = SCREEN_HEIGHT - 1;
                 }
 
                 size_t reflectionRowOffset = 0;
-                if (reflectionBuffer) {
+                if (reflectionBuffer)
+                {
                     int16_t ry = mirrorY >> 1;
-                    if (ry < 0) ry = 0;
-                    if (ry >= reflectionHeight) ry = reflectionHeight - 1;
+                    if (ry < 0)
+                        ry = 0;
+                    if (ry >= reflectionHeight)
+                        ry = reflectionHeight - 1;
                     reflectionRowOffset = static_cast<size_t>(ry) * reflectionWidth;
                 }
 
                 uint16_t skyColor = skybox.getColorAtY(mirrorY, SCREEN_HEIGHT).rgb565;
 
                 size_t offsetBase = static_cast<size_t>(y) * width;
-                int16_t* __restrict__ zbRow = zBufferPtr + offsetBase;
-                uint16_t* __restrict__ fbRow = frameBuffer + offsetBase;
+                int16_t *__restrict__ zbRow = zBufferPtr + offsetBase;
+                uint16_t *__restrict__ fbRow = frameBuffer + offsetBase;
 
-                for (int16_t x = x_start; x <= x_end; ++x) {
+                for (int16_t x = x_start; x <= x_end; ++x)
+                {
                     int16_t stored = zbRow[x];
                     int16_t depthNoShadow = stored & invFlagsMask;
                     int16_t d = static_cast<int16_t>(depth);
 
-                    if (d < depthNoShadow) {
+                    if (d < depthNoShadow)
+                    {
                         uint16_t reflColor;
 
-                        if (unlikely(waterSkyFallback)) {
+                        if (unlikely(waterSkyFallback))
+                        {
                             reflColor = skyColor;
-                        } else if (reflectionBuffer) {
+                        }
+                        else if (reflectionBuffer)
+                        {
                             int16_t rx = x >> 1;
-                            if (rx < 0) rx = 0;
-                            if (rx >= reflectionWidth) rx = reflectionWidth - 1;
+                            if (rx < 0)
+                                rx = 0;
+                            if (rx >= reflectionWidth)
+                                rx = reflectionWidth - 1;
                             reflColor = reflectionBuffer[reflectionRowOffset + rx];
-                        } else {
+                        }
+                        else
+                        {
                             reflColor = skyColor;
                         }
 
-                        // =============================================================
-                        // ЧЕСТНАЯ ПРОЗРАЧНОСТЬ ВОДЫ
-                        // =============================================================
-                        // Читаем пиксель дна бассейна, уже отрисованный на этом месте
                         uint16_t bgPixel = fbRow[x];
                         Color bgCol(bgPixel);
-                        
-                        // Смешиваем пиксель дна с глубоким синим цветом воды (накладываем синий светофильтр, 55/255 интенсивность)
+
                         uint16_t waterTint = Color::rgb(5, 55, 115).rgb565;
                         Color tintedBg = bgCol.blend(Color(waterTint), 55);
 
-                        // Накладываем полупрозрачное отражение поверх тонированного дна кадра
                         Color finalRefl(reflColor);
-                        fbRow[x] = finalRefl.blend(tintedBg, 125).rgb565; // 125/255 - баланс силы отражения
+                        fbRow[x] = finalRefl.blend(tintedBg, 125).rgb565;
 
-                        // Пишем глубину воды и блокируем тени
                         zbRow[x] = d | Z_SHADOW_FLAG;
                     }
                     depth += depthStep;
@@ -1426,5 +1467,5 @@ namespace pip3D
                 }
             }
         }
-    }; // class Rasterizer
-} // namespace pip3D
+    };
+}

@@ -62,7 +62,7 @@ namespace pip3D
                         displayReady(false)
 #endif
         {
-            skybox.setPreset(SKYBOX_DAY);
+            skybox.setPreset(DAY);
         }
 
         bool init(const DisplayConfig &cfg,
