@@ -3,7 +3,6 @@
 #include "Node.hpp"
 #include "Core/Platform.hpp"
 #include "Rendering/Renderer.hpp"
-#include "Rendering/Pipeline/Object.hpp"
 
 namespace pip3D
 {
@@ -24,14 +23,7 @@ namespace pip3D
         mesh->setRotation(worldEuler.x, worldEuler.y, worldEuler.z);
         mesh->setScale(worldScale.x, worldScale.y, worldScale.z);
 
-        if (castShadows)
-        {
-            ObjectHelper::renderWithShadow(renderer, mesh);
-        }
-        else
-        {
-            renderer->drawMesh(mesh);
-        }
+        renderer->draw(mesh);
 
         Node::render(renderer);
     }
@@ -130,6 +122,8 @@ namespace pip3D
             {
                 renderer->beginFrameBand(band);
                 root->render(renderer);
+                
+                renderer->flushQueue();
                 renderer->drawSkyboxBackground();
                 renderer->endFrameBand(band);
             }
