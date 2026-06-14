@@ -53,6 +53,90 @@ namespace pip3D
     {
 
     private:
+    private:
+        // Моментальный снимок текущего кадра под нужды воды (0 кадров лага!)
+        void updateReflectionBufferOnDemand()
+        {
+            if (!reflectionBuffer)
+                return;
+
+            const DisplayConfig &fbCfg = framebuffer.getConfig();
+            int16_t bandY = currentBandOffsetY(); // Автоматически понимает текущий банд кадра
+            const uint16_t *fb = framebuffer.getBuffer();
+            if (!fb)
+                return;
+
+            int16_t startRefly = bandY / 2;
+            int16_t endRefly = (bandY + fbCfg.height) / 2;
+
+            for (int16_t refly = startRefly; refly < endRefly; ++refly)
+            {
+                int16_t fbY = refly * 2 - bandY;
+                if (fbY < 0 || fbY >= fbCfg.height)
+                    continue;
+
+                uint16_t *dstRow = reflectionBuffer + refly * reflectionWidth;
+                const uint16_t *srcRow = fb + fbY * fbCfg.width;
+
+                int16_t reflx = 0;
+                for (; reflx < reflectionWidth - 3; reflx += 4)
+                {
+                    dstRow[reflx] = srcRow[reflx * 2];
+                    dstRow[reflx + 1] = srcRow[(reflx + 1) * 2];
+                    dstRow[reflx + 2] = srcRow[(reflx + 2) * 2];
+                    dstRow[reflx + 3] = srcRow[(reflx + 3) * 2];
+                }
+                for (; reflx < reflectionWidth; ++reflx)
+                {
+                    dstRow[reflx] = srcRow[reflx * 2];
+                }
+            }
+        }
+        uint16_t *reflectionBuffer = nullptr;
+        uint16_t reflectionWidth = 0;
+        uint16_t reflectionHeight = 0;
+
+        // Быстрый даунсэмплинг текущего банда в глобальный буфер
+        void updateReflectionBuffer(int bandIndex)
+        {
+            if (!reflectionBuffer)
+                return;
+
+            const DisplayConfig &fbCfg = framebuffer.getConfig();
+            int16_t bandY = static_cast<int16_t>(bandIndex * fbCfg.height);
+            const uint16_t *fb = framebuffer.getBuffer();
+            if (!fb)
+                return;
+
+            // Определяем, какие строки в низкополигональном буфере соответствуют нашему банду
+            int16_t startRefly = bandY / 2;
+            int16_t endRefly = (bandY + fbCfg.height) / 2;
+
+            for (int16_t refly = startRefly; refly < endRefly; ++refly)
+            {
+                int16_t fbY = refly * 2 - bandY;
+                if (fbY < 0 || fbY >= fbCfg.height)
+                    continue;
+
+                uint16_t *dstRow = reflectionBuffer + refly * reflectionWidth;
+                const uint16_t *srcRow = fb + fbY * fbCfg.width;
+
+                // Развернутый цикл с шагом 4 для повышения IPC и лучшего использования шины памяти
+                int16_t reflx = 0;
+                for (; reflx < reflectionWidth - 3; reflx += 4)
+                {
+                    dstRow[reflx] = srcRow[reflx * 2];
+                    dstRow[reflx + 1] = srcRow[(reflx + 1) * 2];
+                    dstRow[reflx + 2] = srcRow[(reflx + 2) * 2];
+                    dstRow[reflx + 3] = srcRow[(reflx + 3) * 2];
+                }
+                for (; reflx < reflectionWidth; ++reflx)
+                {
+                    dstRow[reflx] = srcRow[reflx * 2];
+                }
+            }
+        }
+
         static constexpr int BAND_COUNT = SCREEN_BAND_COUNT;
         static constexpr int BAND_HEIGHT = SCREEN_BAND_HEIGHT;
 
@@ -311,6 +395,11 @@ namespace pip3D
         {
             if (zBuffer)
                 delete zBuffer;
+            if (reflectionBuffer)
+            {
+                MemUtils::freeAligned(reflectionBuffer);
+                reflectionBuffer = nullptr;
+            }
         }
 
         bool init(const DisplayConfig &cfg)
@@ -357,7 +446,7 @@ namespace pip3D
             displayCfg.width = cfg.height;
             displayCfg.height = cfg.width;
             displayCfg.hz = cfg.spi_freq;
-            displayCfg.order = 1;
+            displayCfg.order = 0;
             displayCfg.invert = true;
             displayCfg.swap = true;
             displayCfg.xOffset = 0;
@@ -427,10 +516,42 @@ namespace pip3D
 
             viewport = Viewport(0, 0, cfg.width, cfg.height);
 
+            // =========================================================================
+            // НАЧАЛО БЛОКА ИНИЦИАЛИЗАЦИИ БУФЕРА ОТРАЖЕНИЙ (SSPR)
+            // =========================================================================
+            if (reflectionBuffer)
+            {
+                MemUtils::freeAligned(reflectionBuffer);
+                reflectionBuffer = nullptr;
+            }
+
+            reflectionWidth = cfg.width / 2;
+            reflectionHeight = cfg.height / 2;
+            size_t reflSize = reflectionWidth * reflectionHeight * sizeof(uint16_t);
+
+            // Выделяем выровненную по 16 байт память в быстром ОЗУ для низкополигонального отражения
+            reflectionBuffer = (uint16_t *)MemUtils::allocAligned(reflSize, 16, pipcore::AllocCaps::PreferInternal);
+            if (reflectionBuffer)
+            {
+                memset(reflectionBuffer, 0, reflSize);
+                LOGI(::pip3D::Debug::LOG_MODULE_RENDER,
+                     "Renderer::init: SSPR reflection buffer allocated (%dx%d, %d bytes)",
+                     (int)reflectionWidth, (int)reflectionHeight, (int)reflSize);
+            }
+            else
+            {
+                LOGW(::pip3D::Debug::LOG_MODULE_RENDER,
+                     "Renderer::init: SSPR reflection buffer allocation failed (OOM)!");
+            }
+            // =========================================================================
+            // КОНЕЦ БЛОКА ИНИЦИАЛИЗАЦИИ БУФЕРА ОТРАЖЕНИЙ
+            // =========================================================================
+
             LOGI(::pip3D::Debug::LOG_MODULE_RENDER,
                  "Renderer::init OK: viewport %dx%d",
                  cfg.width,
                  cfg.height);
+
             initialized = true;
             return true;
         }
@@ -555,6 +676,9 @@ namespace pip3D
 
             const DisplayConfig &fbCfg = framebuffer.getConfig();
             int16_t bandY = static_cast<int16_t>(bandIndex * fbCfg.height);
+
+            // МЫ УДАЛИЛИ ОТСЮДА updateReflectionBuffer(bandIndex);
+            // Так как теперь буфер пишется эффективнее "по требованию".
 
             framebuffer.endFrameRegion(0, bandY, fbCfg.width, fbCfg.height);
 
@@ -1023,6 +1147,27 @@ namespace pip3D
             shadingMode = mode;
             drawMesh(mesh);
             shadingMode = prev;
+        }
+
+        void drawWaterMesh(Mesh *mesh, float time)
+        {
+            if (!mesh)
+                return;
+
+            // Перед прорисовкой воды "замораживаем" текущее состояние геометрии в буфер отражений
+            updateReflectionBufferOnDemand();
+
+            MeshRenderer::drawWaterMesh(mesh,
+                                        cameras[activeCameraIndex],
+                                        viewport,
+                                        frustum,
+                                        viewProjMatrix,
+                                        framebuffer,
+                                        zBuffer,
+                                        time,
+                                        reflectionBuffer,
+                                        reflectionWidth,
+                                        reflectionHeight);
         }
 
     public:

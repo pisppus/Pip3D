@@ -725,5 +725,6 @@ namespace pip3D
                 scale0 * a.w + scale1 * b_adjusted.w);
         }
     };
-
+    inline constexpr int16_t Z_SHADOW_FLAG = static_cast<int16_t>(0x8000);
+    inline constexpr int16_t Z_WATER_FLAG  = static_cast<int16_t>(0x4000);
 }
