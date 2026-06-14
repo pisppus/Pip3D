@@ -145,6 +145,11 @@ namespace pip3D
         size_t shadowQueueCount = 0;
         size_t opaqueQueueCount = 0;
 
+        Mesh *meshShadowQueue[MAX_QUEUE_ELEMENTS];
+        Mesh *meshOpaqueQueue[MAX_QUEUE_ELEMENTS];
+        size_t meshShadowQueueCount = 0;
+        size_t meshOpaqueQueueCount = 0;
+
         PhysicsWorld *physicsWorld = nullptr;
 #if defined(PIP3D_PC)
         bool pcDisplayReady;
@@ -382,6 +387,25 @@ namespace pip3D
             }
         }
 
+        void draw(Mesh *mesh)
+        {
+            if (unlikely(!mesh || !mesh->isVisible()))
+                return;
+
+            if (shadowsEnabled && mesh->getCastShadows())
+            {
+                if (meshShadowQueueCount < MAX_QUEUE_ELEMENTS)
+                {
+                    meshShadowQueue[meshShadowQueueCount++] = mesh;
+                }
+            }
+
+            if (meshOpaqueQueueCount < MAX_QUEUE_ELEMENTS)
+            {
+                meshOpaqueQueue[meshOpaqueQueueCount++] = mesh;
+            }
+        }
+
         Renderer(const Renderer &) = delete;
         Renderer &operator=(const Renderer &) = delete;
         Renderer(Renderer &&) = delete;
@@ -590,9 +614,19 @@ namespace pip3D
                 drawMeshInstanceShadow(shadowQueue[i]);
             }
 
+            for (size_t i = 0; i < meshShadowQueueCount; ++i)
+            {
+                drawMeshShadow(meshShadowQueue[i]);
+            }
+
             for (size_t i = 0; i < opaqueQueueCount; ++i)
             {
                 drawMeshInstanceInternal(opaqueQueue[i], false, true);
+            }
+
+            for (size_t i = 0; i < meshOpaqueQueueCount; ++i)
+            {
+                drawMesh(meshOpaqueQueue[i]);
             }
         }
 
@@ -603,6 +637,9 @@ namespace pip3D
 
             shadowQueueCount = 0;
             opaqueQueueCount = 0;
+
+            meshShadowQueueCount = 0;
+            meshOpaqueQueueCount = 0;
 
             if (bandIndex < 0)
                 bandIndex = 0;
@@ -1184,18 +1221,23 @@ namespace pip3D
                 float distForward = toCenter.dot(cam.forward());
                 if (distForward > cam.nearPlane)
                 {
-                    float fovRad = cam.fov * kDegToRad;
-                    float tanHalf = tanf(fovRad * 0.5f);
-                    if (tanHalf > 1e-6f)
+                    static float cachedFov = -1.0f;
+                    static float cachedProjScale = 1.0f;
+                    if (unlikely(cam.fov != cachedFov))
                     {
-                        float projScale = 1.0f / tanHalf;
-                        float radiusPixels = fabsf(radius * projScale / distForward) *
-                                             (static_cast<float>(viewport.height) * 0.5f);
-                        if (radiusPixels < 1.0f)
-                        {
-                            statsInstancesTotal++;
-                            return;
-                        }
+                        cachedFov = cam.fov;
+                        float s, c;
+                        FastMath::fastSinCos(cam.fov * 0.5f * kDegToRad, s, c);
+                        cachedProjScale = c * FastMath::fastReciprocal(s);
+                    }
+
+                    const float invDist = FastMath::fastReciprocal(distForward);
+                    const float radiusPixels = radius * cachedProjScale * invDist * (static_cast<float>(viewport.height) * 0.5f);
+
+                    if (radiusPixels < 1.0f)
+                    {
+                        statsInstancesTotal++;
+                        return;
                     }
                 }
             }
