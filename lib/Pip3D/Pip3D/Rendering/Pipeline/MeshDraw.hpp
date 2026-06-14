@@ -642,6 +642,111 @@ namespace pip3D
                                                     uniformColor);
             }
         }
+
+       static void drawWaterMesh(Mesh *mesh,
+                                  const Camera &camera,
+                                  const Viewport &viewport,
+                                  const Frustum &frustum,
+                                  const Matrix4x4 &viewProjMatrix,
+                                  FrameBuffer &framebuffer,
+                                  ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+                                  float time,
+                                  const uint16_t *reflectionBuffer,
+                                  uint16_t reflectionWidth,
+                                  uint16_t reflectionHeight)
+        {
+            if (!mesh || !mesh->isVisible())
+                return;
+
+            mesh->updateTransform();
+
+            Vector3 center = mesh->center();
+            float radius = mesh->radius();
+            if (!frustum.sphere(center, radius))
+                return;
+
+            const uint16_t faceCount = mesh->numFaces();
+            if (faceCount == 0)
+                return;
+
+            const uint16_t vertexCountUsed = mesh->numVertices();
+            if (!mesh->ensureProjectionCache(vertexCountUsed))
+                return;
+
+            const Vector3 *localVerts = nullptr;
+            if (mesh->ensureDecodedVertexCache())
+                localVerts = mesh->getCachedLocalVertices();
+
+            Vector3 *worldVerts = mesh->getCachedWorldVertices();
+            Vector3 *screenVerts = mesh->getCachedScreenVertices();
+            const Matrix4x4 &meshTransform = mesh->getTransform();
+            const int16_t bandTop = currentBandOffsetY();
+            const int16_t bandBottom = static_cast<int16_t>(bandTop + currentBandHeight());
+            const float viewportWidth = static_cast<float>(viewport.width);
+            const float viewportHalfWidth = viewportWidth * 0.5f;
+            const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
+
+            // Вычисляем экранный центр воды для зеркального отражения по Y
+            Vector3 waterCenterProj = CameraController::project(center, viewProjMatrix, viewport);
+            float waterYGlobal = waterCenterProj.y;
+
+            for (uint16_t i = 0; i < vertexCountUsed; ++i)
+            {
+                Vector3 localPos = localVerts ? localVerts[i] : mesh->decodePosition(mesh->vert(i));
+                Vector3 worldPos = meshTransform.transformNoDiv(localPos);
+                worldVerts[i] = worldPos;
+                screenVerts[i] = CameraController::project(worldPos, viewProjMatrix,
+                                                           viewportHalfWidth, viewportHalfHeight,
+                                                           viewport.x, viewport.y);
+            }
+
+            const DisplayConfig &framebufferConfig = framebuffer.getConfig();
+
+            for (uint16_t i = 0; i < faceCount; ++i)
+            {
+                const Face &face = mesh->face(i);
+                uint16_t i0 = face.v0;
+                uint16_t i1 = face.v1;
+                uint16_t i2 = face.v2;
+
+                const Vector3 &p0 = screenVerts[i0];
+                const Vector3 &p1 = screenVerts[i1];
+                const Vector3 &p2 = screenVerts[i2];
+
+                float minY = fminf(p0.y, fminf(p1.y, p2.y));
+                float maxY = fmaxf(p0.y, fmaxf(p1.y, p2.y));
+                if (maxY < bandTop || minY >= bandBottom)
+                    continue;
+
+                float minX = fminf(p0.x, fminf(p1.x, p2.x));
+                float maxX = fmaxf(p0.x, fmaxf(p1.x, p2.x));
+                if (maxX < 0.0f || minX >= viewportWidth)
+                    continue;
+
+                Vector3 lp0 = p0;
+                Vector3 lp1 = p1;
+                Vector3 lp2 = p2;
+                lp0.y -= (float)bandTop;
+                lp1.y -= (float)bandTop;
+                lp2.y -= (float)bandTop;
+
+                // Вызываем новый бесшовный шейдер воды с полной поддержкой глубины и текстуры отражения
+                Rasterizer::fillTriangleWater(lp0.x, lp0.y, lp0.z,
+                                              lp1.x, lp1.y, lp1.z,
+                                              lp2.x, lp2.y, lp2.z,
+                                              time,
+                                              waterYGlobal,
+                                              framebuffer.getSkybox(),
+                                              framebuffer.getBuffer(),
+                                              zBuffer,
+                                              framebufferConfig,
+                                              bandTop,
+                                              bandBottom,
+                                              reflectionBuffer,
+                                              reflectionWidth,
+                                              reflectionHeight);
+            }
+        }
     };
 
 }

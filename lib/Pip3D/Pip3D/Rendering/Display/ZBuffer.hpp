@@ -198,34 +198,37 @@ namespace pip3D
             int32_t depth = depthStart;
             uint16_t count = countTotal;
 
+            // Восстанавливаем оригинальную маску - только SHADOW_FLAG (0x8000)
+            const int16_t invFlagsMask = static_cast<int16_t>(~SHADOW_FLAG);
+
             while (count >= 4)
             {
                 PIP3D_PREFETCH_W(buf + 16);
                 PIP3D_PREFETCH_W(fb + 16);
 
                 int16_t d0 = static_cast<int16_t>(depth);
-                int16_t curr0 = buf[0] & ~SHADOW_FLAG;
+                int16_t curr0 = buf[0] & invFlagsMask;
                 int16_t mask0 = (d0 - curr0) >> 15;
                 buf[0] = (d0 & mask0) | (buf[0] & ~mask0);
                 fb[0] = (color & mask0) | (fb[0] & ~mask0);
                 depth += depthStep;
 
                 int16_t d1 = static_cast<int16_t>(depth);
-                int16_t curr1 = buf[1] & ~SHADOW_FLAG;
+                int16_t curr1 = buf[1] & invFlagsMask;
                 int16_t mask1 = (d1 - curr1) >> 15;
                 buf[1] = (d1 & mask1) | (buf[1] & ~mask1);
                 fb[1] = (color & mask1) | (fb[1] & ~mask1);
                 depth += depthStep;
 
                 int16_t d2 = static_cast<int16_t>(depth);
-                int16_t curr2 = buf[2] & ~SHADOW_FLAG;
+                int16_t curr2 = buf[2] & invFlagsMask;
                 int16_t mask2 = (d2 - curr2) >> 15;
                 buf[2] = (d2 & mask2) | (buf[2] & ~mask2);
                 fb[2] = (color & mask2) | (fb[2] & ~mask2);
                 depth += depthStep;
 
                 int16_t d3 = static_cast<int16_t>(depth);
-                int16_t curr3 = buf[3] & ~SHADOW_FLAG;
+                int16_t curr3 = buf[3] & invFlagsMask;
                 int16_t mask3 = (d3 - curr3) >> 15;
                 buf[3] = (d3 & mask3) | (buf[3] & ~mask3);
                 fb[3] = (color & mask3) | (fb[3] & ~mask3);
@@ -239,7 +242,7 @@ namespace pip3D
             while (count > 0)
             {
                 int16_t d = static_cast<int16_t>(depth);
-                int16_t curr = *buf & ~SHADOW_FLAG;
+                int16_t curr = *buf & invFlagsMask;
                 int16_t mask = (d - curr) >> 15;
                 *buf = (d & mask) | (*buf & ~mask);
                 *fb = (color & mask) | (*fb & ~mask);
