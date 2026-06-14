@@ -643,7 +643,7 @@ namespace pip3D
             }
         }
 
-       static void drawWaterMesh(Mesh *mesh,
+        static void drawWaterMesh(Mesh *mesh,
                                   const Camera &camera,
                                   const Viewport &viewport,
                                   const Frustum &frustum,
@@ -686,7 +686,6 @@ namespace pip3D
             const float viewportHalfWidth = viewportWidth * 0.5f;
             const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
 
-            // Вычисляем экранный центр воды для зеркального отражения по Y
             Vector3 waterCenterProj = CameraController::project(center, viewProjMatrix, viewport);
             float waterYGlobal = waterCenterProj.y;
 
@@ -730,7 +729,6 @@ namespace pip3D
                 lp1.y -= (float)bandTop;
                 lp2.y -= (float)bandTop;
 
-                // Вызываем новый бесшовный шейдер воды с полной поддержкой глубины и текстуры отражения
                 Rasterizer::fillTriangleWater(lp0.x, lp0.y, lp0.z,
                                               lp1.x, lp1.y, lp1.z,
                                               lp2.x, lp2.y, lp2.z,

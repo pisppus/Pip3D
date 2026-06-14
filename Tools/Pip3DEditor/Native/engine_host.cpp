@@ -348,7 +348,7 @@ static bool loadRuntimeScene(Renderer &r)
     }
 
     g_sceneFileStamp = std::filesystem::last_write_time(g_sceneFilePath);
-    r.setSkyboxWithLighting(SKYBOX_DAY);
+    r.setSkyboxWithLighting(DAY);
     r.setShadowsEnabled(true);
     r.setShadowPlaneY(0.0f);
     r.setBackfaceCullingEnabled(false);
@@ -1197,7 +1197,7 @@ static void initScene(Renderer &r)
         g_axisZ->hide();
     }
 
-    r.setSkyboxWithLighting(SKYBOX_DAY);
+    r.setSkyboxWithLighting(DAY);
     r.setShadowsEnabled(true);
     r.setShadowPlaneY(0.0f);
     r.setBackfaceCullingEnabled(false);
