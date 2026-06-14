@@ -1071,7 +1071,7 @@ namespace pip3D
 
         void setSkyboxEnabled(bool enabled) { framebuffer.setSkyboxEnabled(enabled); }
         void setSkyboxType(SkyboxType type) { framebuffer.setSkyboxType(type); }
-        void setSkyboxWithLighting(SkyboxType type)
+        void setSkybox(SkyboxType type)
         {
             framebuffer.setSkyboxType(type);
             float temp = framebuffer.getSkybox().getLightTemp();
