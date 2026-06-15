@@ -33,7 +33,7 @@ namespace pip3D
         }
 
     private:
-        static void drawTriangle3D_Color_Preprojected(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2,
+       static void drawTriangle3D_Color_Preprojected(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2,
                                                       const Vector3 &p0, const Vector3 &p1, const Vector3 &p2,
                                                       float baseR,
                                                       float baseG,
@@ -86,8 +86,9 @@ namespace pip3D
                 Vector3 edge1 = v1 - v0;
                 Vector3 edge2 = v2 - v0;
                 Vector3 normal = edge1.cross(edge2);
-                Vector3 fragPos = (v0 + v1 + v2) * (1.0f / 3.0f);
-                Vector3 viewDir = camera.position - fragPos;
+                
+                Vector3 fragPos = v0; 
+                Vector3 viewDir = camera.position - v0;
 
                 if (camera.projectionType == PERSPECTIVE)
                 {
