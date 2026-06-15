@@ -763,11 +763,13 @@ namespace pip3D
             }
 
             const float invHemiRings = 1.0f / static_cast<float>(hemiRings);
+            const float phi_step = (kPi * 0.5f) * invHemiRings;
 
             for (uint8_t ring = 1; ring < hemiRings; ++ring)
             {
-                const float cosPhi = 1.0f - static_cast<float>(ring) * invHemiRings;
-                const float sinPhi = sqrtf(1.0f - cosPhi * cosPhi);
+                const float phi = static_cast<float>(ring) * phi_step;
+                float sinPhi, cosPhi;
+                FastMath::fastSinCos(phi, sinPhi, cosPhi);
 
                 const int16_t qY = static_cast<int16_t>(lrintf(scaleCyl + scaleR * cosPhi));
                 const float r_scale = scaleR * sinPhi;
@@ -824,8 +826,9 @@ namespace pip3D
 
             for (int ring = static_cast<int>(hemiRings) - 1; ring >= 1; --ring)
             {
-                const float cosPhi = 1.0f - static_cast<float>(ring) * invHemiRings;
-                const float sinPhi = sqrtf(1.0f - cosPhi * cosPhi);
+                const float phi = static_cast<float>(ring) * phi_step;
+                float sinPhi, cosPhi;
+                FastMath::fastSinCos(phi, sinPhi, cosPhi);
 
                 const int16_t qY = static_cast<int16_t>(lrintf(-scaleCyl - scaleR * cosPhi));
                 const float r_scale = scaleR * sinPhi;
@@ -867,9 +870,9 @@ namespace pip3D
 
             for (uint8_t seg = 0; seg < segs - 1; ++seg)
             {
-                *fPtr++ = Face(topPoleIdx, firstRingStart + seg, firstRingStart + seg + 1);
+                *fPtr++ = Face(topPoleIdx, firstRingStart + seg + 1, firstRingStart + seg);
             }
-            *fPtr++ = Face(topPoleIdx, firstRingStart + segs - 1, firstRingStart);
+            *fPtr++ = Face(topPoleIdx, firstRingStart, firstRingStart + segs - 1);
 
             for (uint16_t ring = 0; ring < ringRows - 1; ++ring)
             {
@@ -883,8 +886,8 @@ namespace pip3D
                     const uint16_t below = nextRow + seg;
                     const uint16_t belowNext = below + 1;
 
-                    fPtr[0] = Face(curr, below, currNext);
-                    fPtr[1] = Face(currNext, below, belowNext);
+                    fPtr[0] = Face(curr, currNext, below);
+                    fPtr[1] = Face(currNext, belowNext, below);
                     fPtr += 2;
                 }
 
@@ -894,8 +897,8 @@ namespace pip3D
                     const uint16_t below = nextRow + segs - 1;
                     const uint16_t belowNext = nextRow;
 
-                    fPtr[0] = Face(curr, below, currNext);
-                    fPtr[1] = Face(currNext, below, belowNext);
+                    fPtr[0] = Face(curr, currNext, below);
+                    fPtr[1] = Face(currNext, belowNext, below);
                     fPtr += 2;
                 }
             }
@@ -903,9 +906,9 @@ namespace pip3D
             const uint16_t lastRingStart = 1 + (ringRows - 1) * segs;
             for (uint8_t seg = 0; seg < segs - 1; ++seg)
             {
-                *fPtr++ = Face(bottomPoleIdx, lastRingStart + seg + 1, lastRingStart + seg);
+                *fPtr++ = Face(bottomPoleIdx, lastRingStart + seg, lastRingStart + seg + 1);
             }
-            *fPtr++ = Face(bottomPoleIdx, lastRingStart, lastRingStart + segs - 1);
+            *fPtr++ = Face(bottomPoleIdx, lastRingStart + segs - 1, lastRingStart);
 
             faceCount = static_cast<uint16_t>(fPtr - faces);
 
@@ -923,65 +926,291 @@ namespace pip3D
 
     class TrefoilKnot : public Mesh
     {
+    private:
+        __attribute__((always_inline)) static inline void packUnitNormalBranchless(
+            PackedNormal &normal, float nx, float ny, float nz)
+        {
+            const float l1 = fabsf(nx) + fabsf(ny) + fabsf(nz);
+            const float inv = FastMath::fastReciprocal(l1);
+            float ox = nx * inv;
+            float oy = ny * inv;
+
+            if (nz < 0.0f)
+            {
+                const float sgnX = __builtin_copysignf(1.0f, ox);
+                const float sgnY = __builtin_copysignf(1.0f, oy);
+                const float ox_f = (1.0f - fabsf(oy)) * sgnX;
+                const float oy_f = (1.0f - fabsf(ox)) * sgnY;
+                ox = ox_f;
+                oy = oy_f;
+            }
+
+            const uint32_t px = (uint32_t)(int32_t)(ox * 127.5f + 127.5f);
+            const uint32_t py = (uint32_t)(int32_t)(oy * 127.5f + 127.5f);
+            normal.data = (px << 8) | py;
+        }
+
+        __attribute__((always_inline)) static inline Vector3 transportN(
+            const Vector3 &N_prev, const Vector3 &T_prev,
+            const Vector3 &T_curr, const Vector3 &path_delta)
+        {
+            const float c1 = path_delta.dot(path_delta);
+            if (c1 < 1e-8f)
+                return N_prev;
+
+            const float inv_c1 = FastMath::fastReciprocal(c1);
+            const float k1 = 2.0f * path_delta.dot(N_prev) * inv_c1;
+            const float k1t = 2.0f * path_delta.dot(T_prev) * inv_c1;
+            const Vector3 NL = N_prev - path_delta * k1;
+            const Vector3 TL = T_prev - path_delta * k1t;
+
+            const Vector3 v2 = T_curr - TL;
+            const float c2 = v2.dot(v2);
+            if (c2 < 1e-8f)
+                return NL;
+
+            return NL - v2 * (2.0f * v2.dot(NL) * FastMath::fastReciprocal(c2));
+        }
+
     public:
-        TrefoilKnot(float scale = 1.0f, uint8_t segments = 64, uint8_t tubeSegments = 12, const Color &color = Color::WHITE)
+        TrefoilKnot(float scale = 1.0f,
+                    uint8_t segments = 64,
+                    uint8_t tubeSegments = 12,
+                    const Color &color = Color::WHITE)
             : Mesh((segments ? segments : 3) * (tubeSegments ? tubeSegments : 3),
                    (segments ? segments : 3) * (tubeSegments ? tubeSegments : 3) * 2,
                    color)
         {
-            autoScale(scale * 6.0f);
+            autoScale(scale * 7.5f);
 
             if (!vertices || !faces)
             {
                 LOGE(::pip3D::Debug::LOG_MODULE_RESOURCES,
-                     "TrefoilKnot: Mesh base allocation failed (vertices=%p, faces=%p)",
-                     static_cast<void *>(vertices),
-                     static_cast<void *>(faces));
+                     "TrefoilKnot: base alloc failed (v=%p f=%p)",
+                     (void *)vertices, (void *)faces);
                 return;
             }
 
-            constexpr float tubeScale = 0.3f;
+            const uint8_t segs = segments ? segments : 3;
+            const uint8_t tubeSegs = tubeSegments ? tubeSegments : 3;
+
+            constexpr float tubeScale = 0.55f;
             const float tubeRadius = tubeScale * scale;
-            uint8_t segs = segments ? segments : 3;
-            uint8_t tubeSegs = tubeSegments ? tubeSegments : 3;
 
-            for (uint8_t i = 0; i < segs; i++)
+            alignas(16) float localCos[64];
+            alignas(16) float localSin[64];
+            float *__restrict cosC = nullptr;
+            float *__restrict sinC = nullptr;
+            const bool useStack = (tubeSegs <= 64);
+
+            if (likely(useStack))
             {
-                const float t = TWO_PI * i / segs;
-                constexpr float two = 2.0f;
-                constexpr float three = 3.0f;
-                const float sin_t = FastMath::fastSin(t);
-                const float cos_t = FastMath::fastCos(t);
-                const float sin_2t = FastMath::fastSin(two * t);
-                const float cos_2t = FastMath::fastCos(two * t);
-                const float sin_3t = FastMath::fastSin(three * t);
-                const float x = scale * (sin_t + two * sin_2t);
-                const float y = scale * (cos_t - two * cos_2t);
-                const float z = scale * (-sin_3t);
-                for (uint8_t j = 0; j < tubeSegs; j++)
+                cosC = localCos;
+                sinC = localSin;
+            }
+            else
+            {
+                cosC = (float *)MemUtils::allocData(tubeSegs * sizeof(float), 16);
+                sinC = (float *)MemUtils::allocData(tubeSegs * sizeof(float), 16);
+                if (unlikely(!cosC || !sinC))
                 {
-                    const float angle = TWO_PI * j / tubeSegs;
-                    const float nx = FastMath::fastCos(angle), ny = FastMath::fastSin(angle);
-                    const float vx = x + tubeRadius * (nx * cos_t - ny * sin_t);
-                    const float vy = y + tubeRadius * (nx * sin_t + ny * cos_t);
-                    const float vz = z + tubeRadius * ny;
-
-                    addVertex(Vector3(vx, vy, vz));
+                    if (cosC)
+                        MemUtils::freeData(cosC);
+                    if (sinC)
+                        MemUtils::freeData(sinC);
+                    return;
                 }
             }
 
-            for (uint8_t i = 0; i < segs; i++)
+            const float invTS = 1.0f / (float)tubeSegs;
+            for (uint8_t j = 0; j < tubeSegs; ++j)
             {
-                const uint16_t i1 = (i + 1) % segs;
-                for (uint8_t j = 0; j < tubeSegs; j++)
+                const float a = kTwoPi * (float)j * invTS;
+                FastMath::fastSinCos(a, sinC[j], cosC[j]);
+            }
+
+            Vector3 *__restrict path = (Vector3 *)MemUtils::allocData(segs * sizeof(Vector3), 16);
+            if (unlikely(!path))
+            {
+                LOGE(::pip3D::Debug::LOG_MODULE_RESOURCES, "TrefoilKnot: path alloc failed");
+                if (!useStack)
                 {
-                    const uint16_t j1 = (j + 1) % tubeSegs;
-                    const uint16_t a = i * tubeSegs + j, b = i1 * tubeSegs + j;
-                    const uint16_t c = i1 * tubeSegs + j1, d = i * tubeSegs + j1;
-                    addFace(a, b, c);
-                    addFace(a, c, d);
+                    MemUtils::freeData(cosC);
+                    MemUtils::freeData(sinC);
+                }
+                return;
+            }
+
+            const float invS = 1.0f / (float)segs;
+            for (uint8_t i = 0; i < segs; ++i)
+            {
+                const float t = kTwoPi * (float)i * invS;
+                float s2, c2, s3, c3;
+                FastMath::fastSinCos(2.0f * t, s2, c2);
+                FastMath::fastSinCos(3.0f * t, s3, c3);
+
+                const float r = scale * (2.0f + c3);
+                path[i].x = r * c2;
+                path[i].y = r * s2;
+                path[i].z = scale * (-s3 * 1.4f);
+            }
+
+            Vector3 *__restrict T = (Vector3 *)MemUtils::allocData(segs * sizeof(Vector3), 16);
+            Vector3 *__restrict N = (Vector3 *)MemUtils::allocData(segs * sizeof(Vector3), 16);
+            Vector3 *__restrict B = (Vector3 *)MemUtils::allocData(segs * sizeof(Vector3), 16);
+
+            if (unlikely(!T || !N || !B))
+            {
+                LOGE(::pip3D::Debug::LOG_MODULE_RESOURCES, "TrefoilKnot: frame alloc failed");
+                if (T)
+                    MemUtils::freeData(T);
+                if (N)
+                    MemUtils::freeData(N);
+                if (B)
+                    MemUtils::freeData(B);
+                MemUtils::freeData(path);
+                if (!useStack)
+                {
+                    MemUtils::freeData(cosC);
+                    MemUtils::freeData(sinC);
+                }
+                return;
+            }
+
+            T[0] = path[1] - path[0];
+            T[0].normalize();
+            Vector3 U(fabsf(T[0].y) > 0.9f ? Vector3(1, 0, 0) : Vector3(0, 1, 0));
+            N[0] = T[0].cross(U);
+            N[0].normalize();
+            B[0] = T[0].cross(N[0]);
+
+            for (uint8_t i = 1; i < segs; ++i)
+            {
+                const uint8_t next = (i + 1 == segs) ? 0 : i + 1;
+                T[i] = path[next] - path[i];
+                T[i].normalize();
+
+                const Vector3 delta = path[i] - path[i - 1];
+                N[i] = transportN(N[i - 1], T[i - 1], T[i], delta);
+                N[i].normalize();
+                B[i] = T[i].cross(N[i]);
+            }
+
+            {
+                const Vector3 delta_last = path[0] - path[segs - 1];
+                Vector3 N_transported = transportN(N[segs - 1], T[segs - 1], T[0], delta_last);
+                N_transported.normalize();
+
+                float cosA = N_transported.dot(N[0]);
+                cosA = clamp(cosA, -1.0f, 1.0f);
+                float angle_diff = acosf(cosA);
+
+                const Vector3 cr = N_transported.cross(N[0]);
+                if (cr.dot(T[0]) < 0.0f)
+                {
+                    angle_diff = -angle_diff;
+                }
+
+                const float invSeg = 1.0f / (float)segs;
+                for (uint8_t i = 1; i < segs; ++i)
+                {
+                    const float angle = (float)i * angle_diff * invSeg;
+                    float s, c;
+                    FastMath::fastSinCos(angle, s, c);
+
+                    const Vector3 oN = N[i];
+                    const Vector3 oB = B[i];
+                    N[i] = oN * c + oB * s;
+                    B[i] = oB * c - oN * s;
                 }
             }
+
+            Vertex *__restrict vPtr = vertices;
+            const float invQ = qScale > 1e-6f ? (1.0f / qScale) : 1.0f;
+
+            for (uint8_t i = 0; i < segs; ++i)
+            {
+                const float px_c = path[i].x;
+                const float py_c = path[i].y;
+                const float pz_c = path[i].z;
+
+                const float Nx = N[i].x, Ny = N[i].y, Nz = N[i].z;
+                const float Bx = B[i].x, By = B[i].y, Bz = B[i].z;
+
+                const float *__restrict cC = cosC;
+                const float *__restrict sC = sinC;
+
+                for (uint8_t j = 0; j < tubeSegs; ++j)
+                {
+                    const float cn = *cC++;
+                    const float sn = *sC++;
+
+                    const float dx = cn * Nx + sn * Bx;
+                    const float dy = cn * Ny + sn * By;
+                    const float dz = cn * Nz + sn * Bz;
+
+                    const float vx = px_c + tubeRadius * dx;
+                    const float vy = py_c + tubeRadius * dy;
+                    const float vz = pz_c + tubeRadius * dz;
+
+                    const float qx = vx * invQ;
+                    const float qy = vy * invQ;
+                    const float qz = vz * invQ;
+
+                    vPtr->px = static_cast<int16_t>(fminf(fmaxf(qx, -32768.0f), 32767.0f));
+                    vPtr->py = static_cast<int16_t>(fminf(fmaxf(qy, -32768.0f), 32767.0f));
+                    vPtr->pz = static_cast<int16_t>(fminf(fmaxf(qz, -32768.0f), 32767.0f));
+
+                    packUnitNormalBranchless(vPtr->normal, dx, dy, dz);
+                    ++vPtr;
+                }
+            }
+
+            MemUtils::freeData(T);
+            MemUtils::freeData(N);
+            MemUtils::freeData(B);
+            MemUtils::freeData(path);
+            if (unlikely(!useStack))
+            {
+                MemUtils::freeData(cosC);
+                MemUtils::freeData(sinC);
+            }
+
+            vertexCount = (uint16_t)(vPtr - vertices);
+            Face *__restrict fPtr = faces;
+
+#define EMIT_QUAD(A, B_v, C, D)      \
+    fPtr[0] = Face((A), (C), (B_v)); \
+    fPtr[1] = Face((A), (D), (C));   \
+    fPtr += 2;
+
+            for (uint8_t i = 0; i < segs; ++i)
+            {
+                const uint16_t i1 = (i + 1 == segs) ? 0 : i + 1;
+                const uint16_t rowCurrent = i * tubeSegs;
+                const uint16_t rowNext = i1 * tubeSegs;
+
+                for (uint8_t j = 0; j < tubeSegs - 1; ++j)
+                {
+                    const uint16_t a = rowCurrent + j;
+                    const uint16_t b = rowNext + j;
+                    const uint16_t c = rowNext + j + 1;
+                    const uint16_t d = rowCurrent + j + 1;
+                    EMIT_QUAD(a, b, c, d);
+                }
+
+                {
+                    const uint16_t a = rowCurrent + tubeSegs - 1;
+                    const uint16_t b = rowNext + tubeSegs - 1;
+                    const uint16_t c = rowNext;
+                    const uint16_t d = rowCurrent;
+                    EMIT_QUAD(a, b, c, d);
+                }
+            }
+
+#undef EMIT_QUAD
+
+            faceCount = (uint16_t)(fPtr - faces);
             finalize();
         }
 
