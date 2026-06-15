@@ -1289,15 +1289,25 @@ namespace pip3D
 
             const uint16_t vertexCountUsed = mesh->numVertices();
             const uint16_t faceCount = mesh->numFaces();
-            if (!instance->ensureProjectionCache(vertexCountUsed))
-                return;
+            
+            bool useFallbackPath = false;
+            Vector3 *worldVerts = nullptr;
+            Vector3 *screenVerts = nullptr;
+
+            if (instance->ensureProjectionCache(vertexCountUsed))
+            {
+                worldVerts = instance->getCachedWorldVertices();
+                screenVerts = instance->getCachedScreenVertices();
+            }
+            else
+            {
+                useFallbackPath = true;
+            }
 
             const Vector3 *localVerts = nullptr;
             if (mesh->ensureDecodedVertexCache())
                 localVerts = mesh->getCachedLocalVertices();
 
-            Vector3 *worldVerts = instance->getCachedWorldVertices();
-            Vector3 *screenVerts = instance->getCachedScreenVertices();
             const uint32_t frameStamp = currentFrameStamp();
             const int16_t bandTop = currentBandOffsetY();
             const int16_t bandBottom = static_cast<int16_t>(bandTop + currentBandHeight());
@@ -1305,7 +1315,7 @@ namespace pip3D
             const float viewportHalfWidth = viewportWidth * 0.5f;
             const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
 
-            if (instance->getCachedProjectionFrameStamp() != frameStamp)
+            if (!useFallbackPath && instance->getCachedProjectionFrameStamp() != frameStamp)
             {
                 for (uint16_t i = 0; i < vertexCountUsed; ++i)
                 {
@@ -1331,7 +1341,16 @@ namespace pip3D
                 {
                     Vector3 localNormal = mesh->vert(vi).normal.get();
                     Vector3 worldNormal = worldTransform.transformNormal(localNormal);
-                    Vector3 v = worldVerts[vi];
+                    Vector3 v;
+                    if (!useFallbackPath)
+                    {
+                        v = worldVerts[vi];
+                    }
+                    else
+                    {
+                        Vector3 local = localVerts ? localVerts[vi] : mesh->decodePosition(mesh->vert(vi));
+                        v = worldTransform.transformNoDiv(local);
+                    }
                     Vector3 viewDir = camPos - v;
                     viewDir.normalize();
 
@@ -1347,12 +1366,34 @@ namespace pip3D
             for (uint16_t i = 0; i < faceCount; ++i)
             {
                 const Face &face = mesh->face(i);
-                const Vector3 &v0 = worldVerts[face.v0];
-                const Vector3 &v1 = worldVerts[face.v1];
-                const Vector3 &v2 = worldVerts[face.v2];
-                const Vector3 &p0 = screenVerts[face.v0];
-                const Vector3 &p1 = screenVerts[face.v1];
-                const Vector3 &p2 = screenVerts[face.v2];
+                
+                Vector3 v0, v1, v2;
+                Vector3 p0, p1, p2;
+
+                if (!useFallbackPath)
+                {
+                    v0 = worldVerts[face.v0];
+                    v1 = worldVerts[face.v1];
+                    v2 = worldVerts[face.v2];
+
+                    p0 = screenVerts[face.v0];
+                    p1 = screenVerts[face.v1];
+                    p2 = screenVerts[face.v2];
+                }
+                else
+                {
+                    Vector3 local0 = localVerts ? localVerts[face.v0] : mesh->decodePosition(mesh->vert(face.v0));
+                    Vector3 local1 = localVerts ? localVerts[face.v1] : mesh->decodePosition(mesh->vert(face.v1));
+                    Vector3 local2 = localVerts ? localVerts[face.v2] : mesh->decodePosition(mesh->vert(face.v2));
+
+                    v0 = worldTransform.transformNoDiv(local0);
+                    v1 = worldTransform.transformNoDiv(local1);
+                    v2 = worldTransform.transformNoDiv(local2);
+
+                    p0 = CameraController::project(v0, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, viewport.x, viewport.y);
+                    p1 = CameraController::project(v1, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, viewport.x, viewport.y);
+                    p2 = CameraController::project(v2, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, viewport.x, viewport.y);
+                }
 
                 float d0 = (v0 - cam.position).dot(cam.forward());
                 float d1 = (v1 - cam.position).dot(cam.forward());

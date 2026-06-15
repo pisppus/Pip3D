@@ -30,6 +30,7 @@ namespace pip3D
         uint16_t data;
 
         MESH_FORCE_INLINE PackedNormal() : data(0) {}
+        constexpr PackedNormal(uint16_t d) : data(d) {}
 
         MESH_HOT_PATH MESH_FORCE_INLINE void set(const Vector3 &n)
         {
@@ -80,14 +81,16 @@ namespace pip3D
         PackedNormal normal;
 
         MESH_FORCE_INLINE Vertex() : px(0), py(0), pz(0), normal() {}
+        constexpr Vertex(int16_t x, int16_t y, int16_t z, uint16_t norm)
+            : px(x), py(y), pz(z), normal(norm) {}
     };
 
     struct Face
     {
         uint16_t v0, v1, v2;
 
-        MESH_FORCE_INLINE Face() : v0(0), v1(0), v2(0) {}
-        MESH_FORCE_INLINE Face(uint16_t a, uint16_t b, uint16_t c) : v0(a), v1(b), v2(c) {}
+        constexpr Face() : v0(0), v1(0), v2(0) {}
+        constexpr Face(uint16_t a, uint16_t b, uint16_t c) : v0(a), v1(b), v2(c) {}
     };
 
     struct MESH_SIMD_ALIGN MeshCache

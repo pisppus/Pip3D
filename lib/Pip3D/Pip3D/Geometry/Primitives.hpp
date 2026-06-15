@@ -4,170 +4,286 @@
 
 namespace pip3D
 {
+    namespace detail
+    {
+        static constexpr float constAbs(float v)
+        {
+            return v < 0.0f ? -v : v;
+        }
+
+        static constexpr uint16_t packNormalConstexpr(float x, float y, float z)
+        {
+            float l1norm = constAbs(x) + constAbs(y) + constAbs(z);
+            if (l1norm > 1e-6f)
+            {
+                float inv_norm = 1.0f / l1norm;
+                float nx = x * inv_norm;
+                float ny = y * inv_norm;
+
+                if (z < 0.0f)
+                {
+                    float tx = nx;
+                    nx = (1.0f - constAbs(ny)) * (nx >= 0.0f ? 1.0f : -1.0f);
+                    ny = (1.0f - constAbs(tx)) * (ny >= 0.0f ? 1.0f : -1.0f);
+                }
+
+                float px_f = (nx * 0.5f + 0.5f) * 255.0f;
+                float py_f = (ny * 0.5f + 0.5f) * 255.0f;
+
+                uint32_t px = static_cast<uint32_t>(px_f);
+                uint32_t py = static_cast<uint32_t>(py_f);
+
+                return static_cast<uint16_t>((px << 8) | py);
+            }
+            return 0;
+        }
+
+        alignas(16) inline const Vertex s_cubeVertices[8] = {
+            {-32767, -32767, -32767, packNormalConstexpr(-1.0f, -1.0f, -1.0f)},
+            {32767, -32767, -32767, packNormalConstexpr(1.0f, -1.0f, -1.0f)},
+            {32767, 32767, -32767, packNormalConstexpr(1.0f, 1.0f, -1.0f)},
+            {-32767, 32767, -32767, packNormalConstexpr(-1.0f, 1.0f, -1.0f)},
+            {-32767, -32767, 32767, packNormalConstexpr(-1.0f, -1.0f, 1.0f)},
+            {32767, -32767, 32767, packNormalConstexpr(1.0f, -1.0f, 1.0f)},
+            {32767, 32767, 32767, packNormalConstexpr(1.0f, 1.0f, 1.0f)},
+            {-32767, 32767, 32767, packNormalConstexpr(-1.0f, 1.0f, 1.0f)}};
+
+        inline const Face s_cubeFaces[12] = {
+            {0, 2, 1}, {0, 3, 2}, {4, 5, 6}, {4, 6, 7}, {4, 3, 0}, {4, 7, 3}, {1, 2, 6}, {1, 6, 5}, {3, 7, 6}, {3, 6, 2}, {4, 0, 1}, {4, 1, 5}};
+
+        alignas(16) inline const Vertex s_pyramidVertices[5] = {
+            {0, 32767, 0, packNormalConstexpr(0.0f, 1.0f, 0.0f)},
+            {-32767, -32767, -32767, packNormalConstexpr(-1.0f, -1.0f, -1.0f)},
+            {32767, -32767, -32767, packNormalConstexpr(1.0f, -1.0f, -1.0f)},
+            {32767, -32767, 32767, packNormalConstexpr(1.0f, -1.0f, 1.0f)},
+            {-32767, -32767, 32767, packNormalConstexpr(-1.0f, -1.0f, 1.0f)}};
+
+        inline const Face s_pyramidFaces[6] = {
+            {1, 2, 3}, {1, 3, 4}, {0, 2, 1}, {0, 3, 2}, {0, 4, 3}, {0, 1, 4}};
+    }
 
     class Cube : public Mesh
     {
     public:
-        Cube(float size = 1.0f, const Color &color = Color::WHITE) : Mesh(8, 12, color)
+        Cube(float size = 1.0f, const Color &color = Color::WHITE)
+            : Mesh(detail::s_cubeVertices, 8, detail::s_cubeFaces, 12, color, true)
         {
             autoScale(size);
+            cache.boundingCenter = Vector3(0.0f, 0.0f, 0.0f);
+            cache.boundingRadius = size * 0.8660254f;
+            cache.boundsValid = true;
 
-            if (!vertices || !faces)
-            {
-                LOGE(::pip3D::Debug::LOG_MODULE_RESOURCES,
-                     "Cube: Mesh base allocation failed (vertices=%p, faces=%p)",
-                     static_cast<void *>(vertices),
-                     static_cast<void *>(faces));
-                return;
-            }
-
-            constexpr float half = 0.5f;
-
-            const float h = size * half;
-            addVertex(Vector3(-h, -h, -h));
-            addVertex(Vector3(h, -h, -h));
-            addVertex(Vector3(h, h, -h));
-            addVertex(Vector3(-h, h, -h));
-            addVertex(Vector3(-h, -h, h));
-            addVertex(Vector3(h, -h, h));
-            addVertex(Vector3(h, h, h));
-            addVertex(Vector3(-h, h, h));
-            addFace(0, 2, 1);
-            addFace(0, 3, 2);
-            addFace(4, 5, 6);
-            addFace(4, 6, 7);
-            addFace(4, 3, 0);
-            addFace(4, 7, 3);
-            addFace(1, 2, 6);
-            addFace(1, 6, 5);
-            addFace(3, 7, 6);
-            addFace(3, 6, 2);
-            addFace(4, 0, 1);
-            addFace(4, 1, 5);
-            finalize();
-        }
-
-    private:
-        inline void finalize()
-        {
-            finalizeNormals();
-            calculateBoundingSphere();
-            updateTransform();
+            cache.transform.identity();
+            cache.maxScale = 1.0f;
+            cache.transformValid = true;
+            transformDirty = false;
+            cache.transformHash = 4216742517u;
         }
     };
 
     class Pyramid : public Mesh
     {
     public:
-        Pyramid(float size = 1.0f, const Color &color = Color::WHITE) : Mesh(5, 6, color)
+        Pyramid(float size = 1.0f, const Color &color = Color::WHITE)
+            : Mesh(detail::s_pyramidVertices, 5, detail::s_pyramidFaces, 6, color, true)
         {
             autoScale(size);
+            cache.boundingCenter = Vector3(0.0f, -size * 0.25f, 0.0f);
+            cache.boundingRadius = size * 0.75f;
+            cache.boundsValid = true;
 
-            if (!vertices || !faces)
-            {
-                LOGE(::pip3D::Debug::LOG_MODULE_RESOURCES,
-                     "Pyramid: Mesh base allocation failed (vertices=%p, faces=%p)",
-                     static_cast<void *>(vertices),
-                     static_cast<void *>(faces));
-                return;
-            }
-
-            constexpr float half = 0.5f;
-            const float h = size * half;
-            addVertex(Vector3(0, h, 0));
-            addVertex(Vector3(-h, -h, -h));
-            addVertex(Vector3(h, -h, -h));
-            addVertex(Vector3(h, -h, h));
-            addVertex(Vector3(-h, -h, h));
-            addFace(1, 2, 3);
-            addFace(1, 3, 4);
-            addFace(0, 2, 1);
-            addFace(0, 3, 2);
-            addFace(0, 4, 3);
-            addFace(0, 1, 4);
-            finalize();
-        }
-
-    private:
-        inline void finalize()
-        {
-            finalizeNormals();
-            calculateBoundingSphere();
-            updateTransform();
+            cache.transform.identity();
+            cache.maxScale = 1.0f;
+            cache.transformValid = true;
+            transformDirty = false;
+            cache.transformHash = 4216742517u;
         }
     };
 
     class Sphere : public Mesh
     {
+    private:
+        struct SimpleEdge
+        {
+            uint16_t v0, v1;
+        };
+
+        struct EdgeSplitCache
+        {
+            SimpleEdge *edges;
+            uint16_t *midpoints;
+            uint16_t count;
+
+            __attribute__((always_inline)) inline uint16_t getOrCreate(uint16_t v0, uint16_t v1, Vertex *verts, uint16_t &vCount)
+            {
+                if (v0 > v1)
+                {
+                    std::swap(v0, v1);
+                }
+
+                for (uint16_t i = 0; i < count; ++i)
+                {
+                    if (edges[i].v0 == v0 && edges[i].v1 == v1)
+                    {
+                        return midpoints[i];
+                    }
+                }
+
+                float x = static_cast<float>(verts[v0].px + verts[v1].px);
+                float y = static_cast<float>(verts[v0].py + verts[v1].py);
+                float z = static_cast<float>(verts[v0].pz + verts[v1].pz);
+
+                float lenSq = x * x + y * y + z * z;
+                float invLen = FastMath::fastInvSqrt(lenSq) * 32767.0f;
+
+                uint16_t newIdx = vCount++;
+                int16_t px = static_cast<int16_t>(x * invLen);
+                int16_t py = static_cast<int16_t>(y * invLen);
+                int16_t pz = static_cast<int16_t>(z * invLen);
+
+                verts[newIdx].px = px;
+                verts[newIdx].py = py;
+                verts[newIdx].pz = pz;
+
+                float fx = static_cast<float>(px);
+                float fy = static_cast<float>(py);
+                float fz = static_cast<float>(pz);
+
+                float l1norm = fabsf(fx) + fabsf(fy) + fabsf(fz);
+                float inv_l1 = FastMath::fastReciprocal(l1norm);
+                float nx = fx * inv_l1;
+                float ny = fy * inv_l1;
+
+                if (pz < 0)
+                {
+                    float tx = nx;
+                    nx = (1.0f - fabsf(ny)) * (nx >= 0.0f ? 1.0f : -1.0f);
+                    ny = (1.0f - fabsf(tx)) * (ny >= 0.0f ? 1.0f : -1.0f);
+                }
+                uint32_t npx = static_cast<uint32_t>((nx * 0.5f + 0.5f) * 255.0f);
+                uint32_t npy = static_cast<uint32_t>((ny * 0.5f + 0.5f) * 255.0f);
+                verts[newIdx].normal.data = (npx << 8) | npy;
+
+                edges[count] = {v0, v1};
+                midpoints[count] = newIdx;
+                count++;
+                return newIdx;
+            }
+        };
+
+        static constexpr uint16_t getIcosphereFaceCount(uint8_t subdivisions)
+        {
+            return 20 << (2 * subdivisions);
+        }
+
+        static constexpr uint16_t getIcosphereVertexCount(uint8_t subdivisions)
+        {
+            return (10 << (2 * subdivisions)) + 2;
+        }
+
     public:
         Sphere(float radius = 1.0f, uint8_t segments = 8, uint8_t rings = 6, const Color &color = Color::WHITE)
-            : Mesh(2 + (segments ? segments : 3) * ((rings > 1 ? rings : 2) - 1),
-                   2 * (segments ? segments : 3) * ((rings > 1 ? rings : 2) - 1),
+            : Mesh(getIcosphereVertexCount(segments <= 8 ? 1 : (segments <= 16 ? 2 : 3)),
+                   getIcosphereFaceCount(segments <= 8 ? 1 : (segments <= 16 ? 2 : 3)),
                    color)
         {
             autoScale(radius * 2.0f);
 
-            if (!vertices || !faces)
+            if (unlikely(!vertices || !faces))
             {
                 LOGE(::pip3D::Debug::LOG_MODULE_RESOURCES,
-                     "Sphere: Mesh base allocation failed (vertices=%p, faces=%p)",
-                     static_cast<void *>(vertices),
-                     static_cast<void *>(faces));
+                     "Sphere: Mesh base allocation failed");
                 return;
             }
 
-            uint8_t segs = segments ? segments : 3;
-            uint8_t ringCount = rings > 1 ? rings : 2;
+            const uint8_t subdivisions = segments <= 8 ? 1 : (segments <= 16 ? 2 : 3);
 
-            addVertex(Vector3(0, radius, 0));
-            for (uint8_t i = 1; i < ringCount; i++)
+            const float A = 0.525731112119f * 32767.0f;
+            const float B = 0.850650808352f * 32767.0f;
+
+            Vector3 baseVerts[12] = {
+                {-A, B, 0}, {A, B, 0}, {-A, -B, 0}, {A, -B, 0}, {0, -A, B}, {0, A, B}, {0, -A, -B}, {0, A, -B}, {B, 0, -A}, {B, 0, A}, {-B, 0, -A}, {-B, 0, A}};
+
+            uint16_t vCount = 0;
+            for (int i = 0; i < 12; ++i)
             {
-                const float phi = PI * i / ringCount;
-                const float y = radius * FastMath::fastCos(phi);
-                const float r = radius * FastMath::fastSin(phi);
-                for (uint8_t j = 0; j < segs; j++)
+                Vertex &v = vertices[vCount++];
+                v.px = static_cast<int16_t>(baseVerts[i].x);
+                v.py = static_cast<int16_t>(baseVerts[i].y);
+                v.pz = static_cast<int16_t>(baseVerts[i].z);
+
+                Vector3 norm = baseVerts[i];
+                norm.normalize();
+
+                float l1norm = fabsf(norm.x) + fabsf(norm.y) + fabsf(norm.z);
+                float inv_norm = FastMath::fastReciprocal(l1norm);
+                float nx = norm.x * inv_norm;
+                float ny = norm.y * inv_norm;
+                if (norm.z < 0.0f)
                 {
-                    const float theta = TWO_PI * j / segs;
-                    addVertex(Vector3(r * FastMath::fastCos(theta), y, r * FastMath::fastSin(theta)));
+                    float tx = nx;
+                    nx = (1.0f - fabsf(ny)) * (nx >= 0.0f ? 1.0f : -1.0f);
+                    ny = (1.0f - fabsf(tx)) * (ny >= 0.0f ? 1.0f : -1.0f);
+                }
+                uint32_t px = (uint32_t)((nx * 0.5f + 0.5f) * 255.0f);
+                uint32_t py = (uint32_t)((ny * 0.5f + 0.5f) * 255.0f);
+                v.normal.data = (px << 8) | py;
+            }
+
+            static const Face baseFaces[20] = {
+                {0, 11, 5}, {0, 5, 1}, {0, 1, 7}, {0, 7, 10}, {0, 10, 11}, {1, 5, 9}, {5, 11, 4}, {11, 10, 2}, {10, 7, 6}, {7, 1, 8}, {3, 9, 4}, {3, 4, 2}, {3, 2, 6}, {3, 6, 8}, {3, 8, 9}, {4, 9, 5}, {2, 4, 11}, {6, 2, 10}, {8, 6, 7}, {9, 8, 1}};
+
+            uint16_t fCount = 20;
+            memcpy(faces, baseFaces, 20 * sizeof(Face));
+
+            for (uint8_t s = 1; s <= subdivisions; ++s)
+            {
+                const uint16_t oldFCount = fCount;
+
+                Face *tempFaces = (Face *)alloca(oldFCount * sizeof(Face));
+                memcpy(tempFaces, faces, oldFCount * sizeof(Face));
+
+                const uint16_t maxEdges = 30 << (2 * (s - 1));
+                SimpleEdge *edges = (SimpleEdge *)alloca(maxEdges * sizeof(SimpleEdge));
+                uint16_t *midpoints = (uint16_t *)alloca(maxEdges * sizeof(uint16_t));
+
+                EdgeSplitCache splitCache{edges, midpoints, 0};
+
+                fCount = 0;
+                for (uint16_t i = 0; i < oldFCount; ++i)
+                {
+                    uint16_t v0 = tempFaces[i].v0;
+                    uint16_t v1 = tempFaces[i].v1;
+                    uint16_t v2 = tempFaces[i].v2;
+
+                    uint16_t a = splitCache.getOrCreate(v0, v1, vertices, vCount);
+                    uint16_t b = splitCache.getOrCreate(v1, v2, vertices, vCount);
+                    uint16_t c = splitCache.getOrCreate(v2, v0, vertices, vCount);
+
+                    faces[fCount++] = Face(v0, a, c);
+                    faces[fCount++] = Face(v1, b, a);
+                    faces[fCount++] = Face(v2, c, b);
+                    faces[fCount++] = Face(a, b, c);
                 }
             }
-            const uint16_t bottomIdx = addVertex(Vector3(0, -radius, 0));
-            for (uint8_t j = 0; j < segs; j++)
-            {
-                const uint16_t j1 = (j + 1) % segs;
-                addFace(0, 1 + j1, 1 + j);
-            }
-            for (uint8_t i = 1; i < ringCount - 1; i++)
-            {
-                const uint16_t base1 = 1 + (i - 1) * segs;
-                const uint16_t base2 = 1 + i * segs;
-                for (uint8_t j = 0; j < segs; j++)
-                {
-                    const uint16_t j1 = (j + 1) % segs;
-                    addFace(base1 + j, base1 + j1, base2 + j);
-                    addFace(base2 + j, base1 + j1, base2 + j1);
-                }
-            }
-            const uint16_t lastRing = 1 + (ringCount - 2) * segs;
-            for (uint8_t j = 0; j < segs; j++)
-            {
-                const uint16_t j1 = (j + 1) % segs;
-                addFace(bottomIdx, lastRing + j, lastRing + j1);
-            }
-            finalize();
+
+            vertexCount = vCount;
+            faceCount = fCount;
+
+            cache.boundingCenter = Vector3(0.0f, 0.0f, 0.0f);
+            cache.boundingRadius = radius;
+            cache.boundsValid = true;
+
+            cache.transform.identity();
+            cache.maxScale = 1.0f;
+            cache.transformValid = true;
+            transformDirty = false;
+            cache.transformHash = 4216742517u;
         }
 
         Sphere(float radius, const Color &color)
             : Sphere(radius, 16, 12, color)
         {
-        }
-
-    private:
-        inline void finalize()
-        {
-            finalizeNormals();
-            calculateBoundingSphere();
-            updateTransform();
         }
     };
 
@@ -183,45 +299,82 @@ namespace pip3D
             const float size = (width > depth) ? width : depth;
             autoScale(size);
 
-            if (!vertices || !faces)
+            if (unlikely(!vertices || !faces))
             {
                 LOGE(::pip3D::Debug::LOG_MODULE_RESOURCES,
-                     "Plane: Mesh base allocation failed (vertices=%p, faces=%p)",
-                     static_cast<void *>(vertices),
-                     static_cast<void *>(faces));
+                     "Plane: Mesh base allocation failed");
                 return;
             }
 
-            uint8_t divs = subdivisions ? subdivisions : 1;
+            const uint8_t divs = subdivisions ? subdivisions : 1;
+            const float ratioX = width / size;
+            const float ratioZ = depth / size;
 
-            const float stepX = width / divs, stepZ = depth / divs;
-            const float startX = -width * 0.5f, startZ = -depth * 0.5f;
+            const int16_t qStartX = static_cast<int16_t>(-ratioX * 32767.0f - 0.5f);
+            const int16_t qEndX = static_cast<int16_t>(ratioX * 32767.0f + 0.5f);
+            const int16_t qStartZ = static_cast<int16_t>(-ratioZ * 32767.0f - 0.5f);
+            const int16_t qEndZ = static_cast<int16_t>(ratioZ * 32767.0f + 0.5f);
+
+            const int32_t qZ_step = (static_cast<int32_t>(qEndZ - qStartZ) << 16) / divs;
+            const int32_t qX_step = (static_cast<int32_t>(qEndX - qStartX) << 16) / divs;
+
+            Vertex *__restrict vPtr = vertices;
+            const uint16_t normalUp = detail::packNormalConstexpr(0.0f, 1.0f, 0.0f);
+
+            int32_t qZ_fixed = qStartZ << 16;
+            const int32_t qX_fixed_start = qStartX << 16;
+
             for (uint8_t z = 0; z <= divs; z++)
             {
+                const int16_t qZ = (z == divs) ? qEndZ : static_cast<int16_t>(qZ_fixed >> 16);
+                int32_t qX_fixed = qX_fixed_start;
+
                 for (uint8_t x = 0; x <= divs; x++)
                 {
-                    addVertex(Vector3(startX + x * stepX, 0, startZ + z * stepZ));
+                    const int16_t qX = (x == divs) ? qEndX : static_cast<int16_t>(qX_fixed >> 16);
+
+                    vPtr->px = qX;
+                    vPtr->py = 0;
+                    vPtr->pz = qZ;
+                    vPtr->normal.data = normalUp;
+                    vPtr++;
+
+                    qX_fixed += qX_step;
                 }
+                qZ_fixed += qZ_step;
             }
+            vertexCount = static_cast<uint16_t>(vPtr - vertices);
+
+            Face *__restrict fPtr = faces;
             const uint16_t pitch = divs + 1;
+            uint16_t i0 = 0;
+            uint16_t i1 = pitch;
+
             for (uint8_t z = 0; z < divs; z++)
             {
                 for (uint8_t x = 0; x < divs; x++)
                 {
-                    const uint16_t i = z * pitch + x;
-                    addFace(i, i + pitch, i + 1);
-                    addFace(i + 1, i + pitch, i + pitch + 1);
-                }
-            }
-            finalize();
-        }
+                    fPtr[0] = Face(i0, i1, i0 + 1);
+                    fPtr[1] = Face(i0 + 1, i1, i1 + 1);
+                    fPtr += 2;
 
-    private:
-        inline void finalize()
-        {
-            finalizeNormals();
-            calculateBoundingSphere();
-            updateTransform();
+                    i0++;
+                    i1++;
+                }
+                i0++;
+                i1++;
+            }
+            faceCount = static_cast<uint16_t>(fPtr - faces);
+
+            cache.boundingCenter = Vector3(0.0f, 0.0f, 0.0f);
+            cache.boundingRadius = 0.5f * sqrtf(width * width + depth * depth);
+            cache.boundsValid = true;
+
+            cache.transform.identity();
+            cache.maxScale = 1.0f;
+            cache.transformValid = true;
+            transformDirty = false;
+            cache.transformHash = 4216742517u;
         }
     };
 
@@ -236,48 +389,141 @@ namespace pip3D
             const float size = (height > radius * 2.0f) ? height : radius * 2.0f;
             autoScale(size);
 
-            if (!vertices || !faces)
+            if (unlikely(!vertices || !faces))
             {
                 LOGE(::pip3D::Debug::LOG_MODULE_RESOURCES,
-                     "Cylinder: Mesh base allocation failed (vertices=%p, faces=%p)",
-                     static_cast<void *>(vertices),
-                     static_cast<void *>(faces));
+                     "Cylinder: Mesh base allocation failed");
                 return;
             }
 
-            constexpr float half = 0.5f;
-            const float h = height * half;
-            const uint16_t topCenter = addVertex(Vector3(0, h, 0));
-            uint8_t segs = segments ? segments : 3;
-            for (uint8_t i = 0; i < segs; i++)
-            {
-                const float angle = TWO_PI * i / segs;
-                addVertex(Vector3(radius * FastMath::fastCos(angle), h, radius * FastMath::fastSin(angle)));
-            }
-            for (uint8_t i = 0; i < segs; i++)
-            {
-                const float angle = TWO_PI * i / segs;
-                addVertex(Vector3(radius * FastMath::fastCos(angle), -h, radius * FastMath::fastSin(angle)));
-            }
-            const uint16_t bottomCenter = addVertex(Vector3(0, -h, 0));
-            for (uint8_t i = 0; i < segs; i++)
-            {
-                const uint16_t next = (i + 1) % segs;
-                addFace(topCenter, 1 + next, 1 + i);
-                addFace(bottomCenter, 1 + segs + i, 1 + segs + next);
-                const uint16_t top1 = 1 + i, top2 = 1 + next, bot1 = 1 + segs + i, bot2 = 1 + segs + next;
-                addFace(top1, top2, bot1);
-                addFace(top2, bot2, bot1);
-            }
-            finalize();
-        }
+            const uint8_t segs = segments ? segments : 3;
+            const float h = height * 0.5f;
 
-    private:
-        inline void finalize()
-        {
-            finalizeNormals();
-            calculateBoundingSphere();
-            updateTransform();
+            const float halfSize = size * 0.5f;
+            const float invHalfSize = FastMath::fastReciprocal(halfSize);
+
+            const float scaleR = (radius * invHalfSize) * 32767.0f;
+            const float scaleH = (h * invHalfSize) * 32767.0f;
+
+            const int16_t qH = static_cast<int16_t>(scaleH + 0.5f);
+
+            Vertex *__restrict topRingPtr = vertices + 1;
+            Vertex *__restrict bottomRingPtr = vertices + 1 + segs;
+
+            {
+                vertices[0].px = 0;
+                vertices[0].py = qH;
+                vertices[0].pz = 0;
+                vertices[0].normal.data = detail::packNormalConstexpr(0.0f, 1.0f, 0.0f);
+            }
+
+            const float invSegs = 1.0f / static_cast<float>(segs);
+            for (uint8_t i = 0; i < segs; i++)
+            {
+                const float angle = kTwoPi * static_cast<float>(i) * invSegs;
+                float sinAngle, cosAngle;
+                FastMath::fastSinCos(angle, sinAngle, cosAngle);
+
+                const int16_t qRx = static_cast<int16_t>(cosAngle * scaleR + (cosAngle >= 0.0f ? 0.5f : -0.5f));
+                const int16_t qRz = static_cast<int16_t>(sinAngle * scaleR + (sinAngle >= 0.0f ? 0.5f : -0.5f));
+
+                topRingPtr->px = qRx;
+                topRingPtr->py = qH;
+                topRingPtr->pz = qRz;
+
+                bottomRingPtr->px = qRx;
+                bottomRingPtr->py = -qH;
+                bottomRingPtr->pz = qRz;
+
+                const float nx_raw = height * cosAngle;
+                const float ny_raw = radius;
+                const float nz_raw = height * sinAngle;
+
+                const float l1norm = fabsf(nx_raw) + fabsf(ny_raw) + fabsf(nz_raw);
+                const float inv_l1 = FastMath::fastReciprocal(l1norm);
+
+                const float nx = nx_raw * inv_l1;
+                const float ny = ny_raw * inv_l1;
+                const float nz = nz_raw * inv_l1;
+
+                float nx_top = nx;
+                float ny_top = ny;
+                if (nz < 0.0f)
+                {
+                    float tx = nx_top;
+                    nx_top = (1.0f - fabsf(ny_top)) * (nx_top >= 0.0f ? 1.0f : -1.0f);
+                    ny_top = (1.0f - fabsf(tx)) * (ny_top >= 0.0f ? 1.0f : -1.0f);
+                }
+                uint32_t px_top = static_cast<uint32_t>((nx_top * 0.5f + 0.5f) * 255.0f);
+                uint32_t py_top = static_cast<uint32_t>((ny_top * 0.5f + 0.5f) * 255.0f);
+                topRingPtr->normal.data = (px_top << 8) | py_top;
+
+                float nx_bot = nx;
+                float ny_bot = -ny;
+                if (nz < 0.0f)
+                {
+                    float tx = nx_bot;
+                    nx_bot = (1.0f - fabsf(ny_bot)) * (nx_bot >= 0.0f ? 1.0f : -1.0f);
+                    ny_bot = (1.0f - fabsf(tx)) * (ny_bot >= 0.0f ? 1.0f : -1.0f);
+                }
+                uint32_t px_bot = static_cast<uint32_t>((nx_bot * 0.5f + 0.5f) * 255.0f);
+                uint32_t py_bot = static_cast<uint32_t>((ny_bot * 0.5f + 0.5f) * 255.0f);
+                bottomRingPtr->normal.data = (px_bot << 8) | py_bot;
+
+                topRingPtr++;
+                bottomRingPtr++;
+            }
+
+            const uint16_t bottomCenter = 1 + segs * 2;
+            {
+                vertices[bottomCenter].px = 0;
+                vertices[bottomCenter].py = static_cast<int16_t>(-scaleH + 0.5f);
+                vertices[bottomCenter].pz = 0;
+                vertices[bottomCenter].normal.data = detail::packNormalConstexpr(0.0f, -1.0f, 0.0f);
+            }
+
+            vertexCount = 2 + segs * 2;
+
+            Face *__restrict fPtr = faces;
+            const uint16_t topCenter = 0;
+
+            for (uint8_t i = 0; i < segs - 1; i++)
+            {
+                const uint16_t top1 = 1 + i;
+                const uint16_t top2 = 2 + i;
+                const uint16_t bot1 = 1 + segs + i;
+                const uint16_t bot2 = 2 + segs + i;
+
+                fPtr[0] = Face(topCenter, top2, top1);
+                fPtr[1] = Face(bottomCenter, bot1, bot2);
+                fPtr[2] = Face(top1, top2, bot1);
+                fPtr[3] = Face(top2, bot2, bot1);
+                fPtr += 4;
+            }
+
+            {
+                const uint16_t i = segs - 1;
+                const uint16_t top1 = 1 + i;
+                const uint16_t top2 = 1;
+                const uint16_t bot1 = 1 + segs + i;
+                const uint16_t bot2 = 1 + segs;
+
+                fPtr[0] = Face(topCenter, top2, top1);
+                fPtr[1] = Face(bottomCenter, bot1, bot2);
+                fPtr[2] = Face(top1, top2, bot1);
+                fPtr[3] = Face(top2, bot2, bot1);
+            }
+            faceCount = segs * 4;
+
+            cache.boundingCenter = Vector3(0.0f, 0.0f, 0.0f);
+            cache.boundingRadius = sqrtf(radius * radius + h * h);
+            cache.boundsValid = true;
+
+            cache.transform.identity();
+            cache.maxScale = 1.0f;
+            cache.transformValid = true;
+            transformDirty = false;
+            cache.transformHash = 4216742517u;
         }
     };
 
@@ -292,45 +538,155 @@ namespace pip3D
             const float size = (height > radius * 2.0f) ? height : radius * 2.0f;
             autoScale(size);
 
-            if (!vertices || !faces)
+            if (unlikely(!vertices || !faces))
             {
                 LOGE(::pip3D::Debug::LOG_MODULE_RESOURCES,
-                     "Cone: Mesh base allocation failed (vertices=%p, faces=%p)",
-                     static_cast<void *>(vertices),
-                     static_cast<void *>(faces));
+                     "Cone: Mesh base allocation failed");
                 return;
             }
 
-            constexpr float half = 0.5f;
-            const float h = height * half;
-            const uint16_t apex = addVertex(Vector3(0, h, 0));
-            uint8_t segs = segments ? segments : 3;
-            for (uint8_t i = 0; i < segs; i++)
-            {
-                const float angle = TWO_PI * i / segs;
-                addVertex(Vector3(radius * FastMath::fastCos(angle), -h, radius * FastMath::fastSin(angle)));
-            }
-            const uint16_t baseCenter = addVertex(Vector3(0, -h, 0));
-            for (uint8_t i = 0; i < segs; i++)
-            {
-                const uint16_t next = (i + 1) % segs;
-                addFace(apex, 1 + next, 1 + i);
-                addFace(baseCenter, 1 + i, 1 + next);
-            }
-            finalize();
-        }
+            const uint8_t segs = segments ? segments : 3;
+            const float h = height * 0.5f;
 
-    private:
-        inline void finalize()
-        {
-            finalizeNormals();
-            calculateBoundingSphere();
-            updateTransform();
+            const float halfSize = size * 0.5f;
+            const float invHalfSize = FastMath::fastReciprocal(halfSize);
+
+            const float scaleR = (radius * invHalfSize) * 32767.0f;
+            const float scaleH = (h * invHalfSize) * 32767.0f;
+
+            const int16_t qH = static_cast<int16_t>(lrintf(scaleH));
+
+            Vertex *__restrict vPtr = vertices;
+
+            {
+                vPtr->px = 0;
+                vPtr->py = qH;
+                vPtr->pz = 0;
+                vPtr->normal.data = detail::packNormalConstexpr(0.0f, 1.0f, 0.0f);
+                vPtr++;
+            }
+
+            const float binAngleStep = 65536.0f / static_cast<float>(segs);
+            float binAngleF = 0.0f;
+
+            for (uint8_t i = 0; i < segs; i++)
+            {
+                uint16_t binAngle = static_cast<uint16_t>(binAngleF);
+                float sinAngle, cosAngle;
+                FastMath::fastSinCosBin(binAngle, sinAngle, cosAngle);
+
+                const int16_t qRx = static_cast<int16_t>(lrintf(cosAngle * scaleR));
+                const int16_t qRz = static_cast<int16_t>(lrintf(sinAngle * scaleR));
+
+                vPtr->px = qRx;
+                vPtr->py = -qH;
+                vPtr->pz = qRz;
+
+                const float nx_raw = height * cosAngle;
+                const float ny_raw = -radius;
+                const float nz_raw = height * sinAngle;
+
+                const float l1norm = fabsf(nx_raw) + fabsf(ny_raw) + fabsf(nz_raw);
+                const float inv_l1 = FastMath::fastReciprocal(l1norm);
+
+                float nx = nx_raw * inv_l1;
+                float ny = ny_raw * inv_l1;
+                const float nz = nz_raw * inv_l1;
+
+                float nx_folded = (1.0f - fabsf(ny)) * __builtin_copysignf(1.0f, nx);
+                float ny_folded = (1.0f - fabsf(nx)) * __builtin_copysignf(1.0f, ny);
+
+                nx = (nz < 0.0f) ? nx_folded : nx;
+                ny = (nz < 0.0f) ? ny_folded : ny;
+
+                uint32_t px = static_cast<uint32_t>((nx * 0.5f + 0.5f) * 255.0f);
+                uint32_t py = static_cast<uint32_t>((ny * 0.5f + 0.5f) * 255.0f);
+                vPtr->normal.data = (px << 8) | py;
+
+                vPtr++;
+                binAngleF += binAngleStep;
+            }
+
+            {
+                vPtr->px = 0;
+                vPtr->py = -qH;
+                vPtr->pz = 0;
+                vPtr->normal.data = detail::packNormalConstexpr(0.0f, -1.0f, 0.0f);
+                vPtr++;
+            }
+
+            vertexCount = static_cast<uint16_t>(vPtr - vertices);
+
+            Face *__restrict fPtr = faces;
+            const uint16_t apexIdx = 0;
+            const uint16_t baseCenterIdx = segs + 1;
+
+            for (uint8_t i = 0; i < segs - 1; i++)
+            {
+                const uint16_t top1 = 1 + i;
+                const uint16_t top2 = 2 + i;
+
+                fPtr[0] = Face(apexIdx, top2, top1);
+                fPtr[1] = Face(baseCenterIdx, top1, top2);
+                fPtr += 2;
+            }
+
+            {
+                const uint16_t i = segs - 1;
+                const uint16_t top1 = 1 + i;
+                const uint16_t top2 = 1;
+
+                fPtr[0] = Face(apexIdx, top2, top1);
+                fPtr[1] = Face(baseCenterIdx, top1, top2);
+            }
+            faceCount = segs * 2;
+
+            float yc = 0.0f;
+            float r_bound = 0.0f;
+            if (radius > height)
+            {
+                yc = -h;
+                r_bound = radius;
+            }
+            else
+            {
+                yc = -(radius * radius) / (2.0f * height);
+                r_bound = h - yc;
+            }
+            cache.boundingCenter = Vector3(0.0f, yc, 0.0f);
+            cache.boundingRadius = r_bound;
+            cache.boundsValid = true;
+
+            cache.transform.identity();
+            cache.maxScale = 1.0f;
+            cache.transformValid = true;
+            transformDirty = false;
+            cache.transformHash = 4216742517u;
         }
     };
 
     class Capsule : public Mesh
     {
+    private:
+        __attribute__((always_inline)) static inline void packUnitNormalBranchless(
+            PackedNormal &normal, float nx, float ny, float nz)
+        {
+            float l1norm = fabsf(nx) + fabsf(ny) + fabsf(nz);
+            float inv_l1 = FastMath::fastReciprocal(l1norm);
+            float ox = nx * inv_l1;
+            float oy = ny * inv_l1;
+
+            float ox_folded = (1.0f - fabsf(oy)) * __builtin_copysignf(1.0f, ox);
+            float oy_folded = (1.0f - fabsf(ox)) * __builtin_copysignf(1.0f, oy);
+
+            ox = (nz < 0.0f) ? ox_folded : ox;
+            oy = (nz < 0.0f) ? oy_folded : oy;
+
+            uint32_t px = static_cast<uint32_t>((ox * 0.5f + 0.5f) * 255.0f);
+            uint32_t py = static_cast<uint32_t>((oy * 0.5f + 0.5f) * 255.0f);
+            normal.data = (px << 8) | py;
+        }
+
     public:
         Capsule(float radius = 1.0f, float height = 2.0f, uint8_t segments = 12, uint8_t rings = 6, const Color &color = Color::WHITE)
             : Mesh(2 + (segments ? segments : 3) *
@@ -346,12 +702,9 @@ namespace pip3D
             const float size = (height > radius * 2.0f) ? height : radius * 2.0f;
             autoScale(size);
 
-            if (!vertices || !faces)
+            if (unlikely(!vertices || !faces))
             {
-                LOGE(::pip3D::Debug::LOG_MODULE_RESOURCES,
-                     "Capsule: Mesh base allocation failed (vertices=%p, faces=%p)",
-                     static_cast<void *>(vertices),
-                     static_cast<void *>(faces));
+                LOGE(::pip3D::Debug::LOG_MODULE_RESOURCES, "Capsule: Mesh base allocation failed");
                 return;
             }
 
@@ -359,246 +712,212 @@ namespace pip3D
             constexpr float half = 0.5f;
             const float cylinderHeight = fmaxf(0.0f, height - two * radius);
             const float halfCyl = cylinderHeight * half;
-            uint8_t segs = segments ? segments : 3;
-            uint8_t hemiRings = rings ? rings : 1;
+            const uint8_t segs = segments ? segments : 3;
+            const uint8_t hemiRings = rings ? rings : 1;
             const bool hasCylinder = cylinderHeight > 0.0001f;
 
+            const float halfSize = size * 0.5f;
+            const float invHalfSize = FastMath::fastReciprocal(halfSize);
+
+            const float scaleR = (radius * invHalfSize) * 32767.0f;
+            const float scaleCyl = (halfCyl * invHalfSize) * 32767.0f;
+
+            Vertex *__restrict vPtr = vertices;
             uint16_t ringRows = 0;
-            const uint16_t topPole = addVertex(Vector3(0, halfCyl + radius, 0));
+
+            const uint16_t topPoleIdx = 0;
+            {
+                vPtr->px = 0;
+                vPtr->py = static_cast<int16_t>(lrintf(scaleCyl + scaleR));
+                vPtr->pz = 0;
+                vPtr->normal.data = detail::packNormalConstexpr(0.0f, 1.0f, 0.0f);
+                vPtr++;
+            }
+
+            float localSinCache[64];
+            float localCosCache[64];
+            float *__restrict sinThetaCache = nullptr;
+            float *__restrict cosThetaCache = nullptr;
+            const bool useStack = (segs <= 64);
+
+            if (likely(useStack))
+            {
+                sinThetaCache = localSinCache;
+                cosThetaCache = localCosCache;
+            }
+            else
+            {
+                sinThetaCache = (float *)MemUtils::allocData(segs * sizeof(float), 16);
+                cosThetaCache = (float *)MemUtils::allocData(segs * sizeof(float), 16);
+            }
+
+            const float invSegs = 1.0f / static_cast<float>(segs);
+            for (uint8_t j = 0; j < segs; j++)
+            {
+                const float theta = kTwoPi * static_cast<float>(j) * invSegs;
+                float sinAngle, cosAngle;
+                FastMath::fastSinCos(theta, sinAngle, cosAngle);
+
+                sinThetaCache[j] = sinAngle;
+                cosThetaCache[j] = cosAngle;
+            }
+
+            const float invHemiRings = 1.0f / static_cast<float>(hemiRings);
 
             for (uint8_t ring = 1; ring < hemiRings; ++ring)
             {
-                constexpr float piHalf = PI * 0.5f;
-                const float phi = piHalf * ring / hemiRings;
-                const float y = halfCyl + radius * FastMath::fastCos(phi);
-                const float r = radius * FastMath::fastSin(phi);
+                const float cosPhi = 1.0f - static_cast<float>(ring) * invHemiRings;
+                const float sinPhi = sqrtf(1.0f - cosPhi * cosPhi);
+
+                const int16_t qY = static_cast<int16_t>(lrintf(scaleCyl + scaleR * cosPhi));
+                const float r_scale = scaleR * sinPhi;
+
                 for (uint8_t seg = 0; seg < segs; ++seg)
                 {
-                    const float theta = TWO_PI * seg / segs;
-                    addVertex(Vector3(r * FastMath::fastCos(theta), y, r * FastMath::fastSin(theta)));
+                    const float sinTheta = sinThetaCache[seg];
+                    const float cosTheta = cosThetaCache[seg];
+
+                    vPtr->px = static_cast<int16_t>(lrintf(r_scale * cosTheta));
+                    vPtr->py = qY;
+                    vPtr->pz = static_cast<int16_t>(lrintf(r_scale * sinTheta));
+
+                    packUnitNormalBranchless(vPtr->normal, sinPhi * cosTheta, cosPhi, sinPhi * sinTheta);
+                    vPtr++;
                 }
                 ++ringRows;
             }
 
-            const float topSeamY = halfCyl;
-            for (uint8_t seg = 0; seg < segs; ++seg)
+            const int16_t qTopSeamY = static_cast<int16_t>(lrintf(scaleCyl));
             {
-                const float theta = TWO_PI * seg / segs;
-                addVertex(Vector3(radius * FastMath::fastCos(theta), topSeamY, radius * FastMath::fastSin(theta)));
+                for (uint8_t seg = 0; seg < segs; ++seg)
+                {
+                    const float sinTheta = sinThetaCache[seg];
+                    const float cosTheta = cosThetaCache[seg];
+
+                    vPtr->px = static_cast<int16_t>(lrintf(scaleR * cosTheta));
+                    vPtr->py = qTopSeamY;
+                    vPtr->pz = static_cast<int16_t>(lrintf(scaleR * sinTheta));
+
+                    packUnitNormalBranchless(vPtr->normal, cosTheta, 0.0f, sinTheta);
+                    vPtr++;
+                }
+                ++ringRows;
             }
-            ++ringRows;
 
             if (hasCylinder)
             {
-                const float bottomSeamY = -halfCyl;
+                const int16_t qBottomSeamY = static_cast<int16_t>(lrintf(-scaleCyl));
                 for (uint8_t seg = 0; seg < segs; ++seg)
                 {
-                    const float theta = TWO_PI * seg / segs;
-                    addVertex(Vector3(radius * FastMath::fastCos(theta), bottomSeamY, radius * FastMath::fastSin(theta)));
+                    const float sinTheta = sinThetaCache[seg];
+                    const float cosTheta = cosThetaCache[seg];
+
+                    vPtr->px = static_cast<int16_t>(lrintf(scaleR * cosTheta));
+                    vPtr->py = qBottomSeamY;
+                    vPtr->pz = static_cast<int16_t>(lrintf(scaleR * sinTheta));
+
+                    packUnitNormalBranchless(vPtr->normal, cosTheta, 0.0f, sinTheta);
+                    vPtr++;
                 }
                 ++ringRows;
             }
 
             for (int ring = static_cast<int>(hemiRings) - 1; ring >= 1; --ring)
             {
-                constexpr float piHalf = PI * 0.5f;
-                const float phi = piHalf * ring / hemiRings;
-                const float y = -halfCyl - radius * FastMath::fastCos(phi);
-                const float r = radius * FastMath::fastSin(phi);
+                const float cosPhi = 1.0f - static_cast<float>(ring) * invHemiRings;
+                const float sinPhi = sqrtf(1.0f - cosPhi * cosPhi);
+
+                const int16_t qY = static_cast<int16_t>(lrintf(-scaleCyl - scaleR * cosPhi));
+                const float r_scale = scaleR * sinPhi;
+
                 for (uint8_t seg = 0; seg < segs; ++seg)
                 {
-                    const float theta = TWO_PI * seg / segs;
-                    addVertex(Vector3(r * FastMath::fastCos(theta), y, r * FastMath::fastSin(theta)));
+                    const float sinTheta = sinThetaCache[seg];
+                    const float cosTheta = cosThetaCache[seg];
+
+                    vPtr->px = static_cast<int16_t>(lrintf(r_scale * cosTheta));
+                    vPtr->py = qY;
+                    vPtr->pz = static_cast<int16_t>(lrintf(r_scale * sinTheta));
+
+                    packUnitNormalBranchless(vPtr->normal, sinPhi * cosTheta, -cosPhi, sinPhi * sinTheta);
+                    vPtr++;
                 }
                 ++ringRows;
             }
 
-            const uint16_t bottomPole = addVertex(Vector3(0, -halfCyl - radius, 0));
-            if (ringRows == 0)
+            const uint16_t bottomPoleIdx = static_cast<uint16_t>(vPtr - vertices);
             {
-                finalize();
-                return;
+                vPtr->px = 0;
+                vPtr->py = static_cast<int16_t>(lrintf(-scaleCyl - scaleR));
+                vPtr->pz = 0;
+                vPtr->normal.data = detail::packNormalConstexpr(0.0f, -1.0f, 0.0f);
+                vPtr++;
             }
 
-            const uint16_t firstRingStart = 1;
-            for (uint8_t seg = 0; seg < segs; ++seg)
+            if (unlikely(!useStack))
             {
-                const uint16_t next = (seg + 1) % segs;
-                addFace(topPole, firstRingStart + seg, firstRingStart + next);
+                MemUtils::freeData(sinThetaCache);
+                MemUtils::freeData(cosThetaCache);
             }
+
+            vertexCount = static_cast<uint16_t>(vPtr - vertices);
+
+            Face *__restrict fPtr = faces;
+            const uint16_t firstRingStart = 1;
+
+            for (uint8_t seg = 0; seg < segs - 1; ++seg)
+            {
+                *fPtr++ = Face(topPoleIdx, firstRingStart + seg, firstRingStart + seg + 1);
+            }
+            *fPtr++ = Face(topPoleIdx, firstRingStart + segs - 1, firstRingStart);
 
             for (uint16_t ring = 0; ring < ringRows - 1; ++ring)
             {
                 const uint16_t currRow = 1 + ring * segs;
                 const uint16_t nextRow = currRow + segs;
-                for (uint8_t seg = 0; seg < segs; ++seg)
+
+                for (uint8_t seg = 0; seg < segs - 1; ++seg)
                 {
-                    const uint16_t next = (seg + 1) % segs;
                     const uint16_t curr = currRow + seg;
-                    const uint16_t currNext = currRow + next;
+                    const uint16_t currNext = curr + 1;
                     const uint16_t below = nextRow + seg;
-                    const uint16_t belowNext = nextRow + next;
-                    addFace(curr, below, currNext);
-                    addFace(currNext, below, belowNext);
+                    const uint16_t belowNext = below + 1;
+
+                    fPtr[0] = Face(curr, below, currNext);
+                    fPtr[1] = Face(currNext, below, belowNext);
+                    fPtr += 2;
+                }
+
+                {
+                    const uint16_t curr = currRow + segs - 1;
+                    const uint16_t currNext = currRow;
+                    const uint16_t below = nextRow + segs - 1;
+                    const uint16_t belowNext = nextRow;
+
+                    fPtr[0] = Face(curr, below, currNext);
+                    fPtr[1] = Face(currNext, below, belowNext);
+                    fPtr += 2;
                 }
             }
 
             const uint16_t lastRingStart = 1 + (ringRows - 1) * segs;
-            for (uint8_t seg = 0; seg < segs; ++seg)
+            for (uint8_t seg = 0; seg < segs - 1; ++seg)
             {
-                const uint16_t next = (seg + 1) % segs;
-                addFace(bottomPole, lastRingStart + next, lastRingStart + seg);
+                *fPtr++ = Face(bottomPoleIdx, lastRingStart + seg + 1, lastRingStart + seg);
             }
-            finalize();
-        }
+            *fPtr++ = Face(bottomPoleIdx, lastRingStart, lastRingStart + segs - 1);
 
-    private:
-        inline void finalize()
-        {
-            finalizeNormals();
-            calculateBoundingSphere();
-            updateTransform();
-        }
-    };
+            faceCount = static_cast<uint16_t>(fPtr - faces);
 
-    class Teapot : public Mesh
-    {
-    public:
-        Teapot(float scale = 1.0f, const Color &color = Color::WHITE)
-            : Mesh(512, 1024, color)
-        {
-            autoScale(scale * 4.0f);
+            cache.boundingCenter = Vector3(0.0f, 0.0f, 0.0f);
+            cache.boundingRadius = height * 0.5f;
+            cache.boundsValid = true;
 
-            if (!vertices || !faces)
-            {
-                LOGE(::pip3D::Debug::LOG_MODULE_RESOURCES,
-                     "Teapot: Mesh base allocation failed (vertices=%p, faces=%p)",
-                     static_cast<void *>(vertices),
-                     static_cast<void *>(faces));
-                return;
-            }
-
-            static const int SEGMENTS = 24;
-            static const int BODY_RINGS = 10;
-            static const float bodyY[BODY_RINGS + 1] = {
-                0.0f, 0.1f, 0.25f, 0.4f, 0.55f, 0.7f, 0.85f, 1.0f, 1.15f, 1.3f, 1.4f};
-            static const float bodyR[BODY_RINGS + 1] = {
-                0.7f, 0.9f, 1.1f, 1.3f, 1.5f, 1.6f, 1.6f, 1.4f, 1.2f, 1.0f, 0.8f};
-
-            const uint16_t bodyBase = vertexCount;
-            for (int ring = 0; ring <= BODY_RINGS; ++ring)
-            {
-                const float y = bodyY[ring] * scale;
-                const float r = bodyR[ring] * scale;
-                for (int seg = 0; seg < SEGMENTS; ++seg)
-                {
-                    const float angle = TWO_PI * (float)seg / (float)SEGMENTS;
-                    const float x = r * FastMath::fastCos(angle);
-                    const float z = r * FastMath::fastSin(angle);
-                    addVertex(Vector3(x, y, z));
-                }
-            }
-
-            const uint16_t bottomCenter = addVertex(Vector3(0.0f, bodyY[0] * scale, 0.0f));
-
-            for (int ring = 0; ring < BODY_RINGS; ++ring)
-            {
-                for (int seg = 0; seg < SEGMENTS; ++seg)
-                {
-                    const int nextSeg = (seg + 1) % SEGMENTS;
-                    const uint16_t v00 = bodyBase + ring * SEGMENTS + seg;
-                    const uint16_t v10 = bodyBase + (ring + 1) * SEGMENTS + seg;
-                    const uint16_t v11 = bodyBase + (ring + 1) * SEGMENTS + nextSeg;
-                    const uint16_t v01 = bodyBase + ring * SEGMENTS + nextSeg;
-                    addFace(v00, v10, v11);
-                    addFace(v00, v11, v01);
-                }
-            }
-
-            for (int seg = 0; seg < SEGMENTS; ++seg)
-            {
-                const int nextSeg = (seg + 1) % SEGMENTS;
-                const uint16_t v0 = bodyBase + seg;
-                const uint16_t v1 = bodyBase + nextSeg;
-                addFace(bottomCenter, v1, v0);
-            }
-
-            static const int LID_RINGS = 4;
-            static const float lidY[LID_RINGS + 1] = {
-                1.4f, 1.55f, 1.7f, 1.8f, 1.85f};
-            static const float lidR[LID_RINGS + 1] = {
-                0.8f, 0.7f, 0.5f, 0.3f, 0.15f};
-
-            const uint16_t lidBase = vertexCount;
-            for (int ring = 0; ring <= LID_RINGS; ++ring)
-            {
-                const float y = lidY[ring] * scale;
-                const float r = lidR[ring] * scale;
-                for (int seg = 0; seg < SEGMENTS; ++seg)
-                {
-                    const float angle = TWO_PI * (float)seg / (float)SEGMENTS;
-                    const float x = r * FastMath::fastCos(angle);
-                    const float z = r * FastMath::fastSin(angle);
-                    addVertex(Vector3(x, y, z));
-                }
-            }
-
-            for (int ring = 0; ring < LID_RINGS; ++ring)
-            {
-                for (int seg = 0; seg < SEGMENTS; ++seg)
-                {
-                    const int nextSeg = (seg + 1) % SEGMENTS;
-                    const uint16_t v00 = lidBase + ring * SEGMENTS + seg;
-                    const uint16_t v10 = lidBase + (ring + 1) * SEGMENTS + seg;
-                    const uint16_t v11 = lidBase + (ring + 1) * SEGMENTS + nextSeg;
-                    const uint16_t v01 = lidBase + ring * SEGMENTS + nextSeg;
-                    addFace(v00, v10, v11);
-                    addFace(v00, v11, v01);
-                }
-            }
-
-            const uint16_t lidTopCenter = addVertex(Vector3(0.0f, lidY[LID_RINGS] * scale, 0.0f));
-            const uint16_t lastRingStart = lidBase + LID_RINGS * SEGMENTS;
-            for (int seg = 0; seg < SEGMENTS; ++seg)
-            {
-                const int nextSeg = (seg + 1) % SEGMENTS;
-                const uint16_t v0 = lastRingStart + seg;
-                const uint16_t v1 = lastRingStart + nextSeg;
-                addFace(lidTopCenter, v0, v1);
-            }
-
-            static const int KNOB_SEGMENTS = 12;
-            const float knobBaseY = (lidY[LID_RINGS] + 0.05f) * scale;
-            const float knobTopY = (lidY[LID_RINGS] + 0.18f) * scale;
-            const float knobR = 0.15f * scale;
-
-            const uint16_t knobBase = vertexCount;
-            for (int seg = 0; seg < KNOB_SEGMENTS; ++seg)
-            {
-                const float angle = TWO_PI * (float)seg / (float)KNOB_SEGMENTS;
-                const float x = knobR * FastMath::fastCos(angle);
-                const float z = knobR * FastMath::fastSin(angle);
-                addVertex(Vector3(x, knobBaseY, z));
-            }
-
-            const uint16_t knobTop = addVertex(Vector3(0.0f, knobTopY, 0.0f));
-            for (int seg = 0; seg < KNOB_SEGMENTS; ++seg)
-            {
-                const int nextSeg = (seg + 1) % KNOB_SEGMENTS;
-                const uint16_t v0 = knobBase + seg;
-                const uint16_t v1 = knobBase + nextSeg;
-                addFace(v0, v1, knobTop);
-            }
-
-            finalize();
-        }
-
-    private:
-        inline void finalize()
-        {
-            finalizeNormals();
-            calculateBoundingSphere();
-            updateTransform();
+            cache.transform.identity();
+            cache.maxScale = 1.0f;
+            cache.transformValid = true;
+            transformDirty = false;
+            cache.transformHash = 4216742517u;
         }
     };
 
@@ -625,6 +944,7 @@ namespace pip3D
             const float tubeRadius = tubeScale * scale;
             uint8_t segs = segments ? segments : 3;
             uint8_t tubeSegs = tubeSegments ? tubeSegments : 3;
+
             for (uint8_t i = 0; i < segs; i++)
             {
                 const float t = TWO_PI * i / segs;
@@ -645,9 +965,11 @@ namespace pip3D
                     const float vx = x + tubeRadius * (nx * cos_t - ny * sin_t);
                     const float vy = y + tubeRadius * (nx * sin_t + ny * cos_t);
                     const float vz = z + tubeRadius * ny;
+
                     addVertex(Vector3(vx, vy, vz));
                 }
             }
+
             for (uint8_t i = 0; i < segs; i++)
             {
                 const uint16_t i1 = (i + 1) % segs;
@@ -668,8 +990,12 @@ namespace pip3D
         {
             finalizeNormals();
             calculateBoundingSphere();
-            updateTransform();
+
+            cache.transform.identity();
+            cache.maxScale = 1.0f;
+            cache.transformValid = true;
+            transformDirty = false;
+            cache.transformHash = 4216742517u;
         }
     };
-
 }

@@ -55,12 +55,11 @@ namespace pip3D
 #endif
 #endif
 
-// Единое кроссплатформенное определение IRAM_ATTR
 #if !defined(IRAM_ATTR)
 #if defined(ESP_PLATFORM) || defined(ESP32)
 #include <esp_attr.h>
 #else
-#define IRAM_ATTR // Пустая заглушка для ПК/других платформ
+#define IRAM_ATTR
 #endif
 #endif
 
