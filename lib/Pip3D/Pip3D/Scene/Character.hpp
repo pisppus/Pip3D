@@ -257,7 +257,7 @@ namespace pip3D
             float moveLenSq = moveDir.lengthSquared();
             if (moveLenSq > 1e-5f)
             {
-                float invLen = FastMath::fastInvSqrt(moveLenSq);
+                float invLen = 1.0f / sqrtf(moveLenSq);
                 moveDir *= invLen;
 
                 float targetYaw = atan2f(moveDir.x, moveDir.z) * kRadToDeg;
@@ -441,4 +441,3 @@ namespace pip3D
     };
 
 }
-

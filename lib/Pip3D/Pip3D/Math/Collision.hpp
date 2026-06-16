@@ -258,7 +258,7 @@ namespace pip3D
       float lenSq = normal.lengthSquared();
       if (lenSq > 1e-8f)
       {
-        float invLen = FastMath::fastInvSqrt(lenSq);
+        float invLen = 1.0f / sqrtf(lenSq);
         normal *= invLen;
         distance = d * invLen;
       }
@@ -275,7 +275,7 @@ namespace pip3D
       float lenSq = normal.lengthSquared();
       if (lenSq > 1e-8f)
       {
-        float invLen = FastMath::fastInvSqrt(lenSq);
+        float invLen = 1.0f / sqrtf(lenSq);
         normal *= invLen;
         distance = normal.dot(point);
       }
@@ -301,4 +301,3 @@ namespace pip3D
   };
 
 }
-

@@ -94,20 +94,20 @@ namespace pip3D
         }
 
         void Gizmos::addLine(const Vector3 &a, const Vector3 &b,
-                                uint16_t color,
-                                uint16_t categories,
-                                uint16_t lifetimeFrames,
-                                uint8_t thickness)
+                             uint16_t color,
+                             uint16_t categories,
+                             uint16_t lifetimeFrames,
+                             uint8_t thickness)
         {
             addLineImpl(a, b, color, categories, lifetimeFrames, thickness, false);
         }
 
         void Gizmos::addRay(const Vector3 &origin, const Vector3 &dir,
-                               float length,
-                               uint16_t color,
-                               uint16_t categories,
-                               uint16_t lifetimeFrames,
-                               uint8_t thickness)
+                            float length,
+                            uint16_t color,
+                            uint16_t categories,
+                            uint16_t lifetimeFrames,
+                            uint8_t thickness)
         {
             if (length <= 0.0f)
                 return;
@@ -115,16 +115,16 @@ namespace pip3D
             float lenSq = d.lengthSquared();
             if (lenSq <= 1e-8f)
                 return;
-            float invLen = FastMath::fastInvSqrt(lenSq);
+            float invLen = 1.0f / sqrtf(lenSq);
             d *= invLen * length;
             addLine(origin, origin + d, color, categories, lifetimeFrames, thickness);
         }
 
         void Gizmos::addAABB(const AABB &box,
-                                uint16_t color,
-                                uint16_t categories,
-                                uint16_t lifetimeFrames,
-                                uint8_t thickness)
+                             uint16_t color,
+                             uint16_t categories,
+                             uint16_t lifetimeFrames,
+                             uint8_t thickness)
         {
             if (!isCategoryEnabled(categories))
                 return;
@@ -158,10 +158,10 @@ namespace pip3D
         }
 
         void Gizmos::addSphere(const Vector3 &center, float radius,
-                                  uint16_t color,
-                                  uint16_t categories,
-                                  uint16_t lifetimeFrames,
-                                  uint8_t thickness)
+                               uint16_t color,
+                               uint16_t categories,
+                               uint16_t lifetimeFrames,
+                               uint8_t thickness)
         {
             if (!isCategoryEnabled(categories))
                 return;
@@ -196,9 +196,9 @@ namespace pip3D
         }
 
         void Gizmos::addAxes(const Vector3 &origin, float size,
-                                uint16_t categories,
-                                uint16_t lifetimeFrames,
-                                uint8_t thickness)
+                             uint16_t categories,
+                             uint16_t lifetimeFrames,
+                             uint8_t thickness)
         {
             if (size <= 0.0f)
                 return;

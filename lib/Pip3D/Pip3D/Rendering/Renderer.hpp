@@ -866,6 +866,7 @@ namespace pip3D
         int getActiveCameraIndex() const { return activeCameraIndex; }
         int getCameraCount() const { return cameras.size(); }
         uint16_t *getFrameBuffer() const { return const_cast<uint16_t *>(framebuffer.getBuffer()); }
+        ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *getZBuffer() const { return zBuffer; }
         const Frustum &getFrustum() const { return frustum; }
 
         uint32_t getStatsTrianglesTotal() const { return statsTrianglesTotal; }
@@ -1289,7 +1290,7 @@ namespace pip3D
 
             const uint16_t vertexCountUsed = mesh->numVertices();
             const uint16_t faceCount = mesh->numFaces();
-            
+
             bool useFallbackPath = false;
             Vector3 *worldVerts = nullptr;
             Vector3 *screenVerts = nullptr;
@@ -1366,7 +1367,7 @@ namespace pip3D
             for (uint16_t i = 0; i < faceCount; ++i)
             {
                 const Face &face = mesh->face(i);
-                
+
                 Vector3 v0, v1, v2;
                 Vector3 p0, p1, p2;
 
@@ -1403,6 +1404,34 @@ namespace pip3D
                     continue;
 
                 bool partiallyClipped = (d0 < cam.nearPlane || d1 < cam.nearPlane || d2 < cam.nearPlane);
+
+                if (mesh->isTextured() && !partiallyClipped)
+                {
+                    const Vertex &vert0 = mesh->vert(face.v0);
+                    const Vertex &vert1 = mesh->vert(face.v1);
+                    const Vertex &vert2 = mesh->vert(face.v2);
+
+                    Vector3 lp0 = p0;
+                    Vector3 lp1 = p1;
+                    Vector3 lp2 = p2;
+                    lp0.y -= (float)bandTop;
+                    lp1.y -= (float)bandTop;
+                    lp2.y -= (float)bandTop;
+
+                    Rasterizer::fillTriangleTextured(
+                        lp0.x, lp0.y, lp0.z,
+                        lp1.x, lp1.y, lp1.z,
+                        lp2.x, lp2.y, lp2.z,
+                        vert0.tu, vert0.tv,
+                        vert1.tu, vert1.tv,
+                        vert2.tu, vert2.tv,
+                        d0, d1, d2,
+                        *mesh->getTexture(),
+                        framebuffer.getBuffer(),
+                        zBuffer,
+                        framebufferConfig);
+                    continue;
+                }
 
                 if (!partiallyClipped)
                 {

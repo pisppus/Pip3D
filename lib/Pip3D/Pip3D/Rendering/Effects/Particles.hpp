@@ -174,60 +174,73 @@ namespace pip3D
                 if (size <= 0.25f)
                     size = 0.25f;
 
+                const Camera &cam = renderer.getCamera();
+
+                float z_view = (p.position - cam.position).dot(cam.forward());
+                if (z_view <= cam.nearPlane)
+                    continue;
+
                 Vector3 screen = renderer.project(p.position);
-                if (screen.z <= 0.0f)
+                if (screen.z <= 0.0f || screen.z >= 1.0f)
                     continue;
 
                 int cx = (int)screen.x;
                 int cy = (int)screen.y;
-                int radius = (int)size;
+
+                float size_world = (p.startSize + (p.endSize - p.startSize) * t) * 0.04f;
+                float fovRad = cam.fov * kDegToRad;
+                float projScale = 1.0f / tanf(fovRad * 0.5f);
+                float radius_pixels = (size_world * projScale / z_view) * (renderer.getViewport().height * 0.5f);
+
+                int radius = (int)radius_pixels;
                 if (radius <= 0)
                     radius = 1;
 
                 int r2 = radius * radius;
+                int y0 = cy - radius;
+                int y1 = cy + radius;
 
-                int y0 = clamp(cy - radius, 0, (int)height - 1);
-                int y1 = clamp(cy + radius, 0, (int)height - 1);
-
-                if (y1 < tileY || y0 >= tileY + tileH)
+                if (y0 < bandTop)
+                    y0 = bandTop;
+                if (y1 >= bandBottom)
+                    y1 = bandBottom - 1;
+                if (y0 > y1)
                     continue;
+
+                int16_t particle_depth = static_cast<int16_t>(screen.z * 32638.0f);
+                ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuf = renderer.getZBuffer();
 
                 for (int y = y0; y <= y1; ++y)
                 {
-                    if (y < tileY || y >= tileY + tileH)
-                        continue;
-
                     int dy = y - cy;
                     int dy2 = dy * dy;
-
                     int x0 = clamp(cx - radius, 0, (int)width - 1);
                     int x1 = clamp(cx + radius, 0, (int)width - 1);
+                    int localY = y - bandTop;
+                    size_t idx = (size_t)localY * width + x0;
 
-                    if (x1 < tileX || x0 >= tileX + tileW)
-                        continue;
-
-                    for (int x = x0; x <= x1; ++x)
+                    for (int x = x0; x <= x1; ++x, ++idx)
                     {
-                        if (x < tileX || x >= tileX + tileW)
-                            continue;
-
                         int dx = x - cx;
                         int dist2 = dx * dx + dy2;
                         if (dist2 > r2)
                             continue;
+
+                        if (zBuf)
+                        {
+                            int16_t stored_depth = zBuf->getRawDepth(x, localY);
+                            if (stored_depth != 0x7F7F && (particle_depth - 5 > stored_depth))
+                                continue;
+                        }
 
                         float k = 1.0f - (float)dist2 / (float)r2;
                         uint8_t a = (uint8_t)(alpha * k);
                         if (a == 0)
                             continue;
 
-                        int localX = x - tileX;
-                        int localY = y - tileY;
-                        size_t idx = (size_t)localY * (size_t)tileW + (size_t)localX;
-
                         if (config.additive)
                         {
-                            const uint16_t dst = tileBuffer[idx];
+                            const uint16_t dst = fb[idx];
                             const uint16_t src = col.rgb565;
 
                             uint32_t rDst = (dst >> 11) & 0x1F;
@@ -249,7 +262,7 @@ namespace pip3D
                             if (bDst > 31u)
                                 bDst = 31u;
 
-                            tileBuffer[idx] = (uint16_t)((rDst << 11) | (gDst << 5) | bDst);
+                            fb[idx] = (uint16_t)((rDst << 11) | (gDst << 5) | bDst);
                         }
                         else
                         {
@@ -294,7 +307,7 @@ namespace pip3D
                 if (size <= 0.25f)
                     size = 0.25f;
 
-                 Vector3 screen = renderer.project(p.position);
+                Vector3 screen = renderer.project(p.position);
                 if (screen.z <= 0.0f)
                     continue;
 
@@ -308,9 +321,11 @@ namespace pip3D
                 int y0 = cy - radius;
                 int y1 = cy + radius;
 
-                if (y0 < bandTop) y0 = bandTop;
-                if (y1 >= bandBottom) y1 = bandBottom - 1;
-                if (y0 > y1) 
+                if (y0 < bandTop)
+                    y0 = bandTop;
+                if (y1 >= bandBottom)
+                    y1 = bandBottom - 1;
+                if (y0 > y1)
                     continue;
 
                 for (int y = y0; y <= y1; ++y)
@@ -321,7 +336,7 @@ namespace pip3D
                     int x1 = clamp(cx + radius, 0, (int)width - 1);
                     int localY = y - bandTop;
                     size_t idx = (size_t)localY * width + x0;
-                    
+
                     for (int x = x0; x <= x1; ++x, ++idx)
                     {
                         int dx = x - cx;
@@ -350,9 +365,12 @@ namespace pip3D
                             gDst += (gSrc * a) >> 8;
                             bDst += (bSrc * a) >> 8;
 
-                            if (rDst > 31u) rDst = 31u;
-                            if (gDst > 63u) gDst = 63u;
-                            if (bDst > 31u) bDst = 31u;
+                            if (rDst > 31u)
+                                rDst = 31u;
+                            if (gDst > 63u)
+                                gDst = 63u;
+                            if (bDst > 31u)
+                                bDst = 31u;
 
                             fb[idx] = (uint16_t)((rDst << 11) | (gDst << 5) | bDst);
                         }
@@ -593,4 +611,3 @@ namespace pip3D
     };
 
 }
-

@@ -215,9 +215,9 @@ namespace pip3D
 
                 Vector3 localCorners[4] = {
                     Vector3(-half.x, -half.y, -half.z),
-                    Vector3( half.x, -half.y, -half.z),
-                    Vector3( half.x, -half.y,  half.z),
-                    Vector3(-half.x, -half.y,  half.z)};
+                    Vector3(half.x, -half.y, -half.z),
+                    Vector3(half.x, -half.y, half.z),
+                    Vector3(-half.x, -half.y, half.z)};
 
                 for (size_t zi = 0; zi < waterZones.size(); ++zi)
                 {
@@ -257,8 +257,10 @@ namespace pip3D
 
                     float linFactor = 1.0f - zone.dragLinear * deltaTime;
                     float angFactor = 1.0f - zone.dragAngular * deltaTime;
-                    if (linFactor < 0.0f) linFactor = 0.0f;
-                    if (angFactor < 0.0f) angFactor = 0.0f;
+                    if (linFactor < 0.0f)
+                        linFactor = 0.0f;
+                    if (angFactor < 0.0f)
+                        angFactor = 0.0f;
 
                     b->velocity *= linFactor;
                     b->angularVelocity *= angFactor;
@@ -295,8 +297,10 @@ namespace pip3D
                         const float wakeThresholdSq = 1e-4f;
                         if (vRelSq > wakeThresholdSq)
                         {
-                            if (a->isSleeping) a->wakeUp();
-                            if (b->isSleeping) b->wakeUp();
+                            if (a->isSleeping)
+                                a->wakeUp();
+                            if (b->isSleeping)
+                                b->wakeUp();
                         }
                     }
 
@@ -379,8 +383,10 @@ namespace pip3D
     {
         RigidBody *a = info.bodyA;
         RigidBody *b = info.bodyB;
-        if (!a || !b) return;
-        if (a->isTrigger || b->isTrigger) return;
+        if (!a || !b)
+            return;
+        if (a->isTrigger || b->isTrigger)
+            return;
 
         float invMassA = a->invMass;
         float invMassB = b->invMass;
@@ -413,10 +419,12 @@ namespace pip3D
                 float bestDistSq = 0.01f * 0.01f;
                 int bestIndex = -1;
                 int oldContactCount = old->contactCount;
-                if (oldContactCount > 4) oldContactCount = 4;
+                if (oldContactCount > 4)
+                    oldContactCount = 4;
                 for (int oi = 0; oi < oldContactCount; ++oi)
                 {
-                    if (used[oi]) continue;
+                    if (used[oi])
+                        continue;
                     Vector3 diff = old->contacts[oi].pos - c.pos;
                     float distSq = diff.lengthSquared();
                     if (distSq < bestDistSq)
@@ -450,7 +458,8 @@ namespace pip3D
             const float baumgarte = 0.2f;
             const float slop = 0.001f;
             float penetration = c.penetration - slop;
-            if (penetration < 0.0f) penetration = 0.0f;
+            if (penetration < 0.0f)
+                penetration = 0.0f;
             if (penetration > 0.0f && deltaTime > 0.0f)
                 c.bias = -baumgarte * penetration / deltaTime;
             else
@@ -477,9 +486,12 @@ namespace pip3D
             CollisionInfo &info = contactConstraints[ci];
             RigidBody *a = info.bodyA;
             RigidBody *b = info.bodyB;
-            if (!a || !b) continue;
-            if (a->isTrigger || b->isTrigger) continue;
-            if (a->isStatic && b->isStatic) continue;
+            if (!a || !b)
+                continue;
+            if (a->isTrigger || b->isTrigger)
+                continue;
+            if (a->isStatic && b->isStatic)
+                continue;
 
             float invMassA = a->invMass;
             float invMassB = b->invMass;
@@ -489,7 +501,8 @@ namespace pip3D
             {
                 Contact &c = info.contacts[j];
                 float jn = c.accumulatedImpulse;
-                if (jn == 0.0f) continue;
+                if (jn == 0.0f)
+                    continue;
 
                 Vector3 impulse = n * jn;
                 Vector3 rA = c.pos - a->position;
@@ -526,24 +539,30 @@ namespace pip3D
             CollisionInfo &info = contactConstraints[i];
             RigidBody *a = info.bodyA;
             RigidBody *b = info.bodyB;
-            if (!a || !b) continue;
-            if (a->isTrigger || b->isTrigger) continue;
-            if (a->isStatic && b->isStatic) continue;
+            if (!a || !b)
+                continue;
+            if (a->isTrigger || b->isTrigger)
+                continue;
+            if (a->isStatic && b->isStatic)
+                continue;
 
             float invMassA = a->invMass;
             float invMassB = b->invMass;
             float invMassSum = invMassA + invMassB;
-            if (invMassSum <= 0.0f) continue;
+            if (invMassSum <= 0.0f)
+                continue;
 
             float maxPenetration = 0.0f;
             for (int ci = 0; ci < info.contactCount; ++ci)
             {
                 float p = info.contacts[ci].penetration;
-                if (p > maxPenetration) maxPenetration = p;
+                if (p > maxPenetration)
+                    maxPenetration = p;
             }
 
             float correctionMag = maxPenetration - slop;
-            if (correctionMag < 0.0f) correctionMag = 0.0f;
+            if (correctionMag < 0.0f)
+                correctionMag = 0.0f;
             correctionMag *= percent;
             if (correctionMag > 0.0f)
             {
@@ -568,14 +587,18 @@ namespace pip3D
     {
         RigidBody *a = info.bodyA;
         RigidBody *b = info.bodyB;
-        if ((a && a->isTrigger) || (b && b->isTrigger)) return;
-        if (a->isStatic && b->isStatic) return;
-        if (info.contactCount <= 0) return;
+        if ((a && a->isTrigger) || (b && b->isTrigger))
+            return;
+        if (a->isStatic && b->isStatic)
+            return;
+        if (info.contactCount <= 0)
+            return;
 
         float invMassA = a->invMass;
         float invMassB = b->invMass;
         float invMassSum = invMassA + invMassB;
-        if (invMassSum <= 0.0f) return;
+        if (invMassSum <= 0.0f)
+            return;
 
         Vector3 n = info.normal;
         float frictionCoeff = fminf(a->friction, b->friction);
@@ -599,7 +622,8 @@ namespace pip3D
             if (ct.accumulatedImpulse < 0.0f)
                 ct.accumulatedImpulse = 0.0f;
             float deltaImpulse = ct.accumulatedImpulse - oldImpulse;
-            if (deltaImpulse == 0.0f) continue;
+            if (deltaImpulse == 0.0f)
+                continue;
 
             Vector3 impulse = n * deltaImpulse;
 
@@ -627,7 +651,7 @@ namespace pip3D
             float tLenSq = tangent.lengthSquared();
             if (tLenSq > 1e-8f)
             {
-                float invTL = FastMath::fastInvSqrt(tLenSq);
+                float invTL = 1.0f / sqrtf(tLenSq);
                 tangent *= invTL;
                 Vector3 rAxT = rA.cross(tangent);
                 Vector3 rBxT = rB.cross(tangent);
@@ -641,8 +665,10 @@ namespace pip3D
                 {
                     float jt = -relativeVelocity.dot(tangent) / denomT;
                     float maxFriction = frictionCoeff * ct.accumulatedImpulse;
-                    if (jt > maxFriction) jt = maxFriction;
-                    if (jt < -maxFriction) jt = -maxFriction;
+                    if (jt > maxFriction)
+                        jt = maxFriction;
+                    if (jt < -maxFriction)
+                        jt = -maxFriction;
                     Vector3 frictionImpulse = tangent * jt;
                     if (!a->isStatic && invMassA > 0.0f)
                     {
@@ -675,7 +701,8 @@ namespace pip3D
         for (size_t i = 0; i < bodyCount; ++i)
         {
             RigidBody *b = bodies[i];
-            if (!b) continue;
+            if (!b)
+                continue;
 
             float tMinAABB, tMaxAABB;
             if (!ray.intersects(b->bounds, tMinAABB, tMaxAABB))
@@ -700,7 +727,7 @@ namespace pip3D
                     float nLenSq = n.lengthSquared();
                     if (nLenSq > 1e-8f)
                     {
-                        float invLen = FastMath::fastInvSqrt(nLenSq);
+                        float invLen = 1.0f / sqrtf(nLenSq);
                         n *= invLen;
                     }
                     else
@@ -755,7 +782,8 @@ namespace pip3D
                 }
             }
 
-            if (!hitFound) continue;
+            if (!hitFound)
+                continue;
 
             if (bestT < outHit.distance)
             {
@@ -773,13 +801,16 @@ namespace pip3D
     CollisionInfo PhysicsWorld::detectCollision(RigidBody *a, RigidBody *b)
     {
         CollisionInfo info;
-        if (!a || !b) return info;
+        if (!a || !b)
+            return info;
 
         bool bothStatic = a->isStatic && b->isStatic;
         bool bothKinematicNonTrigger = a->isKinematic && b->isKinematic && !a->isTrigger && !b->isTrigger;
-        if (bothStatic || bothKinematicNonTrigger) return info;
+        if (bothStatic || bothKinematicNonTrigger)
+            return info;
 
-        if (!a->bounds.intersects(b->bounds)) return info;
+        if (!a->bounds.intersects(b->bounds))
+            return info;
 
         if (a->shape == BODY_SHAPE_SPHERE && b->shape == BODY_SHAPE_SPHERE)
         {
@@ -818,7 +849,8 @@ namespace pip3D
                             else
                                 normal = Vector3(0, 1, 0);
                             float penetration = radiusSum - distHit;
-                            if (penetration < 0.0f) penetration = 0.0f;
+                            if (penetration < 0.0f)
+                                penetration = 0.0f;
                             Vector3 contact = posA + normal * (a->radius - penetration * 0.5f);
 
                             info.hasCollision = true;
@@ -883,16 +915,22 @@ namespace pip3D
                     if (lenSq > 1e-8f)
                     {
                         AABB expanded = b->bounds;
-                        expanded.min.x -= r; expanded.min.y -= r; expanded.min.z -= r;
-                        expanded.max.x += r; expanded.max.y += r; expanded.max.z += r;
+                        expanded.min.x -= r;
+                        expanded.min.y -= r;
+                        expanded.min.z -= r;
+                        expanded.max.x += r;
+                        expanded.max.y += r;
+                        expanded.max.z += r;
 
                         Ray ray(start, dir);
                         float tMin, tMax;
                         if (ray.intersects(expanded, tMin, tMax) && tMax >= 0.0f && tMin <= 1.0f)
                         {
                             float tHit = tMin;
-                            if (tHit < 0.0f) tHit = 0.0f;
-                            if (tHit > 1.0f) tHit = 1.0f;
+                            if (tHit < 0.0f)
+                                tHit = 0.0f;
+                            if (tHit > 1.0f)
+                                tHit = 1.0f;
 
                             Vector3 centerHit = start + dir * tHit;
                             Vector3 boxMin = b->bounds.min;
@@ -918,7 +956,8 @@ namespace pip3D
                                 penetration = r;
                             }
 
-                            if (penetration < 0.0f) penetration = 0.0f;
+                            if (penetration < 0.0f)
+                                penetration = 0.0f;
 
                             info.hasCollision = true;
                             info.bodyA = a;
@@ -974,7 +1013,8 @@ namespace pip3D
         if (a->shape == BODY_SHAPE_BOX && b->shape == BODY_SHAPE_SPHERE)
         {
             CollisionInfo swapped = detectCollision(b, a);
-            if (!swapped.hasCollision) return info;
+            if (!swapped.hasCollision)
+                return info;
             info.hasCollision = true;
             info.bodyA = a;
             info.bodyB = b;
@@ -998,14 +1038,12 @@ namespace pip3D
             Vector3 Aa[3] = {
                 a->orientation.rotate(Vector3(1, 0, 0)),
                 a->orientation.rotate(Vector3(0, 1, 0)),
-                a->orientation.rotate(Vector3(0, 0, 1))
-            };
+                a->orientation.rotate(Vector3(0, 0, 1))};
 
             Vector3 Ab[3] = {
                 b->orientation.rotate(Vector3(1, 0, 0)),
                 b->orientation.rotate(Vector3(0, 1, 0)),
-                b->orientation.rotate(Vector3(0, 0, 1))
-            };
+                b->orientation.rotate(Vector3(0, 0, 1))};
 
             Vector3 Ea = a->size * 0.5f;
             Vector3 Eb = b->size * 0.5f;
@@ -1023,7 +1061,7 @@ namespace pip3D
             }
 
             Vector3 tWorld = Cb - Ca;
-            float t[3] = { tWorld.dot(Aa[0]), tWorld.dot(Aa[1]), tWorld.dot(Aa[2]) };
+            float t[3] = {tWorld.dot(Aa[0]), tWorld.dot(Aa[1]), tWorld.dot(Aa[2])};
 
             float minPenetration = FLT_MAX;
             Vector3 bestAxis(0, 1, 0);
@@ -1034,7 +1072,8 @@ namespace pip3D
                 float rb = Eb.x * AbsR[i][0] + Eb.y * AbsR[i][1] + Eb.z * AbsR[i][2];
                 float dist = fabsf(t[i]);
                 float pen = ra + rb - dist;
-                if (pen < 0.0f) return info;
+                if (pen < 0.0f)
+                    return info;
                 if (pen < minPenetration)
                 {
                     minPenetration = pen;
@@ -1048,7 +1087,8 @@ namespace pip3D
                 float rb = (j == 0 ? Eb.x : (j == 1 ? Eb.y : Eb.z));
                 float dist = fabsf(Cb.dot(Ab[j]) - Ca.dot(Ab[j]));
                 float pen = ra + rb - dist;
-                if (pen < 0.0f) return info;
+                if (pen < 0.0f)
+                    return info;
                 if (pen < minPenetration)
                 {
                     minPenetration = pen;
@@ -1063,15 +1103,17 @@ namespace pip3D
                 {
                     Vector3 axis = Aa[i].cross(Ab[j]);
                     float axisLenSq = axis.lengthSquared();
-                    if (axisLenSq < 1e-8f) continue;
-                    float invLen = FastMath::fastInvSqrt(axisLenSq);
+                    if (axisLenSq < 1e-8f)
+                        continue;
+                    float invLen = 1.0f / sqrtf(axisLenSq);
                     axis *= invLen;
 
                     float ra = Ea.x * fabsf(axis.dot(Aa[0])) + Ea.y * fabsf(axis.dot(Aa[1])) + Ea.z * fabsf(axis.dot(Aa[2]));
                     float rb = Eb.x * fabsf(axis.dot(Ab[0])) + Eb.y * fabsf(axis.dot(Ab[1])) + Eb.z * fabsf(axis.dot(Ab[2]));
                     float dist = fabsf(axis.dot(tWorld));
                     float pen = ra + rb - dist;
-                    if (pen < 0.0f) return info;
+                    if (pen < 0.0f)
+                        return info;
                     if (pen < minPenetration)
                     {
                         minPenetration = pen;
@@ -1080,7 +1122,8 @@ namespace pip3D
                 }
             }
 
-            if (minPenetration <= 0.0f) return info;
+            if (minPenetration <= 0.0f)
+                return info;
 
             Vector3 n = bestAxis;
             int refIndex = 0;
@@ -1184,11 +1227,14 @@ namespace pip3D
         for (size_t i = 0; i < bodyCount; ++i)
         {
             RigidBody *b = bodies[i];
-            if (!b) continue;
+            if (!b)
+                continue;
 
             uint16_t color = Color::GREEN;
-            if (b->isStatic) color = Color::RED;
-            else if (b->isSleeping) color = Color::GRAY;
+            if (b->isStatic)
+                color = Color::RED;
+            else if (b->isSleeping)
+                color = Color::GRAY;
 
             DBG_AABB(renderer, b->bounds, color, ::pip3D::Debug::DEBUG_CATEGORY_PHYSICS);
 
@@ -1203,8 +1249,7 @@ namespace pip3D
                     Vector3(-half.x, -half.y, -half.z), Vector3(half.x, -half.y, -half.z),
                     Vector3(half.x, half.y, -half.z), Vector3(-half.x, half.y, -half.z),
                     Vector3(-half.x, -half.y, half.z), Vector3(half.x, -half.y, half.z),
-                    Vector3(half.x, half.y, half.z), Vector3(-half.x, half.y, half.z)
-                };
+                    Vector3(half.x, half.y, half.z), Vector3(-half.x, half.y, half.z)};
 
                 Vector3 corners[8];
                 for (int c = 0; c < 8; ++c)
@@ -1213,8 +1258,7 @@ namespace pip3D
                 }
 
                 static const int edges[12][2] = {
-                    {0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6}, {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}
-                };
+                    {0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6}, {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
 
                 for (int e = 0; e < 12; ++e)
                 {
@@ -1227,13 +1271,14 @@ namespace pip3D
         for (size_t i = 0; i < constraintCount; ++i)
         {
             CollisionInfo &info = contactConstraints[i];
-            if (!info.hasCollision || info.contactCount <= 0) continue;
+            if (!info.hasCollision || info.contactCount <= 0)
+                continue;
 
             Vector3 n = info.normal;
             float nLenSq = n.lengthSquared();
             if (nLenSq > 1e-8f)
             {
-                float invLen = FastMath::fastInvSqrt(nLenSq);
+                float invLen = 1.0f / sqrtf(nLenSq);
                 n *= invLen;
             }
 

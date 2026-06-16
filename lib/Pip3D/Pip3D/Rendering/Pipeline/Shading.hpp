@@ -119,7 +119,7 @@ namespace pip3D
 
                         if (distSq > 1e-8f)
                         {
-                            const float invDist = FastMath::fastInvSqrt(distSq);
+                            const float invDist = 1.0f / sqrtf(distSq);
                             lightDir.x *= invDist;
                             lightDir.y *= invDist;
                             lightDir.z *= invDist;
@@ -156,7 +156,7 @@ namespace pip3D
                     const float hLenSq = hx * hx + hy * hy + hz * hz;
                     if (hLenSq > 1e-8f)
                     {
-                        const float invHLen = FastMath::fastInvSqrt(hLenSq);
+                        const float invHLen = 1.0f / sqrtf(hLenSq);
                         hx *= invHLen;
                         hy *= invHLen;
                         hz *= invHLen;
@@ -210,7 +210,6 @@ namespace pip3D
             outG = clamp(outG, 0.0f, 1.0f);
             outB = clamp(outB, 0.0f, 1.0f);
         }
-
 
         __attribute__((always_inline)) static inline uint16_t quantizeColor(float r, float g, float b)
         {
