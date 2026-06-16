@@ -2,6 +2,7 @@
 
 #include "Math/Algebra.hpp"
 #include "Core/Memory.hpp"
+#include "Rendering/Display/Texture.hpp"
 
 #if !defined(PIP3D_PC)
 #include <esp_heap_caps.h>
@@ -24,6 +25,7 @@ static constexpr float EPSILON_SQ = 1e-12f;
 
 namespace pip3D
 {
+    struct Texture;
 
     struct PackedNormal
     {
@@ -79,10 +81,11 @@ namespace pip3D
     {
         int16_t px, py, pz;
         PackedNormal normal;
+        float tu, tv;
 
-        MESH_FORCE_INLINE Vertex() : px(0), py(0), pz(0), normal() {}
-        constexpr Vertex(int16_t x, int16_t y, int16_t z, uint16_t norm)
-            : px(x), py(y), pz(z), normal(norm) {}
+        MESH_FORCE_INLINE Vertex() : px(0), py(0), pz(0), normal(), tu(0.0f), tv(0.0f) {}
+        constexpr Vertex(int16_t x, int16_t y, int16_t z, uint16_t norm, float u = 0.0f, float v = 0.0f)
+            : px(x), py(y), pz(z), normal(norm), tu(u), tv(v) {}
     };
 
     struct Face
@@ -130,6 +133,7 @@ namespace pip3D
         bool singleColorLighting;
         bool isStaticStorage;
         float qScale;
+        const Texture *meshTexture = nullptr;
 
         mutable MeshCache cache;
         mutable Vector3 *cachedLocalVertices;
@@ -491,6 +495,25 @@ namespace pip3D
             cache.transformValid = false;
         }
 
+        MESH_FORCE_INLINE void finalizeTransform()
+        {
+            cache.transform.identity();
+            cache.maxScale = 1.0f;
+            cache.transformValid = true;
+            transformDirty = false;
+            cache.transformHash = computeTransformHash();
+        }
+
+        MESH_FORCE_INLINE void finalizeGeometry(uint16_t vCount, uint16_t fCount, const Vector3 &boundCenter, float boundRadius)
+        {
+            vertexCount = vCount;
+            faceCount = fCount;
+            cache.boundingCenter = boundCenter;
+            cache.boundingRadius = boundRadius;
+            cache.boundsValid = true;
+            finalizeTransform();
+        }
+
         MESH_PURE MESH_FORCE_INLINE Vector3 pos() const { return position; }
         MESH_PURE MESH_FORCE_INLINE Vector3 rot() const { return rotation; }
 
@@ -664,6 +687,9 @@ namespace pip3D
         MESH_PURE MESH_FORCE_INLINE bool getCastShadows() const { return castShadows; }
         MESH_FORCE_INLINE void setSingleColorLighting(bool enabled) { singleColorLighting = enabled; }
         MESH_PURE MESH_FORCE_INLINE bool getSingleColorLighting() const { return singleColorLighting; }
+        MESH_FORCE_INLINE void setTexture(const Texture *tex) { meshTexture = tex; }
+        MESH_PURE MESH_FORCE_INLINE const Texture *getTexture() const { return meshTexture; }
+        MESH_PURE MESH_FORCE_INLINE bool isTextured() const { return meshTexture != nullptr; }
 
         MESH_HOT_PATH const Matrix4x4 &getTransform() const
         {

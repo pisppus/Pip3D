@@ -38,46 +38,90 @@ namespace pip3D
             return 0;
         }
 
-        alignas(16) inline const Vertex s_cubeVertices[8] = {
-            {-32767, -32767, -32767, packNormalConstexpr(-1.0f, -1.0f, -1.0f)},
-            {32767, -32767, -32767, packNormalConstexpr(1.0f, -1.0f, -1.0f)},
-            {32767, 32767, -32767, packNormalConstexpr(1.0f, 1.0f, -1.0f)},
-            {-32767, 32767, -32767, packNormalConstexpr(-1.0f, 1.0f, -1.0f)},
-            {-32767, -32767, 32767, packNormalConstexpr(-1.0f, -1.0f, 1.0f)},
-            {32767, -32767, 32767, packNormalConstexpr(1.0f, -1.0f, 1.0f)},
-            {32767, 32767, 32767, packNormalConstexpr(1.0f, 1.0f, 1.0f)},
-            {-32767, 32767, 32767, packNormalConstexpr(-1.0f, 1.0f, 1.0f)}};
+        alignas(16) inline const Vertex s_cubeVertices[24] = {
+            {-32767, -32767, -32767, packNormalConstexpr(0.0f, 0.0f, -1.0f), 0.0f, 0.0f},
+            {32767, -32767, -32767, packNormalConstexpr(0.0f, 0.0f, -1.0f), 1.0f, 0.0f},
+            {32767, 32767, -32767, packNormalConstexpr(0.0f, 0.0f, -1.0f), 1.0f, 1.0f},
+            {-32767, 32767, -32767, packNormalConstexpr(0.0f, 0.0f, -1.0f), 0.0f, 1.0f},
+
+            {32767, -32767, 32767, packNormalConstexpr(0.0f, 0.0f, 1.0f), 0.0f, 0.0f},
+            {-32767, -32767, 32767, packNormalConstexpr(0.0f, 0.0f, 1.0f), 1.0f, 0.0f},
+            {-32767, 32767, 32767, packNormalConstexpr(0.0f, 0.0f, 1.0f), 1.0f, 1.0f},
+            {32767, 32767, 32767, packNormalConstexpr(0.0f, 0.0f, 1.0f), 0.0f, 1.0f},
+
+            {-32767, 32767, -32767, packNormalConstexpr(0.0f, 1.0f, 0.0f), 0.0f, 0.0f},
+            {32767, 32767, -32767, packNormalConstexpr(0.0f, 1.0f, 0.0f), 1.0f, 0.0f},
+            {32767, 32767, 32767, packNormalConstexpr(0.0f, 1.0f, 0.0f), 1.0f, 1.0f},
+            {-32767, 32767, 32767, packNormalConstexpr(0.0f, 1.0f, 0.0f), 0.0f, 1.0f},
+
+            {-32767, -32767, 32767, packNormalConstexpr(0.0f, -1.0f, 0.0f), 0.0f, 0.0f},
+            {32767, -32767, 32767, packNormalConstexpr(0.0f, -1.0f, 0.0f), 1.0f, 0.0f},
+            {32767, -32767, -32767, packNormalConstexpr(0.0f, -1.0f, 0.0f), 1.0f, 1.0f},
+            {-32767, -32767, -32767, packNormalConstexpr(0.0f, -1.0f, 0.0f), 0.0f, 1.0f},
+
+            {32767, -32767, -32767, packNormalConstexpr(1.0f, 0.0f, 0.0f), 0.0f, 0.0f},
+            {32767, -32767, 32767, packNormalConstexpr(1.0f, 0.0f, 0.0f), 1.0f, 0.0f},
+            {32767, 32767, 32767, packNormalConstexpr(1.0f, 0.0f, 0.0f), 1.0f, 1.0f},
+            {32767, 32767, -32767, packNormalConstexpr(1.0f, 0.0f, 0.0f), 0.0f, 1.0f},
+
+            {-32767, -32767, 32767, packNormalConstexpr(-1.0f, 0.0f, 0.0f), 0.0f, 0.0f},
+            {-32767, -32767, -32767, packNormalConstexpr(-1.0f, 0.0f, 0.0f), 1.0f, 0.0f},
+            {-32767, 32767, -32767, packNormalConstexpr(-1.0f, 0.0f, 0.0f), 1.0f, 1.0f},
+            {-32767, 32767, 32767, packNormalConstexpr(-1.0f, 0.0f, 0.0f), 0.0f, 1.0f}};
 
         inline const Face s_cubeFaces[12] = {
-            {0, 2, 1}, {0, 3, 2}, {4, 5, 6}, {4, 6, 7}, {4, 3, 0}, {4, 7, 3}, {1, 2, 6}, {1, 6, 5}, {3, 7, 6}, {3, 6, 2}, {4, 0, 1}, {4, 1, 5}};
+            {0, 2, 1},
+            {0, 3, 2},
+            {4, 6, 5},
+            {4, 7, 6},
+            {8, 10, 9},
+            {8, 11, 10},
+            {12, 14, 13},
+            {12, 15, 14},
+            {16, 18, 17},
+            {16, 19, 18},
+            {20, 22, 21},
+            {20, 23, 22}};
 
-        alignas(16) inline const Vertex s_pyramidVertices[5] = {
-            {0, 32767, 0, packNormalConstexpr(0.0f, 1.0f, 0.0f)},
-            {-32767, -32767, -32767, packNormalConstexpr(-1.0f, -1.0f, -1.0f)},
-            {32767, -32767, -32767, packNormalConstexpr(1.0f, -1.0f, -1.0f)},
-            {32767, -32767, 32767, packNormalConstexpr(1.0f, -1.0f, 1.0f)},
-            {-32767, -32767, 32767, packNormalConstexpr(-1.0f, -1.0f, 1.0f)}};
+        alignas(16) inline const Vertex s_pyramidVertices[16] = {
+            {0, 32767, 0, packNormalConstexpr(0.0f, 1.0f, -2.0f), 0.5f, 1.0f},
+            {-32767, -32767, -32767, packNormalConstexpr(0.0f, 1.0f, -2.0f), 0.0f, 0.0f},
+            {32767, -32767, -32767, packNormalConstexpr(0.0f, 1.0f, -2.0f), 1.0f, 0.0f},
+
+            {0, 32767, 0, packNormalConstexpr(2.0f, 1.0f, 0.0f), 0.5f, 1.0f},
+            {32767, -32767, -32767, packNormalConstexpr(2.0f, 1.0f, 0.0f), 0.0f, 0.0f},
+            {32767, -32767, 32767, packNormalConstexpr(2.0f, 1.0f, 0.0f), 1.0f, 0.0f},
+
+            {0, 32767, 0, packNormalConstexpr(0.0f, 1.0f, 2.0f), 0.5f, 1.0f},
+            {32767, -32767, 32767, packNormalConstexpr(0.0f, 1.0f, 2.0f), 0.0f, 0.0f},
+            {-32767, -32767, 32767, packNormalConstexpr(0.0f, 1.0f, 2.0f), 1.0f, 0.0f},
+
+            {0, 32767, 0, packNormalConstexpr(-2.0f, 1.0f, 0.0f), 0.5f, 1.0f},
+            {-32767, -32767, 32767, packNormalConstexpr(-2.0f, 1.0f, 0.0f), 0.0f, 0.0f},
+            {-32767, -32767, -32767, packNormalConstexpr(-2.0f, 1.0f, 0.0f), 1.0f, 0.0f},
+
+            {-32767, -32767, -32767, packNormalConstexpr(0.0f, -1.0f, 0.0f), 0.0f, 0.0f},
+            {32767, -32767, -32767, packNormalConstexpr(0.0f, -1.0f, 0.0f), 1.0f, 0.0f},
+            {32767, -32767, 32767, packNormalConstexpr(0.0f, -1.0f, 0.0f), 1.0f, 1.0f},
+            {-32767, -32767, 32767, packNormalConstexpr(0.0f, -1.0f, 0.0f), 0.0f, 1.0f}};
 
         inline const Face s_pyramidFaces[6] = {
-            {1, 2, 3}, {1, 3, 4}, {0, 2, 1}, {0, 3, 2}, {0, 4, 3}, {0, 1, 4}};
+            {0, 2, 1},
+            {3, 5, 4},
+            {6, 8, 7},
+            {9, 11, 10},
+            {12, 13, 14},
+            {12, 14, 15}};
     }
 
     class Cube : public Mesh
     {
     public:
         Cube(float size = 1.0f, const Color &color = Color::WHITE)
-            : Mesh(detail::s_cubeVertices, 8, detail::s_cubeFaces, 12, color, true)
+            : Mesh(detail::s_cubeVertices, 24, detail::s_cubeFaces, 12, color, true)
         {
             autoScale(size);
-            cache.boundingCenter = Vector3(0.0f, 0.0f, 0.0f);
-            cache.boundingRadius = size * 0.8660254f;
-            cache.boundsValid = true;
-
-            cache.transform.identity();
-            cache.maxScale = 1.0f;
-            cache.transformValid = true;
-            transformDirty = false;
-            cache.transformHash = 4216742517u;
+            finalizeGeometry(24, 12, Vector3(0.0f, 0.0f, 0.0f), size * 0.8660254f);
         }
     };
 
@@ -85,18 +129,10 @@ namespace pip3D
     {
     public:
         Pyramid(float size = 1.0f, const Color &color = Color::WHITE)
-            : Mesh(detail::s_pyramidVertices, 5, detail::s_pyramidFaces, 6, color, true)
+            : Mesh(detail::s_pyramidVertices, 16, detail::s_pyramidFaces, 6, color, true)
         {
             autoScale(size);
-            cache.boundingCenter = Vector3(0.0f, -size * 0.25f, 0.0f);
-            cache.boundingRadius = size * 0.75f;
-            cache.boundsValid = true;
-
-            cache.transform.identity();
-            cache.maxScale = 1.0f;
-            cache.transformValid = true;
-            transformDirty = false;
-            cache.transformHash = 4216742517u;
+            finalizeGeometry(16, 6, Vector3(0.0f, -size * 0.25f, 0.0f), size * 0.75f);
         }
     };
 
@@ -134,7 +170,7 @@ namespace pip3D
                 float z = static_cast<float>(verts[v0].pz + verts[v1].pz);
 
                 float lenSq = x * x + y * y + z * z;
-                float invLen = FastMath::fastInvSqrt(lenSq) * 32767.0f;
+                float invLen = (1.0f / sqrtf(lenSq)) * 32767.0f;
 
                 uint16_t newIdx = vCount++;
                 int16_t px = static_cast<int16_t>(x * invLen);
@@ -178,7 +214,8 @@ namespace pip3D
 
         static constexpr uint16_t getIcosphereVertexCount(uint8_t subdivisions)
         {
-            return (10 << (2 * subdivisions)) + 2;
+            uint16_t baseCount = (10 << (2 * subdivisions)) + 2;
+            return baseCount + (28 << subdivisions);
         }
 
     public:
@@ -202,7 +239,18 @@ namespace pip3D
             const float B = 0.850650808352f * 32767.0f;
 
             Vector3 baseVerts[12] = {
-                {-A, B, 0}, {A, B, 0}, {-A, -B, 0}, {A, -B, 0}, {0, -A, B}, {0, A, B}, {0, -A, -B}, {0, A, -B}, {B, 0, -A}, {B, 0, A}, {-B, 0, -A}, {-B, 0, A}};
+                {-A, B, 0},
+                {A, B, 0},
+                {-A, -B, 0},
+                {A, -B, 0},
+                {0, -A, B},
+                {0, A, B},
+                {0, -A, -B},
+                {0, A, -B},
+                {B, 0, -A},
+                {B, 0, A},
+                {-B, 0, -A},
+                {-B, 0, A}};
 
             uint16_t vCount = 0;
             for (int i = 0; i < 12; ++i)
@@ -231,7 +279,26 @@ namespace pip3D
             }
 
             static const Face baseFaces[20] = {
-                {0, 11, 5}, {0, 5, 1}, {0, 1, 7}, {0, 7, 10}, {0, 10, 11}, {1, 5, 9}, {5, 11, 4}, {11, 10, 2}, {10, 7, 6}, {7, 1, 8}, {3, 9, 4}, {3, 4, 2}, {3, 2, 6}, {3, 6, 8}, {3, 8, 9}, {4, 9, 5}, {2, 4, 11}, {6, 2, 10}, {8, 6, 7}, {9, 8, 1}};
+                {0, 11, 5},
+                {0, 5, 1},
+                {0, 1, 7},
+                {0, 7, 10},
+                {0, 10, 11},
+                {1, 5, 9},
+                {5, 11, 4},
+                {11, 10, 2},
+                {10, 7, 6},
+                {7, 1, 8},
+                {3, 9, 4},
+                {3, 4, 2},
+                {3, 2, 6},
+                {3, 6, 8},
+                {3, 8, 9},
+                {4, 9, 5},
+                {2, 4, 11},
+                {6, 2, 10},
+                {8, 6, 7},
+                {9, 8, 1}};
 
             uint16_t fCount = 20;
             memcpy(faces, baseFaces, 20 * sizeof(Face));
@@ -267,18 +334,117 @@ namespace pip3D
                 }
             }
 
-            vertexCount = vCount;
-            faceCount = fCount;
+            const float invMaxVal = 1.0f / 32767.0f;
+            const float invTwoPi = 1.0f / kTwoPi;
+            const float invPi = 1.0f / kPi;
 
-            cache.boundingCenter = Vector3(0.0f, 0.0f, 0.0f);
-            cache.boundingRadius = radius;
-            cache.boundsValid = true;
+            for (uint16_t i = 0; i < vCount; ++i)
+            {
+                float x = static_cast<float>(vertices[i].px) * invMaxVal;
+                float y = static_cast<float>(vertices[i].py) * invMaxVal;
+                float z = static_cast<float>(vertices[i].pz) * invMaxVal;
 
-            cache.transform.identity();
-            cache.maxScale = 1.0f;
-            cache.transformValid = true;
-            transformDirty = false;
-            cache.transformHash = 4216742517u;
+                vertices[i].tu = 0.5f - atan2f(z, x) * invTwoPi;
+                vertices[i].tv = 0.5f - asinf(clamp(y, -1.0f, 1.0f)) * invPi;
+            }
+
+            const uint16_t originalVCount = vCount;
+            uint16_t seamMap[1024];
+            if (originalVCount < 1024)
+            {
+                memset(seamMap, 0, originalVCount * sizeof(uint16_t));
+            }
+            else
+            {
+                return;
+            }
+
+            for (uint16_t i = 0; i < fCount; ++i)
+            {
+                uint16_t A = faces[i].v0;
+                uint16_t B = faces[i].v1;
+                uint16_t C = faces[i].v2;
+
+                float u0 = vertices[A].tu;
+                float u1 = vertices[B].tu;
+                float u2 = vertices[C].tu;
+
+                if (fabsf(u0 - u1) > 0.5f || fabsf(u1 - u2) > 0.5f || fabsf(u2 - u0) > 0.5f)
+                {
+                    auto duplicateSeamVertex = [&](uint16_t &index)
+                    {
+                        if (index >= originalVCount)
+                            return;
+
+                        float uVal = vertices[index].tu;
+                        if (uVal < 0.25f)
+                        {
+                            if (seamMap[index] != 0)
+                            {
+                                index = seamMap[index];
+                            }
+                            else if (vCount < maxVertices)
+                            {
+                                uint16_t newIdx = vCount++;
+                                vertices[newIdx] = vertices[index];
+                                vertices[newIdx].tu = uVal + 1.0f;
+                                seamMap[index] = newIdx;
+                                index = newIdx;
+                            }
+                        }
+                    };
+
+                    duplicateSeamVertex(faces[i].v0);
+                    duplicateSeamVertex(faces[i].v1);
+                    duplicateSeamVertex(faces[i].v2);
+                }
+            }
+
+            auto isPoleVertex = [&](uint16_t index) -> bool
+            {
+                float y = static_cast<float>(vertices[index].py) * invMaxVal;
+                return fabsf(y) > 0.998f;
+            };
+
+            for (uint16_t i = 0; i < fCount; ++i)
+            {
+                uint16_t A = faces[i].v0;
+                uint16_t B = faces[i].v1;
+                uint16_t C = faces[i].v2;
+
+                if (isPoleVertex(A))
+                {
+                    if (vCount < maxVertices)
+                    {
+                        uint16_t newIdx = vCount++;
+                        vertices[newIdx] = vertices[A];
+                        vertices[newIdx].tu = (vertices[B].tu + vertices[C].tu) * 0.5f;
+                        faces[i].v0 = newIdx;
+                    }
+                }
+                if (isPoleVertex(B))
+                {
+                    if (vCount < maxVertices)
+                    {
+                        uint16_t newIdx = vCount++;
+                        vertices[newIdx] = vertices[B];
+                        vertices[newIdx].tu = (vertices[A].tu + vertices[C].tu) * 0.5f;
+                        faces[i].v1 = newIdx;
+                    }
+                }
+                if (isPoleVertex(C))
+                {
+                    if (vCount < maxVertices)
+                    {
+                        uint16_t newIdx = vCount++;
+                        vertices[newIdx] = vertices[C];
+                        vertices[newIdx].tu = (vertices[A].tu + vertices[B].tu) * 0.5f;
+                        faces[i].v2 = newIdx;
+                    }
+                }
+            }
+
+            finalizeGeometry(vCount, fCount, Vector3(0.0f, 0.0f, 0.0f), radius);
         }
 
         Sphere(float radius, const Color &color)
@@ -290,10 +456,9 @@ namespace pip3D
     class Plane : public Mesh
     {
     public:
-        Plane(float width = 2.0f, float depth = 2.0f, uint8_t subdivisions = 1, const Color &color = Color::WHITE)
+        Plane(float width = 2.0f, float depth = 2.0f, uint8_t subdivisions = 1, const Color &color = Color::WHITE, float uvScale = 1.0f)
             : Mesh(((subdivisions ? subdivisions : 1) + 1) * ((subdivisions ? subdivisions : 1) + 1),
-                   (subdivisions ? subdivisions : 1) * (subdivisions ? subdivisions : 1) * 2,
-                   color)
+                   (subdivisions ? subdivisions : 1) * (subdivisions ? subdivisions : 1) * 2, color)
         {
             setSingleColorLighting(true);
             const float size = (width > depth) ? width : depth;
@@ -310,40 +475,43 @@ namespace pip3D
             const float ratioX = width / size;
             const float ratioZ = depth / size;
 
-            const int16_t qStartX = static_cast<int16_t>(-ratioX * 32767.0f - 0.5f);
-            const int16_t qEndX = static_cast<int16_t>(ratioX * 32767.0f + 0.5f);
-            const int16_t qStartZ = static_cast<int16_t>(-ratioZ * 32767.0f - 0.5f);
-            const int16_t qEndZ = static_cast<int16_t>(ratioZ * 32767.0f + 0.5f);
+            const float qStartX = -ratioX * 32767.0f;
+            const float qEndX = ratioX * 32767.0f;
+            const float qStartZ = -ratioZ * 32767.0f;
+            const float qEndZ = ratioZ * 32767.0f;
 
-            const int32_t qZ_step = (static_cast<int32_t>(qEndZ - qStartZ) << 16) / divs;
-            const int32_t qX_step = (static_cast<int32_t>(qEndX - qStartX) << 16) / divs;
+            const float stepX = (qEndX - qStartX) / divs;
+            const float stepZ = (qEndZ - qStartZ) / divs;
 
             Vertex *__restrict vPtr = vertices;
             const uint16_t normalUp = detail::packNormalConstexpr(0.0f, 1.0f, 0.0f);
 
-            int32_t qZ_fixed = qStartZ << 16;
-            const int32_t qX_fixed_start = qStartX << 16;
+            const float invDivs = 1.0f / static_cast<float>(divs);
+            const float scaleU = invDivs * uvScale;
+            const float scaleV = invDivs * uvScale;
 
             for (uint8_t z = 0; z <= divs; z++)
             {
-                const int16_t qZ = (z == divs) ? qEndZ : static_cast<int16_t>(qZ_fixed >> 16);
-                int32_t qX_fixed = qX_fixed_start;
+                float currentZ = qStartZ + static_cast<float>(z) * stepZ;
+                const int16_t qZ = (z == divs) ? static_cast<int16_t>(lrintf(qEndZ)) : static_cast<int16_t>(lrintf(currentZ));
+                const float tv_val = static_cast<float>(z) * scaleV;
 
                 for (uint8_t x = 0; x <= divs; x++)
                 {
-                    const int16_t qX = (x == divs) ? qEndX : static_cast<int16_t>(qX_fixed >> 16);
+                    float currentX = qStartX + static_cast<float>(x) * stepX;
+                    const int16_t qX = (x == divs) ? static_cast<int16_t>(lrintf(qEndX)) : static_cast<int16_t>(lrintf(currentX));
 
                     vPtr->px = qX;
                     vPtr->py = 0;
                     vPtr->pz = qZ;
                     vPtr->normal.data = normalUp;
-                    vPtr++;
 
-                    qX_fixed += qX_step;
+                    vPtr->tu = static_cast<float>(x) * scaleU;
+                    vPtr->tv = tv_val;
+
+                    vPtr++;
                 }
-                qZ_fixed += qZ_step;
             }
-            vertexCount = static_cast<uint16_t>(vPtr - vertices);
 
             Face *__restrict fPtr = faces;
             const uint16_t pitch = divs + 1;
@@ -364,27 +532,19 @@ namespace pip3D
                 i0++;
                 i1++;
             }
-            faceCount = static_cast<uint16_t>(fPtr - faces);
 
-            cache.boundingCenter = Vector3(0.0f, 0.0f, 0.0f);
-            cache.boundingRadius = 0.5f * sqrtf(width * width + depth * depth);
-            cache.boundsValid = true;
-
-            cache.transform.identity();
-            cache.maxScale = 1.0f;
-            cache.transformValid = true;
-            transformDirty = false;
-            cache.transformHash = 4216742517u;
+            finalizeGeometry(static_cast<uint16_t>(vPtr - vertices),
+                             static_cast<uint16_t>(fPtr - faces),
+                             Vector3(0.0f, 0.0f, 0.0f),
+                             0.5f * sqrtf(width * width + depth * depth));
         }
     };
 
     class Cylinder : public Mesh
     {
     public:
-        Cylinder(float radius = 1.0f, float height = 2.0f, uint8_t segments = 16, const Color &color = Color::WHITE)
-            : Mesh(2 + (segments ? segments : 3) * 2,
-                   (segments ? segments : 3) * 4,
-                   color)
+        Cylinder(float radius = 1.0f, float height = 2.0f, uint8_t segments = 16, const Color &color = Color::WHITE, float uvScaleU = 1.0f, float uvScaleV = 1.0f)
+            : Mesh(4 + (segments ? segments : 3) * 4, (segments ? segments : 3) * 4, color)
         {
             const float size = (height > radius * 2.0f) ? height : radius * 2.0f;
             autoScale(size);
@@ -405,135 +565,106 @@ namespace pip3D
             const float scaleR = (radius * invHalfSize) * 32767.0f;
             const float scaleH = (h * invHalfSize) * 32767.0f;
 
-            const int16_t qH = static_cast<int16_t>(scaleH + 0.5f);
+            const int16_t qH = static_cast<int16_t>(lrintf(scaleH));
+            uint16_t vIdx = 0;
 
-            Vertex *__restrict topRingPtr = vertices + 1;
-            Vertex *__restrict bottomRingPtr = vertices + 1 + segs;
+            const uint16_t angleBinStep = 65536 / segs;
+            const float invSegs = 1.0f / static_cast<float>(segs);
+            const float scaleU = invSegs * uvScaleU;
 
+            uint16_t sideTopStart = vIdx;
+            for (uint8_t i = 0; i <= segs; i++)
             {
-                vertices[0].px = 0;
-                vertices[0].py = qH;
-                vertices[0].pz = 0;
-                vertices[0].normal.data = detail::packNormalConstexpr(0.0f, 1.0f, 0.0f);
+                uint16_t angleBin = (i == segs) ? 0 : i * angleBinStep;
+                float s, c;
+                FastMath::fastSinCosBin(angleBin, s, c);
+                int16_t qRx = static_cast<int16_t>(lrintf(c * scaleR));
+                int16_t qRz = static_cast<int16_t>(lrintf(s * scaleR));
+                float u = static_cast<float>(i) * scaleU;
+
+                vertices[vIdx++] = Vertex(qRx, qH, qRz, detail::packNormalConstexpr(c, 0.0f, s), u, 0.0f);
             }
 
-            const float invSegs = 1.0f / static_cast<float>(segs);
+            uint16_t sideBottomStart = vIdx;
+            for (uint8_t i = 0; i <= segs; i++)
+            {
+                uint16_t angleBin = (i == segs) ? 0 : i * angleBinStep;
+                float s, c;
+                FastMath::fastSinCosBin(angleBin, s, c);
+                int16_t qRx = static_cast<int16_t>(lrintf(c * scaleR));
+                int16_t qRz = static_cast<int16_t>(lrintf(s * scaleR));
+                float u = static_cast<float>(i) * scaleU;
+
+                vertices[vIdx++] = Vertex(qRx, -qH, qRz, detail::packNormalConstexpr(c, 0.0f, s), u, uvScaleV);
+            }
+
+            uint16_t topCenterIdx = vIdx;
+            vertices[vIdx++] = Vertex(0, qH, 0, detail::packNormalConstexpr(0.0f, 1.0f, 0.0f), 0.5f, 0.5f);
+
+            uint16_t topCapStart = vIdx;
             for (uint8_t i = 0; i < segs; i++)
             {
-                const float angle = kTwoPi * static_cast<float>(i) * invSegs;
-                float sinAngle, cosAngle;
-                FastMath::fastSinCos(angle, sinAngle, cosAngle);
+                uint16_t angleBin = i * angleBinStep;
+                float s, c;
+                FastMath::fastSinCosBin(angleBin, s, c);
+                int16_t qRx = static_cast<int16_t>(lrintf(c * scaleR));
+                int16_t qRz = static_cast<int16_t>(lrintf(s * scaleR));
 
-                const int16_t qRx = static_cast<int16_t>(cosAngle * scaleR + (cosAngle >= 0.0f ? 0.5f : -0.5f));
-                const int16_t qRz = static_cast<int16_t>(sinAngle * scaleR + (sinAngle >= 0.0f ? 0.5f : -0.5f));
-
-                topRingPtr->px = qRx;
-                topRingPtr->py = qH;
-                topRingPtr->pz = qRz;
-
-                bottomRingPtr->px = qRx;
-                bottomRingPtr->py = -qH;
-                bottomRingPtr->pz = qRz;
-
-                const float nx_raw = height * cosAngle;
-                const float ny_raw = radius;
-                const float nz_raw = height * sinAngle;
-
-                const float l1norm = fabsf(nx_raw) + fabsf(ny_raw) + fabsf(nz_raw);
-                const float inv_l1 = FastMath::fastReciprocal(l1norm);
-
-                const float nx = nx_raw * inv_l1;
-                const float ny = ny_raw * inv_l1;
-                const float nz = nz_raw * inv_l1;
-
-                float nx_top = nx;
-                float ny_top = ny;
-                if (nz < 0.0f)
-                {
-                    float tx = nx_top;
-                    nx_top = (1.0f - fabsf(ny_top)) * (nx_top >= 0.0f ? 1.0f : -1.0f);
-                    ny_top = (1.0f - fabsf(tx)) * (ny_top >= 0.0f ? 1.0f : -1.0f);
-                }
-                uint32_t px_top = static_cast<uint32_t>((nx_top * 0.5f + 0.5f) * 255.0f);
-                uint32_t py_top = static_cast<uint32_t>((ny_top * 0.5f + 0.5f) * 255.0f);
-                topRingPtr->normal.data = (px_top << 8) | py_top;
-
-                float nx_bot = nx;
-                float ny_bot = -ny;
-                if (nz < 0.0f)
-                {
-                    float tx = nx_bot;
-                    nx_bot = (1.0f - fabsf(ny_bot)) * (nx_bot >= 0.0f ? 1.0f : -1.0f);
-                    ny_bot = (1.0f - fabsf(tx)) * (ny_bot >= 0.0f ? 1.0f : -1.0f);
-                }
-                uint32_t px_bot = static_cast<uint32_t>((nx_bot * 0.5f + 0.5f) * 255.0f);
-                uint32_t py_bot = static_cast<uint32_t>((ny_bot * 0.5f + 0.5f) * 255.0f);
-                bottomRingPtr->normal.data = (px_bot << 8) | py_bot;
-
-                topRingPtr++;
-                bottomRingPtr++;
+                float u = 0.5f + 0.5f * c;
+                float v = 0.5f + 0.5f * s;
+                vertices[vIdx++] = Vertex(qRx, qH, qRz, detail::packNormalConstexpr(0.0f, 1.0f, 0.0f), u, v);
             }
 
-            const uint16_t bottomCenter = 1 + segs * 2;
+            uint16_t bottomCenterIdx = vIdx;
+            vertices[vIdx++] = Vertex(0, -qH, 0, detail::packNormalConstexpr(0.0f, -1.0f, 0.0f), 0.5f, 0.5f);
+
+            uint16_t bottomCapStart = vIdx;
+            for (uint8_t i = 0; i < segs; i++)
             {
-                vertices[bottomCenter].px = 0;
-                vertices[bottomCenter].py = static_cast<int16_t>(-scaleH + 0.5f);
-                vertices[bottomCenter].pz = 0;
-                vertices[bottomCenter].normal.data = detail::packNormalConstexpr(0.0f, -1.0f, 0.0f);
+                uint16_t angleBin = i * angleBinStep;
+                float s, c;
+                FastMath::fastSinCosBin(angleBin, s, c);
+                int16_t qRx = static_cast<int16_t>(lrintf(c * scaleR));
+                int16_t qRz = static_cast<int16_t>(lrintf(s * scaleR));
+
+                float u = 0.5f + 0.5f * c;
+                float v = 0.5f + 0.5f * s;
+                vertices[vIdx++] = Vertex(qRx, -qH, qRz, detail::packNormalConstexpr(0.0f, -1.0f, 0.0f), u, v);
             }
 
-            vertexCount = 2 + segs * 2;
-
-            Face *__restrict fPtr = faces;
-            const uint16_t topCenter = 0;
-
-            for (uint8_t i = 0; i < segs - 1; i++)
+            uint16_t fIdx = 0;
+            for (uint8_t i = 0; i < segs; i++)
             {
-                const uint16_t top1 = 1 + i;
-                const uint16_t top2 = 2 + i;
-                const uint16_t bot1 = 1 + segs + i;
-                const uint16_t bot2 = 2 + segs + i;
+                uint16_t next = i + 1;
 
-                fPtr[0] = Face(topCenter, top2, top1);
-                fPtr[1] = Face(bottomCenter, bot1, bot2);
-                fPtr[2] = Face(top1, top2, bot1);
-                fPtr[3] = Face(top2, bot2, bot1);
-                fPtr += 4;
+                uint16_t t1 = sideTopStart + i;
+                uint16_t t2 = sideTopStart + next;
+                uint16_t b1 = sideBottomStart + i;
+                uint16_t b2 = sideBottomStart + next;
+
+                faces[fIdx++] = Face(t1, t2, b1);
+                faces[fIdx++] = Face(t2, b2, b1);
+
+                uint16_t capNext = (i + 1 == segs) ? 0 : i + 1;
+
+                uint16_t tc1 = topCapStart + i;
+                uint16_t tc2 = topCapStart + capNext;
+                faces[fIdx++] = Face(topCenterIdx, tc2, tc1);
+
+                uint16_t bc1 = bottomCapStart + i;
+                uint16_t bc2 = bottomCapStart + capNext;
+                faces[fIdx++] = Face(bottomCenterIdx, bc1, bc2);
             }
 
-            {
-                const uint16_t i = segs - 1;
-                const uint16_t top1 = 1 + i;
-                const uint16_t top2 = 1;
-                const uint16_t bot1 = 1 + segs + i;
-                const uint16_t bot2 = 1 + segs;
-
-                fPtr[0] = Face(topCenter, top2, top1);
-                fPtr[1] = Face(bottomCenter, bot1, bot2);
-                fPtr[2] = Face(top1, top2, bot1);
-                fPtr[3] = Face(top2, bot2, bot1);
-            }
-            faceCount = segs * 4;
-
-            cache.boundingCenter = Vector3(0.0f, 0.0f, 0.0f);
-            cache.boundingRadius = sqrtf(radius * radius + h * h);
-            cache.boundsValid = true;
-
-            cache.transform.identity();
-            cache.maxScale = 1.0f;
-            cache.transformValid = true;
-            transformDirty = false;
-            cache.transformHash = 4216742517u;
+            finalizeGeometry(vIdx, fIdx, Vector3(0.0f, 0.0f, 0.0f), sqrtf(radius * radius + h * h));
         }
     };
 
     class Cone : public Mesh
     {
     public:
-        Cone(float radius = 1.0f, float height = 2.0f, uint8_t segments = 16, const Color &color = Color::WHITE)
-            : Mesh((segments ? segments : 3) + 2,
-                   (segments ? segments : 3) * 2,
-                   color)
+        Cone(float radius = 1.0f, float height = 2.0f, uint8_t segments = 16, const Color &color = Color::WHITE, float uvScaleU = 1.0f, float uvScaleV = 1.0f)
+            : Mesh(3 + (segments ? segments : 3) * 3, (segments ? segments : 3) * 2, color)
         {
             const float size = (height > radius * 2.0f) ? height : radius * 2.0f;
             autoScale(size);
@@ -558,29 +689,15 @@ namespace pip3D
 
             Vertex *__restrict vPtr = vertices;
 
-            {
-                vPtr->px = 0;
-                vPtr->py = qH;
-                vPtr->pz = 0;
-                vPtr->normal.data = detail::packNormalConstexpr(0.0f, 1.0f, 0.0f);
-                vPtr++;
-            }
+            const uint16_t angleBinStep = 65536 / segs;
+            const float invSegs = 1.0f / static_cast<float>(segs);
 
-            const float binAngleStep = 65536.0f / static_cast<float>(segs);
-            float binAngleF = 0.0f;
-
-            for (uint8_t i = 0; i < segs; i++)
+            uint16_t sideApexStart = (uint16_t)(vPtr - vertices);
+            for (uint8_t i = 0; i <= segs; i++)
             {
-                uint16_t binAngle = static_cast<uint16_t>(binAngleF);
+                uint16_t angleBin = (i == segs) ? 0 : i * angleBinStep;
                 float sinAngle, cosAngle;
-                FastMath::fastSinCosBin(binAngle, sinAngle, cosAngle);
-
-                const int16_t qRx = static_cast<int16_t>(lrintf(cosAngle * scaleR));
-                const int16_t qRz = static_cast<int16_t>(lrintf(sinAngle * scaleR));
-
-                vPtr->px = qRx;
-                vPtr->py = -qH;
-                vPtr->pz = qRz;
+                FastMath::fastSinCosBin(angleBin, sinAngle, cosAngle);
 
                 const float nx_raw = height * cosAngle;
                 const float ny_raw = -radius;
@@ -601,45 +718,107 @@ namespace pip3D
 
                 uint32_t px = static_cast<uint32_t>((nx * 0.5f + 0.5f) * 255.0f);
                 uint32_t py = static_cast<uint32_t>((ny * 0.5f + 0.5f) * 255.0f);
-                vPtr->normal.data = (px << 8) | py;
 
+                float u = static_cast<float>(i) * invSegs * uvScaleU;
+
+                vPtr->px = 0;
+                vPtr->py = qH;
+                vPtr->pz = 0;
+                vPtr->normal.data = (px << 8) | py;
+                vPtr->tu = u;
+                vPtr->tv = 0.0f;
                 vPtr++;
-                binAngleF += binAngleStep;
             }
 
+            uint16_t sideBaseStart = (uint16_t)(vPtr - vertices);
+            for (uint8_t i = 0; i <= segs; i++)
+            {
+                uint16_t angleBin = (i == segs) ? 0 : i * angleBinStep;
+                float sinAngle, cosAngle;
+                FastMath::fastSinCosBin(angleBin, sinAngle, cosAngle);
+
+                const int16_t qRx = static_cast<int16_t>(lrintf(cosAngle * scaleR));
+                const int16_t qRz = static_cast<int16_t>(lrintf(sinAngle * scaleR));
+
+                const float nx_raw = height * cosAngle;
+                const float ny_raw = -radius;
+                const float nz_raw = height * sinAngle;
+
+                const float l1norm = fabsf(nx_raw) + fabsf(ny_raw) + fabsf(nz_raw);
+                const float inv_l1 = FastMath::fastReciprocal(l1norm);
+
+                float nx = nx_raw * inv_l1;
+                float ny = ny_raw * inv_l1;
+                const float nz = nz_raw * inv_l1;
+
+                float nx_folded = (1.0f - fabsf(ny)) * __builtin_copysignf(1.0f, nx);
+                float ny_folded = (1.0f - fabsf(nx)) * __builtin_copysignf(1.0f, ny);
+
+                nx = (nz < 0.0f) ? nx_folded : nx;
+                ny = (nz < 0.0f) ? ny_folded : ny;
+
+                uint32_t px = static_cast<uint32_t>((nx * 0.5f + 0.5f) * 255.0f);
+                uint32_t py = static_cast<uint32_t>((ny * 0.5f + 0.5f) * 255.0f);
+
+                float u = static_cast<float>(i) * invSegs * uvScaleU;
+
+                vPtr->px = qRx;
+                vPtr->py = -qH;
+                vPtr->pz = qRz;
+                vPtr->normal.data = (px << 8) | py;
+                vPtr->tu = u;
+                vPtr->tv = uvScaleV;
+                vPtr++;
+            }
+
+            uint16_t baseCenterIdx = (uint16_t)(vPtr - vertices);
             {
                 vPtr->px = 0;
                 vPtr->py = -qH;
                 vPtr->pz = 0;
                 vPtr->normal.data = detail::packNormalConstexpr(0.0f, -1.0f, 0.0f);
+                vPtr->tu = 0.5f;
+                vPtr->tv = 0.5f;
                 vPtr++;
             }
 
-            vertexCount = static_cast<uint16_t>(vPtr - vertices);
+            uint16_t bottomCapStart = (uint16_t)(vPtr - vertices);
+            for (uint8_t i = 0; i < segs; i++)
+            {
+                uint16_t angleBin = i * angleBinStep;
+                float sinAngle, cosAngle;
+                FastMath::fastSinCosBin(angleBin, sinAngle, cosAngle);
+
+                const int16_t qRx = static_cast<int16_t>(lrintf(cosAngle * scaleR));
+                const int16_t qRz = static_cast<int16_t>(lrintf(sinAngle * scaleR));
+
+                vPtr->px = qRx;
+                vPtr->py = -qH;
+                vPtr->pz = qRz;
+                vPtr->normal.data = detail::packNormalConstexpr(0.0f, -1.0f, 0.0f);
+                vPtr->tu = 0.5f + 0.5f * cosAngle;
+                vPtr->tv = 0.5f + 0.5f * sinAngle;
+                vPtr++;
+            }
 
             Face *__restrict fPtr = faces;
-            const uint16_t apexIdx = 0;
-            const uint16_t baseCenterIdx = segs + 1;
-
-            for (uint8_t i = 0; i < segs - 1; i++)
+            for (uint8_t i = 0; i < segs; i++)
             {
-                const uint16_t top1 = 1 + i;
-                const uint16_t top2 = 2 + i;
+                uint16_t next = i + 1;
 
-                fPtr[0] = Face(apexIdx, top2, top1);
-                fPtr[1] = Face(baseCenterIdx, top1, top2);
+                uint16_t apex = sideApexStart + i;
+                uint16_t b1 = sideBaseStart + i;
+                uint16_t b2 = sideBaseStart + next;
+
+                fPtr[0] = Face(apex, b2, b1);
+
+                uint16_t capNext = (i + 1 == segs) ? 0 : i + 1;
+                uint16_t bc1 = bottomCapStart + i;
+                uint16_t bc2 = bottomCapStart + capNext;
+                fPtr[1] = Face(baseCenterIdx, bc1, bc2);
+
                 fPtr += 2;
             }
-
-            {
-                const uint16_t i = segs - 1;
-                const uint16_t top1 = 1 + i;
-                const uint16_t top2 = 1;
-
-                fPtr[0] = Face(apexIdx, top2, top1);
-                fPtr[1] = Face(baseCenterIdx, top1, top2);
-            }
-            faceCount = segs * 2;
 
             float yc = 0.0f;
             float r_bound = 0.0f;
@@ -653,17 +832,22 @@ namespace pip3D
                 yc = -(radius * radius) / (2.0f * height);
                 r_bound = h - yc;
             }
-            cache.boundingCenter = Vector3(0.0f, yc, 0.0f);
-            cache.boundingRadius = r_bound;
-            cache.boundsValid = true;
 
-            cache.transform.identity();
-            cache.maxScale = 1.0f;
-            cache.transformValid = true;
-            transformDirty = false;
-            cache.transformHash = 4216742517u;
+            finalizeGeometry(static_cast<uint16_t>(vPtr - vertices),
+                             static_cast<uint16_t>(segs * 2),
+                             Vector3(0.0f, yc, 0.0f),
+                             r_bound);
         }
     };
+
+    static constexpr uint16_t getCapsuleVertexCount(uint8_t segments, uint8_t rings, float height, float radius)
+    {
+        uint8_t segs = segments ? segments : 3;
+        uint8_t hemiRings = rings ? rings : 1;
+        bool hasCylinder = (height - 2.0f * radius) > 0.0001f;
+        uint16_t baseCount = 2 + segs * (((hemiRings > 1 ? hemiRings - 1 : 0) * 2) + (hasCylinder ? 2 : 1));
+        return baseCount + segs * 2 + 32;
+    }
 
     class Capsule : public Mesh
     {
@@ -689,14 +873,8 @@ namespace pip3D
 
     public:
         Capsule(float radius = 1.0f, float height = 2.0f, uint8_t segments = 12, uint8_t rings = 6, const Color &color = Color::WHITE)
-            : Mesh(2 + (segments ? segments : 3) *
-                           (((rings ? rings : 1) > 1 ? ((rings ? rings : 1) - 1) : 0) * 2 +
-                            (((height - 2.0f * radius) > 0.0001f) ? 2 : 1)),
-                   (segments ? segments : 3) *
-                       ((((rings ? rings : 1) > 1 ? ((rings ? rings : 1) - 1) : 0) * 2 +
-                         (((height - 2.0f * radius) > 0.0001f) ? 2 : 1) - 1) *
-                            2 +
-                        2),
+            : Mesh(getCapsuleVertexCount(segments, rings, height, radius),
+                   (segments ? segments : 3) * ((((rings ? rings : 1) > 1 ? ((rings ? rings : 1) - 1) : 0) * 2 + (((height - 2.0f * radius) > 0.0001f) ? 2 : 1) - 1) * 2 + 2),
                    color)
         {
             const float size = (height > radius * 2.0f) ? height : radius * 2.0f;
@@ -863,7 +1041,38 @@ namespace pip3D
                 MemUtils::freeData(cosThetaCache);
             }
 
-            vertexCount = static_cast<uint16_t>(vPtr - vertices);
+            uint16_t vCount = static_cast<uint16_t>(vPtr - vertices);
+
+            const float invTwoPi = 1.0f / kTwoPi;
+            const float total_L = kPi * scaleR + (hasCylinder ? (2.0f * scaleCyl) : 0.0f);
+
+            for (uint16_t i = 0; i < vCount; ++i)
+            {
+                float px_val = static_cast<float>(vertices[i].px);
+                float py_val = static_cast<float>(vertices[i].py);
+                float pz_val = static_cast<float>(vertices[i].pz);
+
+                vertices[i].tu = 0.5f - atan2f(pz_val, px_val) * invTwoPi;
+
+                if (py_val >= scaleCyl)
+                {
+                    float dy = py_val - scaleCyl;
+                    float phi = acosf(clamp(dy / scaleR, -1.0f, 1.0f));
+                    vertices[i].tv = (phi * scaleR) / total_L;
+                }
+                else if (py_val <= -scaleCyl)
+                {
+                    float dy = -scaleCyl - py_val;
+                    float phi = acosf(clamp(dy / scaleR, -1.0f, 1.0f));
+                    float d = (kPi * 0.5f) * scaleR + (hasCylinder ? (2.0f * scaleCyl) : 0.0f) + (kPi * 0.5f - phi) * scaleR;
+                    vertices[i].tv = d / total_L;
+                }
+                else
+                {
+                    float d = (kPi * 0.5f) * scaleR + (scaleCyl - py_val);
+                    vertices[i].tv = d / total_L;
+                }
+            }
 
             Face *__restrict fPtr = faces;
             const uint16_t firstRingStart = 1;
@@ -910,17 +1119,105 @@ namespace pip3D
             }
             *fPtr++ = Face(bottomPoleIdx, lastRingStart + segs - 1, lastRingStart);
 
-            faceCount = static_cast<uint16_t>(fPtr - faces);
+            uint16_t fCount = static_cast<uint16_t>(fPtr - faces);
 
-            cache.boundingCenter = Vector3(0.0f, 0.0f, 0.0f);
-            cache.boundingRadius = height * 0.5f;
-            cache.boundsValid = true;
+            const uint16_t originalVCount = vCount;
+            uint16_t seamMap[1024];
+            if (originalVCount < 1024)
+            {
+                memset(seamMap, 0, originalVCount * sizeof(uint16_t));
+            }
+            else
+            {
+                return;
+            }
 
-            cache.transform.identity();
-            cache.maxScale = 1.0f;
-            cache.transformValid = true;
-            transformDirty = false;
-            cache.transformHash = 4216742517u;
+            for (uint16_t i = 0; i < fCount; ++i)
+            {
+                uint16_t A = faces[i].v0;
+                uint16_t B = faces[i].v1;
+                uint16_t C = faces[i].v2;
+
+                float u0 = vertices[A].tu;
+                float u1 = vertices[B].tu;
+                float u2 = vertices[C].tu;
+
+                if (fabsf(u0 - u1) > 0.5f || fabsf(u1 - u2) > 0.5f || fabsf(u2 - u0) > 0.5f)
+                {
+                    auto duplicateSeamVertex = [&](uint16_t &index)
+                    {
+                        if (index >= originalVCount)
+                            return;
+
+                        float uVal = vertices[index].tu;
+                        if (uVal < 0.25f)
+                        {
+                            if (seamMap[index] != 0)
+                            {
+                                index = seamMap[index];
+                            }
+                            else if (vCount < maxVertices)
+                            {
+                                uint16_t newIdx = vCount++;
+                                vertices[newIdx] = vertices[index];
+                                vertices[newIdx].tu = uVal + 1.0f;
+                                seamMap[index] = newIdx;
+                                index = newIdx;
+                            }
+                        }
+                    };
+
+                    duplicateSeamVertex(faces[i].v0);
+                    duplicateSeamVertex(faces[i].v1);
+                    duplicateSeamVertex(faces[i].v2);
+                }
+            }
+
+            auto isPoleVertex = [&](uint16_t index) -> bool
+            {
+                float limit = scaleCyl + scaleR - 5.0f;
+                return fabsf(static_cast<float>(vertices[index].py)) > limit;
+            };
+
+            for (uint16_t i = 0; i < fCount; ++i)
+            {
+                uint16_t A = faces[i].v0;
+                uint16_t B = faces[i].v1;
+                uint16_t C = faces[i].v2;
+
+                if (isPoleVertex(A))
+                {
+                    if (vCount < maxVertices)
+                    {
+                        uint16_t newIdx = vCount++;
+                        vertices[newIdx] = vertices[A];
+                        vertices[newIdx].tu = (vertices[B].tu + vertices[C].tu) * 0.5f;
+                        faces[i].v0 = newIdx;
+                    }
+                }
+                if (isPoleVertex(B))
+                {
+                    if (vCount < maxVertices)
+                    {
+                        uint16_t newIdx = vCount++;
+                        vertices[newIdx] = vertices[B];
+                        vertices[newIdx].tu = (vertices[A].tu + vertices[C].tu) * 0.5f;
+                        faces[i].v1 = newIdx;
+                    }
+                }
+                if (isPoleVertex(C))
+                {
+                    if (vCount < maxVertices)
+                    {
+                        uint16_t newIdx = vCount++;
+                        vertices[newIdx] = vertices[C];
+                        vertices[newIdx].tu = (vertices[A].tu + vertices[B].tu) * 0.5f;
+                        faces[i].v2 = newIdx;
+                    }
+                }
+            }
+
+            finalizeGeometry(vCount, fCount, Vector3(0.0f, 0.0f, 0.0f), height * 0.5f);
         }
     };
 
@@ -976,8 +1273,10 @@ namespace pip3D
         TrefoilKnot(float scale = 1.0f,
                     uint8_t segments = 64,
                     uint8_t tubeSegments = 12,
-                    const Color &color = Color::WHITE)
-            : Mesh((segments ? segments : 3) * (tubeSegments ? tubeSegments : 3),
+                    const Color &color = Color::WHITE,
+                    float uvScaleU = 1.0f,
+                    float uvScaleV = 1.0f)
+            : Mesh(((segments ? segments : 3) + 1) * ((tubeSegments ? tubeSegments : 3) + 1),
                    (segments ? segments : 3) * (tubeSegments ? tubeSegments : 3) * 2,
                    color)
         {
@@ -1029,7 +1328,7 @@ namespace pip3D
                 FastMath::fastSinCos(a, sinC[j], cosC[j]);
             }
 
-            Vector3 *__restrict path = (Vector3 *)MemUtils::allocData(segs * sizeof(Vector3), 16);
+            Vector3 *__restrict path = (Vector3 *)MemUtils::allocData((segs + 1) * sizeof(Vector3), 16);
             if (unlikely(!path))
             {
                 LOGE(::pip3D::Debug::LOG_MODULE_RESOURCES, "TrefoilKnot: path alloc failed");
@@ -1054,10 +1353,11 @@ namespace pip3D
                 path[i].y = r * s2;
                 path[i].z = scale * (-s3 * 1.4f);
             }
+            path[segs] = path[0];
 
-            Vector3 *__restrict T = (Vector3 *)MemUtils::allocData(segs * sizeof(Vector3), 16);
-            Vector3 *__restrict N = (Vector3 *)MemUtils::allocData(segs * sizeof(Vector3), 16);
-            Vector3 *__restrict B = (Vector3 *)MemUtils::allocData(segs * sizeof(Vector3), 16);
+            Vector3 *__restrict T = (Vector3 *)MemUtils::allocData((segs + 1) * sizeof(Vector3), 16);
+            Vector3 *__restrict N = (Vector3 *)MemUtils::allocData((segs + 1) * sizeof(Vector3), 16);
+            Vector3 *__restrict B = (Vector3 *)MemUtils::allocData((segs + 1) * sizeof(Vector3), 16);
 
             if (unlikely(!T || !N || !B))
             {
@@ -1086,7 +1386,7 @@ namespace pip3D
 
             for (uint8_t i = 1; i < segs; ++i)
             {
-                const uint8_t next = (i + 1 == segs) ? 0 : i + 1;
+                const uint8_t next = i + 1;
                 T[i] = path[next] - path[i];
                 T[i].normalize();
 
@@ -1125,10 +1425,14 @@ namespace pip3D
                 }
             }
 
+            T[segs] = T[0];
+            N[segs] = N[0];
+            B[segs] = B[0];
+
             Vertex *__restrict vPtr = vertices;
             const float invQ = qScale > 1e-6f ? (1.0f / qScale) : 1.0f;
 
-            for (uint8_t i = 0; i < segs; ++i)
+            for (uint8_t i = 0; i <= segs; ++i)
             {
                 const float px_c = path[i].x;
                 const float py_c = path[i].y;
@@ -1137,13 +1441,13 @@ namespace pip3D
                 const float Nx = N[i].x, Ny = N[i].y, Nz = N[i].z;
                 const float Bx = B[i].x, By = B[i].y, Bz = B[i].z;
 
-                const float *__restrict cC = cosC;
-                const float *__restrict sC = sinC;
+                const float u = static_cast<float>(i) * invS * uvScaleU;
 
-                for (uint8_t j = 0; j < tubeSegs; ++j)
+                for (uint8_t j = 0; j <= tubeSegs; ++j)
                 {
-                    const float cn = *cC++;
-                    const float sn = *sC++;
+                    uint8_t indexJ = (j == tubeSegs) ? 0 : j;
+                    const float cn = cosC[indexJ];
+                    const float sn = sinC[indexJ];
 
                     const float dx = cn * Nx + sn * Bx;
                     const float dy = cn * Ny + sn * By;
@@ -1162,6 +1466,9 @@ namespace pip3D
                     vPtr->pz = static_cast<int16_t>(fminf(fmaxf(qz, -32768.0f), 32767.0f));
 
                     packUnitNormalBranchless(vPtr->normal, dx, dy, dz);
+
+                    vPtr->tu = u;
+                    vPtr->tv = static_cast<float>(j) * invTS * uvScaleV;
                     ++vPtr;
                 }
             }
@@ -1178,38 +1485,27 @@ namespace pip3D
 
             vertexCount = (uint16_t)(vPtr - vertices);
             Face *__restrict fPtr = faces;
-
-#define EMIT_QUAD(A, B_v, C, D)      \
-    fPtr[0] = Face((A), (C), (B_v)); \
-    fPtr[1] = Face((A), (D), (C));   \
-    fPtr += 2;
+            const uint16_t pitch = tubeSegs + 1;
 
             for (uint8_t i = 0; i < segs; ++i)
             {
-                const uint16_t i1 = (i + 1 == segs) ? 0 : i + 1;
-                const uint16_t rowCurrent = i * tubeSegs;
-                const uint16_t rowNext = i1 * tubeSegs;
+                const uint16_t rowCurrent = i * pitch;
+                const uint16_t rowNext = (i + 1) * pitch;
 
-                for (uint8_t j = 0; j < tubeSegs - 1; ++j)
+                for (uint8_t j = 0; j < tubeSegs; ++j)
                 {
                     const uint16_t a = rowCurrent + j;
                     const uint16_t b = rowNext + j;
                     const uint16_t c = rowNext + j + 1;
                     const uint16_t d = rowCurrent + j + 1;
-                    EMIT_QUAD(a, b, c, d);
-                }
 
-                {
-                    const uint16_t a = rowCurrent + tubeSegs - 1;
-                    const uint16_t b = rowNext + tubeSegs - 1;
-                    const uint16_t c = rowNext;
-                    const uint16_t d = rowCurrent;
-                    EMIT_QUAD(a, b, c, d);
+                    fPtr[0] = Face(a, c, b);
+                    fPtr[1] = Face(a, d, c);
+                    fPtr += 2;
                 }
             }
 
-#undef EMIT_QUAD
-
+            vertexCount = (uint16_t)(vPtr - vertices);
             faceCount = (uint16_t)(fPtr - faces);
             finalize();
         }
@@ -1219,12 +1515,7 @@ namespace pip3D
         {
             finalizeNormals();
             calculateBoundingSphere();
-
-            cache.transform.identity();
-            cache.maxScale = 1.0f;
-            cache.transformValid = true;
-            transformDirty = false;
-            cache.transformHash = 4216742517u;
+            finalizeTransform();
         }
     };
 }

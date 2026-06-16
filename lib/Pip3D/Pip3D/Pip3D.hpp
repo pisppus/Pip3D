@@ -31,6 +31,7 @@
 #include "Rendering/Display/FrameBuffer.hpp"
 #include "Rendering/Display/ZBuffer.hpp"
 #include "Rendering/Display/Sky.hpp"
+#include "Rendering/Display/Texture.hpp"
 #include "Rendering/Renderer.hpp"
 
 #include "Rendering/Pipeline/Rasterizer.hpp"

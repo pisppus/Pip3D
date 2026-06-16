@@ -135,7 +135,7 @@ namespace pip3D
                 float maxLinVelSq = maxLinVel * maxLinVel;
                 if (vLenSq > maxLinVelSq)
                 {
-                    float invLen = FastMath::fastInvSqrt(vLenSq);
+                    float invLen = 1.0f / sqrtf(vLenSq);
                     float scale = maxLinVel * invLen;
                     velocity *= scale;
                 }
@@ -156,7 +156,7 @@ namespace pip3D
                 float maxAngVelSq = maxAngVel * maxAngVel;
                 if (angLenSq > maxAngVelSq)
                 {
-                    float invLen = FastMath::fastInvSqrt(angLenSq);
+                    float invLen = 1.0f / sqrtf(angLenSq);
                     float scale = maxAngVel * invLen;
                     angularVelocity *= scale;
                     angLenSq = angularVelocity.lengthSquared();
@@ -319,4 +319,3 @@ namespace pip3D
     };
 
 }
-

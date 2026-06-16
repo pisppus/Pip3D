@@ -33,7 +33,7 @@ namespace pip3D
         }
 
     private:
-       static void drawTriangle3D_Color_Preprojected(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2,
+        static void drawTriangle3D_Color_Preprojected(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2,
                                                       const Vector3 &p0, const Vector3 &p1, const Vector3 &p2,
                                                       float baseR,
                                                       float baseG,
@@ -86,8 +86,8 @@ namespace pip3D
                 Vector3 edge1 = v1 - v0;
                 Vector3 edge2 = v2 - v0;
                 Vector3 normal = edge1.cross(edge2);
-                
-                Vector3 fragPos = v0; 
+
+                Vector3 fragPos = v0;
                 Vector3 viewDir = camera.position - v0;
 
                 if (camera.projectionType == PERSPECTIVE)
@@ -567,8 +567,38 @@ namespace pip3D
                     continue;
 
                 bool partiallyClipped = (d0 < camera.nearPlane || d1 < camera.nearPlane || d2 < camera.nearPlane);
+
+                if (mesh->isTextured() && !partiallyClipped)
+                {
+                    const Vertex &vert0 = mesh->vert(i0);
+                    const Vertex &vert1 = mesh->vert(i1);
+                    const Vertex &vert2 = mesh->vert(i2);
+
+                    Vector3 lp0 = p0;
+                    Vector3 lp1 = p1;
+                    Vector3 lp2 = p2;
+                    lp0.y -= (float)bandTop;
+                    lp1.y -= (float)bandTop;
+                    lp2.y -= (float)bandTop;
+
+                    Rasterizer::fillTriangleTextured(
+                        lp0.x, lp0.y, lp0.z,
+                        lp1.x, lp1.y, lp1.z,
+                        lp2.x, lp2.y, lp2.z,
+                        vert0.tu, vert0.tv,
+                        vert1.tu, vert1.tv,
+                        vert2.tu, vert2.tv,
+                        d0, d1, d2,
+                        *mesh->getTexture(),
+                        framebuffer.getBuffer(),
+                        zBuffer,
+                        framebufferConfig);
+                    continue;
+                }
+
                 if (!partiallyClipped)
                 {
+
                     float minY = fminf(p0.y, fminf(p1.y, p2.y));
                     float maxY = fmaxf(p0.y, fmaxf(p1.y, p2.y));
                     if (maxY < bandTop || minY >= bandBottom)

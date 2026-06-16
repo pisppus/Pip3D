@@ -182,17 +182,6 @@ namespace pip3D
             return 1.0f / input;
 #endif
         }
-
-        PIP3D_FORCE_INLINE static float fastInvSqrt(float x)
-        {
-            float x2 = x * 0.5f;
-            float y = x;
-            uint32_t i;
-            std::memcpy(&i, &y, sizeof(uint32_t));
-            i = 0x5f3759df - (i >> 1);
-            std::memcpy(&y, &i, sizeof(uint32_t));
-            return y * (1.5f - x2 * y * y);
-        }
     };
 
     struct Vector3
@@ -271,7 +260,7 @@ namespace pip3D
             float lenSq = x * x + y * y + z * z;
             if (lenSq > 1e-8f)
             {
-                float invLen = FastMath::fastInvSqrt(lenSq);
+                float invLen = 1.0f / sqrtf(lenSq);
                 x *= invLen;
                 y *= invLen;
                 z *= invLen;
@@ -283,7 +272,7 @@ namespace pip3D
         PIP3D_FORCE_INLINE float length() const
         {
             float lenSq = x * x + y * y + z * z;
-            return lenSq < 1e-8f ? 0.0f : lenSq * FastMath::fastInvSqrt(lenSq);
+            return lenSq < 1e-8f ? 0.0f : sqrtf(lenSq);
         }
 
         PIP3D_FORCE_INLINE constexpr float lengthSquared() const
@@ -629,7 +618,7 @@ namespace pip3D
             float lenSq = x * x + y * y + z * z + w * w;
             if (lenSq > 1e-8f)
             {
-                float invLen = FastMath::fastInvSqrt(lenSq);
+                float invLen = 1.0f / sqrtf(lenSq);
                 x *= invLen;
                 y *= invLen;
                 z *= invLen;

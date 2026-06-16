@@ -10,28 +10,6 @@ if os.name == 'nt':
     kernel32 = ctypes.windll.kernel32
     kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
 
-class Color:
-    GREEN = '\033[92m'
-    YELLOW = '\033[93m'
-    RED = '\033[91m'
-    BLUE = '\033[94m'
-    CYAN = '\033[96m'
-    BOLD = '\033[1m'
-    END = '\033[0m'
-
-def style(text, color_code):
-    if sys.stdout.isatty():
-        return f"{color_code}{text}{Color.END}"
-    return text
-
-def print_row(label, value, label_style=Color.BOLD, val_style=""):
-    width = 46
-    dots_count = width - len(label) - len(str(value))
-    dots = "." * max(1, dots_count)
-    styled_label = style(label, label_style)
-    styled_val = style(str(value), val_style)
-    print(f"│ {styled_label} {dots} {styled_val} │")
-
 def pack_normal(nx, ny, nz):
     l1norm = abs(nx) + abs(ny) + abs(nz)
     if l1norm > 1e-6:
@@ -49,15 +27,17 @@ def pack_normal(nx, ny, nz):
 
 def convert_obj2mesh(obj_path, force_output_path=None):
     if not os.path.exists(obj_path):
-        print(style(f"[-] Ошибка: Исходный файл {obj_path} не найден!", Color.RED))
+        print(f"\033[91m[-] Ошибка: Исходный файл {obj_path} не найден!\033[0m")
         sys.exit(1)
 
     raw_vertices = []
     raw_normals = []
+    raw_texcoords = []
     
     unique_verts = {}
     vertices = []
     faces = []
+    has_uv = False
 
     try:
         with open(obj_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -73,28 +53,28 @@ def convert_obj2mesh(obj_path, force_output_path=None):
                     raw_vertices.append([float(parts[1]), float(parts[2]), float(parts[3])])
                 elif parts[0] == 'vn':
                     raw_normals.append([float(parts[1]), float(parts[2]), float(parts[3])])
+                elif parts[0] == 'vt':
+                    raw_texcoords.append([float(parts[1]), float(parts[2])])
+                    has_uv = True
                 elif parts[0] == 'f':
                     face_corners = []
                     for p in parts[1:]:
                         sub_parts = p.split('/')
                         
                         v_idx = int(sub_parts[0])
-                        if v_idx < 0:
-                            v_idx = len(raw_vertices) + v_idx
-                        else:
-                            v_idx = v_idx - 1
+                        v_idx = len(raw_vertices) + v_idx if v_idx < 0 else v_idx - 1
                         
-                        vn_idx = 0
+                        vt_idx = -1
+                        if len(sub_parts) >= 2 and sub_parts[1]:
+                            vt_idx = int(sub_parts[1])
+                            vt_idx = len(raw_texcoords) + vt_idx if vt_idx < 0 else vt_idx - 1
+                        
+                        vn_idx = -1
                         if len(sub_parts) >= 3 and sub_parts[2]:
                             vn_idx = int(sub_parts[2])
-                            if vn_idx < 0:
-                                vn_idx = len(raw_normals) + vn_idx
-                            else:
-                                vn_idx = vn_idx - 1
-                        else:
-                            vn_idx = -1
+                            vn_idx = len(raw_normals) + vn_idx if vn_idx < 0 else vn_idx - 1
                         
-                        face_corners.append((v_idx, vn_idx))
+                        face_corners.append((v_idx, vt_idx, vn_idx))
 
                     for k in range(1, len(face_corners) - 1):
                         tri = [face_corners[0], face_corners[k], face_corners[k+1]]
@@ -103,28 +83,32 @@ def convert_obj2mesh(obj_path, force_output_path=None):
                             if corner not in unique_verts:
                                 unique_verts[corner] = len(vertices)
                                 pos = raw_vertices[corner[0]]
-                                if corner[1] != -1 and corner[1] < len(raw_normals):
-                                    norm = raw_normals[corner[1]]
+                                
+                                if corner[2] != -1 and corner[2] < len(raw_normals):
+                                    norm = raw_normals[corner[2]]
                                 else:
                                     norm = [0.0, 1.0, 0.0]
-                                vertices.append({'pos': pos, 'norm': norm})
+                                    
+                                if corner[1] != -1 and corner[1] < len(raw_texcoords):
+                                    uv = raw_texcoords[corner[1]]
+                                else:
+                                    uv = [0.0, 0.0]
+                                    
+                                vertices.append({'pos': pos, 'norm': norm, 'uv': uv})
                             tri_indices.append(unique_verts[corner])
                         faces.append(tri_indices)
     except Exception as e:
-        print(style(f"[-] Ошибка при парсинге OBJ-файла: {str(e)}", Color.RED))
+        print(f"\033[91m[-] Ошибка при парсинге OBJ-файла: {str(e)}\033[0m")
         sys.exit(1)
 
     if not vertices:
-        print(style("[-] Ошибка: В файле не обнаружено валидных полигонов!", Color.RED))
+        print(f"\033[91m[-] Ошибка: В файле не обнаружено валидных полигонов!\033[0m")
         sys.exit(1)
 
     xs = [v[0] for v in raw_vertices]
     ys = [v[1] for v in raw_vertices]
     zs = [v[2] for v in raw_vertices]
-    dim_x = max(xs) - min(xs)
-    dim_y = max(ys) - min(ys)
-    dim_z = max(zs) - min(zs)
-
+    
     min_x = min(v['pos'][0] for v in vertices)
     max_x = max(v['pos'][0] for v in vertices)
     min_z = min(v['pos'][2] for v in vertices)
@@ -177,7 +161,6 @@ def convert_obj2mesh(obj_path, force_output_path=None):
     cz_ratio = cz_int / 32767.0
 
     raw_name = os.path.splitext(os.path.basename(obj_path))[0]
-    
     class_name = raw_name[0].upper() + raw_name[1:] if raw_name else "Mesh"
     var_name = class_name.lower()
 
@@ -191,7 +174,7 @@ def convert_obj2mesh(obj_path, force_output_path=None):
         for _ in range(4):
             test_path = os.path.join(curr, "lib", "Pip3D", "Pip3D", "Geometry")
             if os.path.exists(test_path):
-                target_dir = test_path
+                target_dir = os.path.join(test_path, "Models")
                 break
             curr = os.path.dirname(curr)
             
@@ -202,12 +185,14 @@ def convert_obj2mesh(obj_path, force_output_path=None):
     
     try:
         with open(header_path, 'w', encoding='utf-8') as out:
-            out.write("#pragma once\n#include \"Mesh.hpp\"\n\nnamespace pip3D\n{\n")
+            out.write("#pragma once\n#include \"Geometry/Mesh.hpp\"\n\nnamespace pip3D\n{\n")
             out.write("    namespace detail\n    {\n")
             out.write(f"        alignas(16) static constexpr Vertex s_{var_name}Vertices[{verts_count}] = {{\n")
             for px, py, pz, v in zip(px_list, py_list, pz_list, vertices):
                 n_packed = pack_normal(*v['norm'])
-                out.write(f"            {{ {px}, {py}, {pz}, {n_packed} }},\n")
+                tu, tv = v['uv'][0], v['uv'][1]
+                tv_inverted = 1.0 - tv
+                out.write(f"            {{ {px}, {py}, {pz}, {n_packed}, {tu:.6f}f, {tv_inverted:.6f}f }},\n")
             out.write("        };\n\n")
             out.write(f"        alignas(16) static constexpr Face s_{var_name}Faces[{faces_count}] = {{\n")
             for f in faces:
@@ -228,32 +213,21 @@ def convert_obj2mesh(obj_path, force_output_path=None):
             out.write("            transformDirty = false;\n")
             out.write("            cache.transformHash = 4216742517u;\n")
             out.write("        }\n    };\n}\n")
-        print(style(f"[+] Успешно сгенерирован и сохранен С++ заголовок: {header_path}", Color.GREEN + Color.BOLD))
+            
+        rel_obj = os.path.join("Models", "Sources", os.path.basename(obj_path)).replace("\\", "/")
+        rel_hpp = os.path.join("Geometry", "Models", os.path.basename(header_path)).replace("\\", "/")
+        uv_status = "Yes" if has_uv else "No"
+        print(f"\033[36m[Pip3D]\033[0m Converting: {rel_obj} -> {rel_hpp} ({verts_count} verts, {faces_count} tris, UV: {uv_status})")
+        
     except Exception as e:
-        print(style(f"[-] Ошибка при экспорте C++ заголовка: {str(e)}", Color.RED))
+        print(f"\033[91m[-] Ошибка при экспорте C++ заголовка: {str(e)}\033[0m")
         sys.exit(1)
-
-    mesh_geom_ram = (verts_count * 8) + (faces_count * 6)
-    projection_cache_ram = verts_count * 24
-
-    print("\n" + style("┌──────────────────────────────────────────────────┐", Color.CYAN))
-    print("│ " + style(f"АНАЛИЗ И СТАТИЧЕСКИЙ ЭКСПОРТ: {os.path.basename(obj_path):<18}", Color.CYAN + Color.BOLD) + " │")
-    print(style("├──────────────────────────────────────────────────┤", Color.CYAN))
-    print_row("Вершин в исходном файле", len(raw_vertices))
-    print_row("Вершин в сжатом файле", verts_count)
-    print_row("Полигонов (треугольников)", faces_count)
-    print_row("ОЗУ под геометрию (RAM)", "0.00 KB (Flash RODATA!)", Color.BOLD, Color.GREEN)
-    print_row("ОЗУ под кэш проекций (RAM)", f"{(projection_cache_ram) / 1024.0:.2f} KB", Color.BOLD, Color.YELLOW)
-    print_row("Ширина модели (X-axis)", f"{dim_x:.2f} units", Color.BOLD, Color.BLUE)
-    print_row("Высота модели (Y-axis)", f"{dim_y:.2f} units", Color.BOLD, Color.BLUE)
-    print_row("Глубина модели (Z-axis)", f"{dim_z:.2f} units", Color.BOLD, Color.BLUE)
-    print(style("└──────────────────────────────────────────────────┘", Color.CYAN))
 
     return True
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Pip3D Wavefront OBJ -> C++ Header Static Mesh Exporter")
-    parser.add_name = "obj2mesh"
+    parser = argparse.ArgumentParser(description="Pip3D Wavefront OBJ -> C++ Header Static Mesh Exporter with UV support")
+    parser.prog = "Convert"
     parser.add_argument("input", help="Путь к исходному .obj файлу")
     parser.add_argument("output", nargs="?", help="Опциональный путь к выходному .hpp файлу")
     
