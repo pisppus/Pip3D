@@ -639,13 +639,6 @@ namespace pip3D
                     if (val > maxVal)
                         continue;
 
-                    if (zBuf)
-                    {
-                        int16_t stored = zBuf->getRawDepth(x, localY);
-                        if (stored != 0x7F7F && (sourceDepth - 10 > stored))
-                            continue;
-                    }
-
                     uint32_t ratio = (val * 65536) / maxVal;
                     if (ratio >= 65536)
                         continue;
@@ -702,13 +695,6 @@ namespace pip3D
                     int dist2 = dx * dx + dy2;
                     if (dist2 > r_outer2 || dist2 < r_inner2)
                         continue;
-
-                    if (zBuf)
-                    {
-                        int16_t stored = zBuf->getRawDepth(x, localY);
-                        if (stored != 0x7F7F && (sourceDepth - 10 > stored))
-                            continue;
-                    }
 
                     int mid_r = (r_outer + r_inner) / 2;
                     int dist = (int)sqrtf(dist2);
@@ -804,8 +790,7 @@ namespace pip3D
 
                 drawCorona(fb, zBuf, sunDepth, cx, cy, 14, 14, Color::WHITE, (uint8_t)(masterAlpha * 0.9f), bandTop, bandBottom);
                 drawCorona(fb, zBuf, sunDepth, cx, cy, 45, 45, Color::rgb(255, 150, 40).rgb565, (uint8_t)(masterAlpha * 0.5f), bandTop, bandBottom);
-                drawCorona(fb, zBuf, sunDepth, cx, cy, 260, 2, Color::rgb(200, 220, 255).rgb565, (uint8_t)(masterAlpha * 0.7f), bandTop, bandBottom);
-                drawCorona(fb, zBuf, sunDepth, cx, cy, 2, 140, Color::rgb(200, 220, 255).rgb565, (uint8_t)(masterAlpha * 0.6f), bandTop, bandBottom);
+                drawCorona(fb, zBuf, sunDepth, cx, cy, 80, 80, Color::rgb(255, 130, 40).rgb565, (uint8_t)(masterAlpha * 0.22f), bandTop, bandBottom);
 
                 drawHollowRing(fb, zBuf, sunDepth, cx, cy, 50, 58, Color::rgb(255, 90, 20).rgb565, (uint8_t)(masterAlpha * 0.35f), bandTop, bandBottom);
                 drawHollowRing(fb, zBuf, sunDepth, cx, cy, 58, 65, Color::rgb(0, 220, 255).rgb565, (uint8_t)(masterAlpha * 0.3f), bandTop, bandBottom);

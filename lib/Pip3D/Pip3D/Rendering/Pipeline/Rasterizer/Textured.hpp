@@ -205,7 +205,42 @@ namespace pip3D
                             *zb = d;
                             uint32_t tu = (static_cast<uint32_t>(u_fixed) >> 16) & texMaskU;
                             uint32_t tv = (static_cast<uint32_t>(v_fixed) >> 16) & texMaskV;
-                            *fb = texData[(tv << texShiftU) | tu];
+                            uint16_t texColor = texData[(tv << texShiftU) | tu];
+
+                            if (g_fogState.enabled)
+                            {
+                                float denom = g_fogState.kVal - static_cast<float>(d);
+                                if (unlikely(denom < 1.0f))
+                                    denom = 1.0f;
+                                float z_eye = g_fogState.knVal * FastMath::fastReciprocal(denom);
+
+                                float fogF = (z_eye - g_fogState.worldNear) * g_fogState.worldScale32;
+                                int32_t f_alpha = static_cast<int32_t>(fogF);
+
+                                if (f_alpha <= 0)
+                                {
+                                    *fb = texColor;
+                                }
+                                else if (f_alpha >= 32)
+                                {
+                                    *fb = g_fogState.color;
+                                }
+                                else
+                                {
+                                    uint32_t inv_f_alpha = 32 - f_alpha;
+
+                                    uint32_t rb1 = texColor & 0xF81F;
+                                    uint32_t g1 = texColor & 0x07E0;
+
+                                    uint32_t rb = ((rb1 * inv_f_alpha + g_fogState.color_rb * f_alpha) >> 5) & 0xF81F;
+                                    uint32_t g = ((g1 * inv_f_alpha + g_fogState.color_g * f_alpha) >> 5) & 0x07E0;
+                                    *fb = static_cast<uint16_t>(rb | g);
+                                }
+                            }
+                            else
+                            {
+                                *fb = texColor;
+                            }
                         }
                         z_val += z_step;
                         u_fixed += du_fixed;

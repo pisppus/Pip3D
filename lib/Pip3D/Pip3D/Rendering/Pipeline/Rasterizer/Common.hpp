@@ -15,7 +15,29 @@ namespace pip3D
 
     namespace Rasterizer
     {
+        struct FogState
+        {
+            bool enabled = false;
+            uint16_t color = 0;
+            uint32_t color_rb = 0;
+            uint32_t color_g = 0;
+            int32_t nearDepth = 0;
+            int32_t scaleFixed = 0;
+            float worldNear = 0.0f;
+            float worldFar = 0.0f;
+            float worldScale = 0.0f;
+            float worldScale32 = 0.0f;
+            float color_r = 0.0f;
+            float color_g_f = 0.0f;
+            float color_b_f = 0.0f;
+
+            float kVal = 0.0f;
+            float knVal = 0.0f;
+        };
+
+        extern thread_local FogState g_fogState;
         struct ShadowParams
+
         {
             uint16_t *frameBuffer;
             int16_t *zbBase;

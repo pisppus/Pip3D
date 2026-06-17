@@ -153,6 +153,21 @@ namespace pip3D
 
             float finalR, finalG, finalB;
             Shading::calculateLighting(center, worldNormal, viewDir, activeLights, activeLightCount, baseR, baseG, baseB, finalR, finalG, finalB, true);
+
+            if (Rasterizer::g_fogState.enabled)
+            {
+                float dist = (cam.position - center).length();
+                float fogFactor = (dist - Rasterizer::g_fogState.worldNear) * Rasterizer::g_fogState.worldScale;
+                if (fogFactor < 0.0f)
+                    fogFactor = 0.0f;
+                if (fogFactor > 1.0f)
+                    fogFactor = 1.0f;
+
+                finalR = finalR * (1.0f - fogFactor) + Rasterizer::g_fogState.color_r * fogFactor;
+                finalG = finalG * (1.0f - fogFactor) + Rasterizer::g_fogState.color_g_f * fogFactor;
+                finalB = finalB * (1.0f - fogFactor) + Rasterizer::g_fogState.color_b_f * fogFactor;
+            }
+
             uniformColor = Shading::quantizeColor(finalR, finalG, finalB);
         }
 
@@ -223,6 +238,21 @@ namespace pip3D
 
                 float r, g, b;
                 Shading::calculateLighting(v, worldNormal, viewDir, activeLights, activeLightCount, baseR, baseG, baseB, r, g, b);
+
+                if (Rasterizer::g_fogState.enabled)
+                {
+                    float dist = (camPos - v).length();
+                    float fogFactor = (dist - Rasterizer::g_fogState.worldNear) * Rasterizer::g_fogState.worldScale;
+                    if (fogFactor < 0.0f)
+                        fogFactor = 0.0f;
+                    if (fogFactor > 1.0f)
+                        fogFactor = 1.0f;
+
+                    r = r * (1.0f - fogFactor) + Rasterizer::g_fogState.color_r * fogFactor;
+                    g = g * (1.0f - fogFactor) + Rasterizer::g_fogState.color_g_f * fogFactor;
+                    b = b * (1.0f - fogFactor) + Rasterizer::g_fogState.color_b_f * fogFactor;
+                }
+
                 vertexColors[vi] = Vector3(r, g, b);
             }
         }
