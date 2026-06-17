@@ -131,6 +131,11 @@ namespace pip3D
         bool debugShowDirtyRegions;
         bool initialized;
 
+        bool fogEnabled;
+        Color fogColor;
+        float fogNear;
+        float fogFar;
+
         bool shouldRenderShadowForBounds(const Vector3 &center, float radius) const;
         void drawSunDiscAtScreen(int16_t cx, int16_t cyFull, const Color &color, float glow, float sizeScale);
         void drawWaterTriangleInternal(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2, const Color &waterColor, uint8_t alphaByte, const Camera &cam, const DisplayConfig &cfg, uint16_t *frameBufferPtr);
@@ -233,6 +238,18 @@ namespace pip3D
         void setShadowPlane(const Vector3 &normal, float distance) { shadowSettings.plane = ShadowProjector::ShadowPlane(normal, distance); }
         void setShadowPlaneY(float y) { shadowSettings.plane = ShadowProjector::ShadowPlane(Vector3(0, 1, 0), -y); }
         ShadowSettings &getShadowSettings() { return shadowSettings; }
+
+        void setFogEnabled(bool enabled) { fogEnabled = enabled; }
+        bool getFogEnabled() const { return fogEnabled; }
+        void setFogColor(const Color &color) { fogColor = color; }
+        Color getFogColor() const { return fogColor; }
+        void setFogLimits(float nearDist, float farDist)
+        {
+            fogNear = nearDist;
+            fogFar = farDist;
+        }
+        float getFogNear() const { return fogNear; }
+        float getFogFar() const { return fogFar; }
 
         void draw(MeshInstance *instance);
         void draw(Mesh *mesh);

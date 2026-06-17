@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include "Core/Memory.hpp"
+#include "Rendering/Pipeline/Rasterizer/Common.hpp"
 
 #if !defined(IRAM_ATTR)
 #if defined(ESP_PLATFORM) || defined(ESP32)
@@ -147,74 +148,115 @@ namespace pip3D
             int32_t depth = depthStart;
             uint16_t count = countTotal;
 
-            while (count >= 4)
+            if (Rasterizer::g_fogState.enabled)
             {
-                PIP3D_PREFETCH(buf + 16);
-                PIP3D_PREFETCH(fb + 16);
+                uint32_t rb1 = color & 0xF81F;
+                uint32_t g1 = color & 0x07E0;
 
+                while (count > 0)
                 {
                     int16_t d = static_cast<int16_t>(depth);
-                    int16_t curr = buf[0] & 0x7FFF;
+                    int16_t curr = *buf & 0x7FFF;
                     if (d < curr)
                     {
-                        buf[0] = d;
-                        fb[0] = color;
+                        *buf = d;
+
+                        float denom = Rasterizer::g_fogState.kVal - static_cast<float>(d);
+                        if (unlikely(denom < 1.0f))
+                            denom = 1.0f;
+
+                        float z_eye = Rasterizer::g_fogState.knVal * FastMath::fastReciprocal(denom);
+
+                        float fogF = (z_eye - Rasterizer::g_fogState.worldNear) * Rasterizer::g_fogState.worldScale32;
+                        int32_t f_alpha = static_cast<int32_t>(fogF);
+
+                        if (f_alpha <= 0)
+                        {
+                            *fb = color;
+                        }
+                        else if (f_alpha >= 32)
+                        {
+                            *fb = Rasterizer::g_fogState.color;
+                        }
+                        else
+                        {
+                            uint32_t inv_f_alpha = 32 - f_alpha;
+                            uint32_t rb = ((rb1 * inv_f_alpha + Rasterizer::g_fogState.color_rb * f_alpha) >> 5) & 0xF81F;
+                            uint32_t g = ((g1 * inv_f_alpha + Rasterizer::g_fogState.color_g * f_alpha) >> 5) & 0x07E0;
+                            *fb = static_cast<uint16_t>(rb | g);
+                        }
                     }
                     depth += depthStep;
+                    ++buf;
+                    ++fb;
+                    --count;
                 }
-
-                {
-                    int16_t d = static_cast<int16_t>(depth);
-                    int16_t curr = buf[1] & 0x7FFF;
-                    if (d < curr)
-                    {
-                        buf[1] = d;
-                        fb[1] = color;
-                    }
-                    depth += depthStep;
-                }
-
-                {
-                    int16_t d = static_cast<int16_t>(depth);
-                    int16_t curr = buf[2] & 0x7FFF;
-                    if (d < curr)
-                    {
-                        buf[2] = d;
-                        fb[2] = color;
-                    }
-                    depth += depthStep;
-                }
-
-                {
-                    int16_t d = static_cast<int16_t>(depth);
-                    int16_t curr = buf[3] & 0x7FFF;
-                    if (d < curr)
-                    {
-                        buf[3] = d;
-                        fb[3] = color;
-                    }
-                    depth += depthStep;
-                }
-
-                buf += 4;
-                fb += 4;
-                count -= 4;
             }
-
-            while (count > 0)
+            else
             {
-                int16_t d = static_cast<int16_t>(depth);
-                int16_t curr = *buf & 0x7FFF;
-                if (d < curr)
+                while (count >= 4)
                 {
-                    *buf = d;
-                    *fb = color;
-                }
+                    PIP3D_PREFETCH(buf + 16);
+                    PIP3D_PREFETCH(fb + 16);
 
-                depth += depthStep;
-                ++buf;
-                ++fb;
-                --count;
+                    {
+                        int16_t d = static_cast<int16_t>(depth);
+                        int16_t curr = buf[0] & 0x7FFF;
+                        if (d < curr)
+                        {
+                            buf[0] = d;
+                            fb[0] = color;
+                        }
+                        depth += depthStep;
+                    }
+                    {
+                        int16_t d = static_cast<int16_t>(depth);
+                        int16_t curr = buf[1] & 0x7FFF;
+                        if (d < curr)
+                        {
+                            buf[1] = d;
+                            fb[1] = color;
+                        }
+                        depth += depthStep;
+                    }
+                    {
+                        int16_t d = static_cast<int16_t>(depth);
+                        int16_t curr = buf[2] & 0x7FFF;
+                        if (d < curr)
+                        {
+                            buf[2] = d;
+                            fb[2] = color;
+                        }
+                        depth += depthStep;
+                    }
+                    {
+                        int16_t d = static_cast<int16_t>(depth);
+                        int16_t curr = buf[3] & 0x7FFF;
+                        if (d < curr)
+                        {
+                            buf[3] = d;
+                            fb[3] = color;
+                        }
+                        depth += depthStep;
+                    }
+                    buf += 4;
+                    fb += 4;
+                    count -= 4;
+                }
+                while (count > 0)
+                {
+                    int16_t d = static_cast<int16_t>(depth);
+                    int16_t curr = *buf & 0x7FFF;
+                    if (d < curr)
+                    {
+                        *buf = d;
+                        *fb = color;
+                    }
+                    depth += depthStep;
+                    ++buf;
+                    ++fb;
+                    --count;
+                }
             }
         }
 

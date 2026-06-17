@@ -5,6 +5,7 @@
 #include "Core/Viewport.hpp"
 #include "Rendering/Display/ZBuffer.hpp"
 #include "Rendering/Display/Texture.hpp"
+#include "Rendering/Display/Sky.hpp"
 #include "Shading.hpp"
 
 #include "Rasterizer/Common.hpp"

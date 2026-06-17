@@ -25,7 +25,11 @@ namespace pip3D
                            statsInstancesTotal(0),
                            statsInstancesFrustumCulled(0),
                            statsInstancesOcclusionCulled(0),
-                           initialized(false)
+                           initialized(false),
+                           fogEnabled(false),
+                           fogColor(Color::rgb(140, 160, 175)),
+                           fogNear(10.0f),
+                           fogFar(80.0f)
     {
         lights[0].type = LIGHT_DIRECTIONAL;
         lights[0].direction = Vector3(-0.5f, -1.0f, -0.5f);
@@ -269,6 +273,55 @@ namespace pip3D
             statsInstancesTotal = 0;
             statsInstancesFrustumCulled = 0;
             statsInstancesOcclusionCulled = 0;
+
+            Rasterizer::g_fogState.enabled = fogEnabled;
+            if (fogEnabled)
+            {
+                Color activeFogColor = fogColor;
+                if (framebuffer.isSkyboxEnabled())
+                {
+                    activeFogColor = framebuffer.getSkybox().horizon;
+                }
+
+                Rasterizer::g_fogState.color = activeFogColor.rgb565;
+                Rasterizer::g_fogState.color_rb = activeFogColor.rgb565 & 0xF81F;
+                Rasterizer::g_fogState.color_g = activeFogColor.rgb565 & 0x07E0;
+                Rasterizer::g_fogState.worldNear = fogNear;
+                Rasterizer::g_fogState.worldFar = fogFar;
+
+                float worldRange = fogFar - fogNear;
+                Rasterizer::g_fogState.worldScale = (worldRange > 1e-4f) ? (1.0f / worldRange) : 0.0f;
+                Rasterizer::g_fogState.worldScale32 = (worldRange > 1e-4f) ? (32.0f / worldRange) : 0.0f;
+
+                float r_f, g_f, b_f;
+                MeshRenderer::decodeColorToFloat(activeFogColor.rgb565, r_f, g_f, b_f);
+                Rasterizer::g_fogState.color_r = r_f;
+                Rasterizer::g_fogState.color_g_f = g_f;
+                Rasterizer::g_fogState.color_b_f = b_f;
+
+                const Camera &cam = cameras[activeCameraIndex];
+                float camNear = cam.nearPlane;
+                float camFar = cam.farPlane;
+
+                float denomFarNear = camFar - camNear;
+                float k = 32638.0f * (camFar / (denomFarNear > 1e-4f ? denomFarNear : 1.0f));
+                Rasterizer::g_fogState.kVal = k;
+                Rasterizer::g_fogState.knVal = k * camNear;
+
+                float distToZScale = 32638.0f / (camFar - camNear);
+                int32_t nearDepth = static_cast<int32_t>((fogNear - camNear) * distToZScale);
+                int32_t farDepth = static_cast<int32_t>((fogFar - camNear) * distToZScale);
+
+                if (nearDepth < 0)
+                    nearDepth = 0;
+                if (farDepth > 32638)
+                    farDepth = 32638;
+                if (farDepth <= nearDepth)
+                    farDepth = nearDepth + 1;
+
+                Rasterizer::g_fogState.nearDepth = nearDepth;
+                Rasterizer::g_fogState.scaleFixed = (32 << 16) / (farDepth - nearDepth);
+            }
         }
 
         framebuffer.beginFrame();

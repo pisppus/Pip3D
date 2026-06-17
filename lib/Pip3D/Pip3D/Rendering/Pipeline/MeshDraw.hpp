@@ -104,6 +104,18 @@ namespace pip3D
                                            baseR, baseG, baseB,
                                            finalR, finalG, finalB);
 
+                if (Rasterizer::g_fogState.enabled)
+                {
+                    float dist = (camera.position - fragPos).length();
+                    float fogFactor = (dist - Rasterizer::g_fogState.worldNear) * Rasterizer::g_fogState.worldScale;
+                    if (fogFactor < 0.0f) fogFactor = 0.0f;
+                    if (fogFactor > 1.0f) fogFactor = 1.0f;
+
+                    finalR = finalR * (1.0f - fogFactor) + Rasterizer::g_fogState.color_r * fogFactor;
+                    finalG = finalG * (1.0f - fogFactor) + Rasterizer::g_fogState.color_g_f * fogFactor;
+                    finalB = finalB * (1.0f - fogFactor) + Rasterizer::g_fogState.color_b_f * fogFactor;
+                }
+
                 shadedColor = Shading::quantizeColor(finalR, finalG, finalB);
             }
             else
@@ -473,21 +485,34 @@ namespace pip3D
             const Vector3 cameraBackward = camFwd * -1.0f;
 
             bool useUniformColor = mesh->getSingleColorLighting();
-            uint16_t uniformColor = 0;
-            if (useUniformColor)
-            {
-                Vector3 meshNormal = mesh->normal(0);
-                Vector3 viewDir = camPos - center;
-                viewDir.normalize();
+                uint16_t uniformColor = 0;
+                if (useUniformColor)
+                {
+                    Vector3 meshNormal = mesh->normal(0);
+                    Vector3 viewDir = camPos - center; 
+                    viewDir.normalize();
 
-                float finalR, finalG, finalB;
-                Shading::calculateLighting(center, meshNormal, viewDir,
-                                           lights, activeLightCount,
-                                           baseR, baseG, baseB,
-                                           finalR, finalG, finalB,
-                                           true);
-                uniformColor = Shading::quantizeColor(finalR, finalG, finalB);
-            }
+                    float finalR, finalG, finalB;
+                    Shading::calculateLighting(center, meshNormal, viewDir,
+                                               lights, activeLightCount,
+                                               baseR, baseG, baseB,
+                                               finalR, finalG, finalB,
+                                               true);
+
+                    if (Rasterizer::g_fogState.enabled)
+                    {
+                        float dist = (camPos - center).length();
+                        float fogFactor = (dist - Rasterizer::g_fogState.worldNear) * Rasterizer::g_fogState.worldScale;
+                        if (fogFactor < 0.0f) fogFactor = 0.0f;
+                        if (fogFactor > 1.0f) fogFactor = 1.0f;
+
+                        finalR = finalR * (1.0f - fogFactor) + Rasterizer::g_fogState.color_r * fogFactor;
+                        finalG = finalG * (1.0f - fogFactor) + Rasterizer::g_fogState.color_g_f * fogFactor;
+                        finalB = finalB * (1.0f - fogFactor) + Rasterizer::g_fogState.color_b_f * fogFactor;
+                    }
+
+                    uniformColor = Shading::quantizeColor(finalR, finalG, finalB);
+                }
 
             const uint16_t vertexCountUsed = mesh->numVertices();
             if (!mesh->ensureProjectionCache(vertexCountUsed))
@@ -524,26 +549,39 @@ namespace pip3D
             }
 
             thread_local static std::vector<Vector3> vertexColors;
-            if (shadingMode == SHADING_GOURAUD && !useUniformColor)
-            {
-                if (vertexColors.size() < vertexCountUsed)
-                    vertexColors.resize(vertexCountUsed);
-
-                for (uint16_t vi = 0; vi < vertexCountUsed; ++vi)
+                if (shadingMode == SHADING_GOURAUD && !useUniformColor)
                 {
-                    Vector3 v = worldVerts[vi];
-                    Vector3 n = mesh->normal(vi);
-                    Vector3 viewDir = camPos - v;
-                    viewDir.normalize();
+                    if (vertexColors.size() < vertexCountUsed)
+                        vertexColors.resize(vertexCountUsed);
 
-                    float r, g, b;
-                    Shading::calculateLighting(v, n, viewDir,
-                                               lights, activeLightCount,
-                                               baseR, baseG, baseB,
-                                               r, g, b);
-                    vertexColors[vi] = Vector3(r, g, b);
+                    for (uint16_t vi = 0; vi < vertexCountUsed; ++vi)
+                    {
+                        Vector3 v = worldVerts[vi];
+                        Vector3 n = mesh->normal(vi);
+                        Vector3 viewDir = camPos - v; 
+                        viewDir.normalize();
+
+                        float r, g, b;
+                        Shading::calculateLighting(v, n, viewDir,
+                                                   lights, activeLightCount,
+                                                   baseR, baseG, baseB,
+                                                   r, g, b);
+
+                        if (Rasterizer::g_fogState.enabled)
+                        {
+                            float dist = (camPos - v).length();
+                            float fogFactor = (dist - Rasterizer::g_fogState.worldNear) * Rasterizer::g_fogState.worldScale;
+                            if (fogFactor < 0.0f) fogFactor = 0.0f;
+                            if (fogFactor > 1.0f) fogFactor = 1.0f;
+
+                            r = r * (1.0f - fogFactor) + Rasterizer::g_fogState.color_r * fogFactor;
+                            g = g * (1.0f - fogFactor) + Rasterizer::g_fogState.color_g_f * fogFactor;
+                            b = b * (1.0f - fogFactor) + Rasterizer::g_fogState.color_b_f * fogFactor;
+                        }
+
+                        vertexColors[vi] = Vector3(r, g, b);
+                    }
                 }
-            }
 
             const DisplayConfig &framebufferConfig = framebuffer.getConfig();
 
