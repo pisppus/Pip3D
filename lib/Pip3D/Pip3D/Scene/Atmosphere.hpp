@@ -4,6 +4,7 @@
 #include "Core/Jobs.hpp"
 #include "Rendering/Renderer.hpp"
 #include "Rendering/Display/Sky.hpp"
+#include <atomic>
 
 namespace pip3D
 {
@@ -138,8 +139,9 @@ namespace pip3D
         bool autoAdvance;
         SkyState cachedState;
         float pendingTime01;
-        bool cachedValid;
-        bool jobInProgress;
+
+        std::atomic<bool> cachedValid;
+        std::atomic<bool> jobInProgress;
 
         void computeSkyState(float t, SkyState &out) const
         {

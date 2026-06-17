@@ -27,19 +27,19 @@ namespace pip3D
     static constexpr uint16_t SCREEN_BAND_COUNT = PIP3D_SCREEN_BAND_COUNT;
     static constexpr uint16_t SCREEN_BAND_HEIGHT = SCREEN_HEIGHT / SCREEN_BAND_COUNT;
 
-    __attribute__((always_inline)) inline int16_t &currentBandOffsetY()
+    inline int16_t &currentBandOffsetY()
     {
         static int16_t offsetY = 0;
         return offsetY;
     }
 
-    __attribute__((always_inline)) inline int16_t &currentBandHeight()
+    inline int16_t &currentBandHeight()
     {
         static int16_t h = SCREEN_HEIGHT;
         return h;
     }
 
-    __attribute__((always_inline)) inline uint32_t &currentFrameStamp()
+    inline uint32_t &currentFrameStamp()
     {
         static uint32_t frameStamp = 0;
         return frameStamp;
@@ -50,6 +50,9 @@ namespace pip3D
         uint16_t width = PIP3D_SCREEN_WIDTH, height = PIP3D_SCREEN_HEIGHT;
         int8_t cs = 10, dc = 9, rst = 8, bl = -1;
         uint32_t spi_freq = 80000000;
+        int8_t mosi = 11;
+        int8_t sclk = 12;
+        uint8_t rotation = 1;
 
         Display() = default;
         Display(uint16_t w, uint16_t h) : width(w), height(h) {}

@@ -260,7 +260,7 @@ namespace pip3D
             float lenSq = x * x + y * y + z * z;
             if (lenSq > 1e-8f)
             {
-                float invLen = 1.0f / sqrtf(lenSq);
+                float invLen = FastMath::fastReciprocal(sqrtf(lenSq));
                 x *= invLen;
                 y *= invLen;
                 z *= invLen;

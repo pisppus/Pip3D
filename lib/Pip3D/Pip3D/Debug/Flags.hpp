@@ -11,7 +11,7 @@
 #endif
 
 #ifndef LOG_DEFAULT_LEVEL
-#define LOG_DEFAULT_LEVEL 1
+#define LOG_DEFAULT_LEVEL 3
 #endif
 
 #ifndef ENABLE_DEBUG_DRAW
