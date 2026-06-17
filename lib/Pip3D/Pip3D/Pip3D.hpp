@@ -88,6 +88,10 @@ namespace pip3D
         cfg.bl = bl;
         cfg.spi_freq = spi_freq;
 
+        cfg.mosi = TFT_MOSI;
+        cfg.sclk = TFT_SCLK;
+        cfg.rotation = PIP3D_DISPLAY_ROTATION;
+
         if (r.init(cfg))
         {
             r.setSkybox(DAY);

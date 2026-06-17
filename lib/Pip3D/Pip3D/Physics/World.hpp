@@ -7,6 +7,7 @@
 #include "Constraints.hpp"
 #include "Buoyancy.hpp"
 #include <vector>
+#include <atomic>
 
 namespace pip3D
 {
@@ -21,7 +22,9 @@ namespace pip3D
         std::vector<Constraint *> constraints;
         Vector3 gravity;
         bool asyncEnabled;
-        bool stepInProgress;
+
+        std::atomic<bool> stepInProgress;
+
         float pendingDelta;
         float fixedTimeStep;
         float accumulator;
