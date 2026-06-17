@@ -227,25 +227,25 @@ namespace pip3D
             }
         }
 
+        const Vector3 &camFwd = cam.forward();
+        const Vector3 &camPos = cam.position;
+        const float nearPlane = cam.nearPlane;
+        const Vector3 cameraBackward = camFwd * -1.0f;
+        const bool usePerspectiveFacing = cam.projectionType == PERSPECTIVE || cam.projectionType == FISHEYE;
+
         for (uint16_t i = 0; i < faceCount; ++i)
         {
+            statsTrianglesTotal++;
+
             const Face &face = mesh->face(i);
 
             Vector3 v0, v1, v2;
-            Vector3 p0, p1, p2;
 
             if (!useFallbackPath)
             {
-                worldVerts = instance->getCachedWorldVertices();
-                screenVerts = instance->getCachedScreenVertices();
-
                 v0 = worldVerts[face.v0];
                 v1 = worldVerts[face.v1];
                 v2 = worldVerts[face.v2];
-
-                p0 = screenVerts[face.v0];
-                p1 = screenVerts[face.v1];
-                p2 = screenVerts[face.v2];
             }
             else
             {
@@ -256,20 +256,54 @@ namespace pip3D
                 v0 = worldTransform.transformNoDiv(local0);
                 v1 = worldTransform.transformNoDiv(local1);
                 v2 = worldTransform.transformNoDiv(local2);
+            }
 
+            if (backfaceCullingEnabled)
+            {
+                Vector3 faceNormal = (v1 - v0).cross(v2 - v0);
+                float normalLenSq = faceNormal.lengthSquared();
+                if (normalLenSq <= 1e-10f)
+                {
+                    statsTrianglesBackfaceCulled++;
+                    continue;
+                }
+
+                float facing = 0.0f;
+                if (usePerspectiveFacing)
+                    facing = faceNormal.dot(camPos - v0);
+                else
+                    facing = faceNormal.dot(cameraBackward);
+
+                if (facing <= 0.0f)
+                {
+                    statsTrianglesBackfaceCulled++;
+                    continue;
+                }
+            }
+
+            Vector3 p0, p1, p2;
+
+            if (!useFallbackPath)
+            {
+                p0 = screenVerts[face.v0];
+                p1 = screenVerts[face.v1];
+                p2 = screenVerts[face.v2];
+            }
+            else
+            {
                 p0 = CameraController::project(v0, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, viewport.x, viewport.y);
                 p1 = CameraController::project(v1, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, viewport.x, viewport.y);
                 p2 = CameraController::project(v2, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, viewport.x, viewport.y);
             }
 
-            float d0 = (v0 - cam.position).dot(cam.forward());
-            float d1 = (v1 - cam.position).dot(cam.forward());
-            float d2 = (v2 - cam.position).dot(cam.forward());
+            float d0 = (v0 - camPos).dot(camFwd);
+            float d1 = (v1 - camPos).dot(camFwd);
+            float d2 = (v2 - camPos).dot(camFwd);
 
-            if (d0 < cam.nearPlane && d1 < cam.nearPlane && d2 < cam.nearPlane)
+            if (d0 < nearPlane && d1 < nearPlane && d2 < nearPlane)
                 continue;
 
-            bool partiallyClipped = (d0 < cam.nearPlane || d1 < cam.nearPlane || d2 < cam.nearPlane);
+            bool partiallyClipped = (d0 < nearPlane || d1 < nearPlane || d2 < nearPlane);
 
             if (mesh->isTextured() && !partiallyClipped)
             {
@@ -299,25 +333,6 @@ namespace pip3D
                 float maxX = fmaxf(p0.x, fmaxf(p1.x, p2.x));
                 if (maxX < 0.0f || minX >= viewportWidth)
                     continue;
-            }
-
-            statsTrianglesTotal++;
-            if (backfaceCullingEnabled)
-            {
-                Vector3 faceNormal = (v1 - v0).cross(v2 - v0);
-                float normalLenSq = faceNormal.lengthSquared();
-                if (normalLenSq <= 1e-10f)
-                {
-                    statsTrianglesBackfaceCulled++;
-                    continue;
-                }
-
-                float facing = faceNormal.dot(cam.position - v0);
-                if (facing <= 0.0f)
-                {
-                    statsTrianglesBackfaceCulled++;
-                    continue;
-                }
             }
 
             if (shadingMode == SHADING_GOURAUD && !useUniformColor && !partiallyClipped)
