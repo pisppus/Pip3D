@@ -6,10 +6,20 @@
 #include "Debug/Logging.hpp"
 #include "Math/Algebra.hpp"
 #include "Rendering/Renderer.hpp"
+#include "Physics/Physics.hpp"
 #include <vector>
+#include <cmath>
+#include <algorithm>
 
 namespace pip3D
 {
+    enum ParticleType : uint8_t
+    {
+        PARTICLE_BILLBOARD,
+        PARTICLE_SPARK_STRETCH,
+        PARTICLE_TURBULENT,
+        PARTICLE_MASKED
+    };
 
     struct Particle
     {
@@ -46,6 +56,9 @@ namespace pip3D
         bool looping;
         bool additive;
 
+        ParticleType type;
+        bool physicsCollision;
+
         ParticleEmitterConfig()
             : maxParticles(64), emitRate(30.0f),
               minLifetime(0.4f), maxLifetime(0.8f),
@@ -54,7 +67,9 @@ namespace pip3D
               startColor(Color::fromRGB888(255, 255, 255)),
               endColor(Color::fromRGB888(0, 0, 0)),
               startSize(4.0f), endSize(0.0f),
-              looping(true), additive(false) {}
+              looping(true), additive(false),
+              type(PARTICLE_BILLBOARD),
+              physicsCollision(false) {}
     };
 
     class ParticleEmitter
@@ -67,6 +82,68 @@ namespace pip3D
         float emitAccumulator;
         bool enabled;
 
+        static void drawThickLineAdditive(uint16_t *fb, ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuf, int16_t depth,
+                                          int x0, int y0, int x1, int y1,
+                                          uint16_t color, uint8_t alpha, int width,
+                                          int bandTop, int bandBottom)
+        {
+            int dx = std::abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+            int dy = -std::abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+            int err = dx + dy, e2;
+
+            const uint32_t s_rb = color & 0xF81F;
+            const uint32_t s_g = color & 0x07E0;
+            const uint32_t a = alpha >> 3;
+            const uint32_t inv_a = 32 - a;
+            const uint32_t s_rb_a = s_rb * a;
+            const uint32_t s_g_a = s_g * a;
+
+            auto plot = [&](int px, int py)
+            {
+                if (py >= bandTop && py < bandBottom && px >= 0 && px < width)
+                {
+                    int localY = py - bandTop;
+
+                    if (zBuf)
+                    {
+                        int16_t stored = zBuf->getRawDepth(px, localY);
+                        if (stored != 0x7F7F && (depth - 5 > stored))
+                            return;
+                    }
+
+                    size_t idx = (size_t)localY * width + px;
+                    const uint32_t dst = fb[idx];
+                    const uint32_t rb = (dst & 0xF81F);
+                    const uint32_t g = (dst & 0x07E0);
+                    const uint32_t blended_rb = ((rb * inv_a + s_rb_a) >> 5) & 0xF81F;
+                    const uint32_t blended_g = ((g * inv_a + s_g_a) >> 5) & 0x07E0;
+                    fb[idx] = static_cast<uint16_t>(blended_rb | blended_g);
+                }
+            };
+
+            while (true)
+            {
+                plot(x0, y0);
+                plot(x0 + 1, y0);
+                plot(x0, y0 + 1);
+                plot(x0 + 1, y0 + 1);
+
+                if (x0 == x1 && y0 == y1)
+                    break;
+                e2 = 2 * err;
+                if (e2 >= dy)
+                {
+                    err += dy;
+                    x0 += sx;
+                }
+                if (e2 <= dx)
+                {
+                    err += dx;
+                    y0 += sy;
+                }
+            }
+        }
+
     public:
         ParticleEmitter(const ParticleEmitterConfig &cfg, const Vector3 &pos = Vector3())
             : position(pos), velocityOffset(0, 0, 0), config(cfg),
@@ -77,9 +154,7 @@ namespace pip3D
 
         void setPosition(const Vector3 &pos) { position = pos; }
         const Vector3 &getPosition() const { return position; }
-
         void setVelocityOffset(const Vector3 &v) { velocityOffset = v; }
-
         void setEnabled(bool e) { enabled = e; }
         bool isEnabled() const { return enabled; }
 
@@ -88,23 +163,13 @@ namespace pip3D
             if (count <= 0)
                 return;
             for (int i = 0; i < count; ++i)
-            {
                 spawnParticle();
-            }
         }
 
-        void update(float dt)
+        void update(float dt, PhysicsWorld *physicsWorld = nullptr)
         {
             if (dt <= 0.0f)
-            {
-                if (dt < 0.0f)
-                {
-                    LOGW(::pip3D::Debug::LOG_MODULE_SCENE,
-                         "ParticleEmitter::update called with negative dt=%.6f",
-                         static_cast<double>(dt));
-                }
                 return;
-            }
 
             if (enabled && config.emitRate > 0.0f && config.looping)
             {
@@ -112,9 +177,7 @@ namespace pip3D
                 int toEmit = (int)emitAccumulator;
                 emitAccumulator -= toEmit;
                 for (int i = 0; i < toEmit; ++i)
-                {
                     spawnParticle();
-                }
             }
 
             for (size_t i = 0; i < particles.size(); ++i)
@@ -131,7 +194,41 @@ namespace pip3D
                 }
 
                 p.velocity += config.acceleration * dt;
-                p.position += p.velocity * dt;
+
+                if (config.type == PARTICLE_TURBULENT)
+                {
+                    float wave = sinf(p.age * 5.0f + p.position.y * 2.0f);
+                    p.velocity.x += wave * 1.5f * dt;
+                    p.velocity.z += wave * 1.5f * dt;
+                }
+
+                if (config.physicsCollision && physicsWorld)
+                {
+                    Vector3 displacement = p.velocity * dt;
+                    float stepDist = displacement.length();
+
+                    if (stepDist > 1e-4f)
+                    {
+                        Ray ray(p.position, p.velocity);
+                        RaycastHit hit;
+
+                        if (physicsWorld->raycast(ray, hit, stepDist))
+                        {
+                            p.position = hit.point + hit.normal * 0.03f;
+                            float dot = p.velocity.dot(hit.normal);
+                            Vector3 reflected = p.velocity - hit.normal * (2.0f * dot);
+                            p.velocity = reflected * 0.55f;
+                        }
+                        else
+                        {
+                            p.position += displacement;
+                        }
+                    }
+                }
+                else
+                {
+                    p.position += p.velocity * dt;
+                }
             }
         }
 
@@ -139,19 +236,21 @@ namespace pip3D
         {
             const Viewport &vp = renderer.getViewport();
             const int16_t width = vp.width;
-            const int16_t height = vp.height;
 
 #if PIP3D_TILED_RENDERING
-            if (!renderer.isTileActive() || !renderer.getTileColorBuffer())
-            {
+#else
+            uint16_t *fb = renderer.getFrameBuffer();
+            if (!fb)
                 return;
-            }
 
-            uint16_t *tileBuffer = renderer.getTileColorBuffer();
-            int16_t tileX = renderer.getCurrentTileX();
-            int16_t tileY = renderer.getCurrentTileY();
-            int16_t tileW = renderer.getCurrentTileW();
-            int16_t tileH = renderer.getCurrentTileH();
+            int16_t bandTop = currentBandOffsetY();
+            int16_t bandH = currentBandHeight();
+            int16_t bandBottom = bandTop + bandH;
+
+            const Camera &cam = renderer.getCamera();
+            const float fovRad = cam.fov * kDegToRad;
+            const float projScale = 1.0f / tanf(fovRad * 0.5f);
+            const float halfViewportHeight = renderer.getViewport().height * 0.5f;
 
             for (size_t i = 0; i < particles.size(); ++i)
             {
@@ -160,43 +259,52 @@ namespace pip3D
                     continue;
 
                 float t = p.age / p.lifetime;
-                if (t < 0.0f)
-                    t = 0.0f;
-                if (t > 1.0f)
-                    t = 1.0f;
+                t = clamp(t, 0.0f, 1.0f);
 
                 uint8_t alpha = (uint8_t)((1.0f - t) * COLOR_BYTE_MAX_F);
                 if (alpha == 0)
                     continue;
 
-                Color col = p.startColor.blend(p.endColor, (uint8_t)(t * COLOR_BYTE_MAX_F));
-                float size = p.startSize + (p.endSize - p.startSize) * t;
-                if (size <= 0.25f)
-                    size = 0.25f;
-
-                const Camera &cam = renderer.getCamera();
-
                 float z_view = (p.position - cam.position).dot(cam.forward());
                 if (z_view <= cam.nearPlane)
                     continue;
+
+                Color col = p.startColor.blend(p.endColor, (uint8_t)(t * COLOR_BYTE_MAX_F));
 
                 Vector3 screen = renderer.project(p.position);
                 if (screen.z <= 0.0f || screen.z >= 1.0f)
                     continue;
 
-                int cx = (int)screen.x;
-                int cy = (int)screen.y;
+                int16_t particle_depth = static_cast<int16_t>(screen.z * 32638.0f);
+                ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuf = renderer.getZBuffer();
+
+                if (config.type == PARTICLE_SPARK_STRETCH)
+                {
+                    Vector3 screenPrev = renderer.project(p.position - p.velocity * 0.12f);
+
+                    drawThickLineAdditive(fb, zBuf, particle_depth,
+                                          (int)screen.x, (int)screen.y,
+                                          (int)screenPrev.x, (int)screenPrev.y,
+                                          col.rgb565, alpha, width, bandTop, bandBottom);
+                    continue;
+                }
 
                 float size_world = (p.startSize + (p.endSize - p.startSize) * t) * 0.04f;
-                float fovRad = cam.fov * kDegToRad;
-                float projScale = 1.0f / tanf(fovRad * 0.5f);
-                float radius_pixels = (size_world * projScale / z_view) * (renderer.getViewport().height * 0.5f);
+                float radius_pixels = (size_world * projScale / z_view) * halfViewportHeight;
 
                 int radius = (int)radius_pixels;
                 if (radius <= 0)
-                    radius = 1;
+                    continue;
+
+                int cx = (int)screen.x;
+                int cy = (int)screen.y;
 
                 int r2 = radius * radius;
+
+                uint32_t inv_r2 = 65536 / r2;
+                if (inv_r2 == 0)
+                    inv_r2 = 1;
+
                 int y0 = cy - radius;
                 int y1 = cy + radius;
 
@@ -207,8 +315,8 @@ namespace pip3D
                 if (y0 > y1)
                     continue;
 
-                int16_t particle_depth = static_cast<int16_t>(screen.z * 32638.0f);
-                ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuf = renderer.getZBuffer();
+                const uint32_t s_rb = col.rgb565 & 0xF81F;
+                const uint32_t s_g = col.rgb565 & 0x07E0;
 
                 for (int y = y0; y <= y1; ++y)
                 {
@@ -233,27 +341,42 @@ namespace pip3D
                                 continue;
                         }
 
-                        float k = 1.0f - (float)dist2 / (float)r2;
-                        uint8_t a = (uint8_t)(alpha * k);
+                        uint32_t dist_scaled = dist2 * inv_r2;
+                        if (dist_scaled >= 65536)
+                            continue;
+
+                        uint8_t a;
+                        if (config.type == PARTICLE_MASKED)
+                        {
+                            uint32_t k = 65536 - dist_scaled;
+                            uint32_t k_sq = (k * k) >> 16;
+                            a = (alpha * k_sq) >> 16;
+                        }
+                        else
+                        {
+                            a = (alpha * (65536 - dist_scaled)) >> 16;
+                        }
+
                         if (a == 0)
                             continue;
 
                         if (config.additive)
                         {
                             const uint16_t dst = fb[idx];
-                            const uint16_t src = col.rgb565;
+                            const uint32_t cur_a = a >> 3;
+                            const uint32_t inv_a = 32 - cur_a;
 
                             uint32_t rDst = (dst >> 11) & 0x1F;
                             uint32_t gDst = (dst >> 5) & 0x3F;
                             uint32_t bDst = dst & 0x1F;
 
-                            const uint32_t rSrc = (src >> 11) & 0x1F;
-                            const uint32_t gSrc = (src >> 5) & 0x3F;
-                            const uint32_t bSrc = src & 0x1F;
+                            const uint32_t rSrc = s_rb >> 11;
+                            const uint32_t gSrc = s_g >> 5;
+                            const uint32_t bSrc = s_rb & 0x1F;
 
-                            rDst += (rSrc * a) >> 8;
-                            gDst += (gSrc * a) >> 8;
-                            bDst += (bSrc * a) >> 8;
+                            rDst += (rSrc * cur_a) >> 5;
+                            gDst += (gSrc * cur_a) >> 5;
+                            bDst += (bSrc * cur_a) >> 5;
 
                             if (rDst > 31u)
                                 rDst = 31u;
@@ -266,119 +389,16 @@ namespace pip3D
                         }
                         else
                         {
-                            Color base(tileBuffer[idx]);
-                            Color blended = base.blend(col, a);
-                            tileBuffer[idx] = blended.rgb565;
-                        }
-                    }
-                }
-            }
-#else
-            uint16_t *fb = renderer.getFrameBuffer();
-            if (!fb)
-            {
-                LOGE(::pip3D::Debug::LOG_MODULE_RENDER,
-                     "ParticleEmitter::render: framebuffer is null");
-                return;
-            }
+                            const uint32_t dst = fb[idx];
+                            const uint32_t cur_a = a >> 3;
+                            const uint32_t inv_a = 32 - cur_a;
 
-            int16_t bandTop = currentBandOffsetY();
-            int16_t bandH = currentBandHeight();
-            int16_t bandBottom = bandTop + bandH;
+                            const uint32_t rb = (dst & 0xF81F);
+                            const uint32_t g = (dst & 0x07E0);
+                            const uint32_t blended_rb = ((rb * inv_a + s_rb * cur_a) >> 5) & 0xF81F;
+                            const uint32_t blended_g = ((g * inv_a + s_g * cur_a) >> 5) & 0x07E0;
 
-            for (size_t i = 0; i < particles.size(); ++i)
-            {
-                const Particle &p = particles[i];
-                if (!p.alive)
-                    continue;
-
-                float t = p.age / p.lifetime;
-                if (t < 0.0f)
-                    t = 0.0f;
-                if (t > 1.0f)
-                    t = 1.0f;
-
-                uint8_t alpha = (uint8_t)((1.0f - t) * COLOR_BYTE_MAX_F);
-                if (alpha == 0)
-                    continue;
-
-                Color col = p.startColor.blend(p.endColor, (uint8_t)(t * COLOR_BYTE_MAX_F));
-                float size = p.startSize + (p.endSize - p.startSize) * t;
-                if (size <= 0.25f)
-                    size = 0.25f;
-
-                Vector3 screen = renderer.project(p.position);
-                if (screen.z <= 0.0f)
-                    continue;
-
-                int cx = (int)screen.x;
-                int cy = (int)screen.y;
-                int radius = (int)size;
-                if (radius <= 0)
-                    radius = 1;
-
-                int r2 = radius * radius;
-                int y0 = cy - radius;
-                int y1 = cy + radius;
-
-                if (y0 < bandTop)
-                    y0 = bandTop;
-                if (y1 >= bandBottom)
-                    y1 = bandBottom - 1;
-                if (y0 > y1)
-                    continue;
-
-                for (int y = y0; y <= y1; ++y)
-                {
-                    int dy = y - cy;
-                    int dy2 = dy * dy;
-                    int x0 = clamp(cx - radius, 0, (int)width - 1);
-                    int x1 = clamp(cx + radius, 0, (int)width - 1);
-                    int localY = y - bandTop;
-                    size_t idx = (size_t)localY * width + x0;
-
-                    for (int x = x0; x <= x1; ++x, ++idx)
-                    {
-                        int dx = x - cx;
-                        int dist2 = dx * dx + dy2;
-                        if (dist2 > r2)
-                            continue;
-                        float k = 1.0f - (float)dist2 / (float)r2;
-                        uint8_t a = (uint8_t)(alpha * k);
-                        if (a == 0)
-                            continue;
-
-                        if (config.additive)
-                        {
-                            const uint16_t dst = fb[idx];
-                            const uint16_t src = col.rgb565;
-
-                            uint32_t rDst = (dst >> 11) & 0x1F;
-                            uint32_t gDst = (dst >> 5) & 0x3F;
-                            uint32_t bDst = dst & 0x1F;
-
-                            const uint32_t rSrc = (src >> 11) & 0x1F;
-                            const uint32_t gSrc = (src >> 5) & 0x3F;
-                            const uint32_t bSrc = src & 0x1F;
-
-                            rDst += (rSrc * a) >> 8;
-                            gDst += (gSrc * a) >> 8;
-                            bDst += (bSrc * a) >> 8;
-
-                            if (rDst > 31u)
-                                rDst = 31u;
-                            if (gDst > 63u)
-                                gDst = 63u;
-                            if (bDst > 31u)
-                                bDst = 31u;
-
-                            fb[idx] = (uint16_t)((rDst << 11) | (gDst << 5) | bDst);
-                        }
-                        else
-                        {
-                            Color base(fb[idx]);
-                            Color blended = base.blend(col, a);
-                            fb[idx] = blended.rgb565;
+                            fb[idx] = static_cast<uint16_t>(blended_rb | blended_g);
                         }
                     }
                 }
@@ -401,8 +421,10 @@ namespace pip3D
 
                 float rx = random01() - 0.5f;
                 float rz = random01() - 0.5f;
+
                 Vector3 dir(rx * config.spread, 1.0f, rz * config.spread);
                 dir.normalize();
+
                 Vector3 vel = dir * config.initialSpeed + velocityOffset;
 
                 p.position = position;
@@ -416,22 +438,10 @@ namespace pip3D
                 p.alive = true;
                 return;
             }
-
-            LOGW(::pip3D::Debug::LOG_MODULE_SCENE,
-                 "ParticleEmitter::spawnParticle: no free particles (maxParticles=%u)",
-                 static_cast<unsigned int>(particles.size()));
         }
 
-        static float random01()
-        {
-            return (float)random(0L, 32767L) / 32767.0f;
-        }
-
-        static float randomRange(float a, float b)
-        {
-            float t = random01();
-            return a + (b - a) * t;
-        }
+        static float random01() { return (float)random(0L, 32767L) / 32767.0f; }
+        static float randomRange(float a, float b) { return a + (b - a) * random01(); }
     };
 
     class FXSystem
@@ -441,16 +451,7 @@ namespace pip3D
 
     public:
         FXSystem() {}
-
-        FXSystem(const FXSystem &) = delete;
-        FXSystem &operator=(const FXSystem &) = delete;
-        FXSystem(FXSystem &&) = delete;
-        FXSystem &operator=(FXSystem &&) = delete;
-
-        ~FXSystem()
-        {
-            clear();
-        }
+        ~FXSystem() { clear(); }
 
         ParticleEmitter *createEmitter(const ParticleEmitterConfig &cfg, const Vector3 &pos = Vector3())
         {
@@ -462,11 +463,7 @@ namespace pip3D
         void destroyEmitter(ParticleEmitter *emitter)
         {
             if (!emitter)
-            {
-                LOGW(::pip3D::Debug::LOG_MODULE_SCENE,
-                     "FXSystem::destroyEmitter called with null emitter");
                 return;
-            }
             for (size_t i = 0; i < emitters.size(); ++i)
             {
                 if (emitters[i] == emitter)
@@ -477,50 +474,41 @@ namespace pip3D
                     return;
                 }
             }
-
-            LOGW(::pip3D::Debug::LOG_MODULE_SCENE,
-                 "FXSystem::destroyEmitter: emitter not found in list (count=%u)",
-                 static_cast<unsigned int>(emitters.size()));
         }
 
         void clear()
         {
             for (size_t i = 0; i < emitters.size(); ++i)
-            {
                 delete emitters[i];
-            }
             emitters.clear();
         }
 
-        void update(float dt)
+        void update(float dt, PhysicsWorld *world = nullptr)
         {
             for (size_t i = 0; i < emitters.size(); ++i)
-            {
-                emitters[i]->update(dt);
-            }
+                emitters[i]->update(dt, world);
         }
 
         void render(Renderer &renderer) const
         {
             for (size_t i = 0; i < emitters.size(); ++i)
-            {
                 emitters[i]->render(renderer);
-            }
         }
 
         ParticleEmitter *createFire(const Vector3 &pos)
         {
             ParticleEmitterConfig cfg;
-            cfg.maxParticles = 72;
-            cfg.emitRate = 50.0f;
-            cfg.minLifetime = 0.4f;
-            cfg.maxLifetime = 0.8f;
-            cfg.initialSpeed = 1.2f;
+            cfg.type = PARTICLE_BILLBOARD;
+            cfg.maxParticles = 120;
+            cfg.emitRate = 95.0f;
+            cfg.minLifetime = 0.5f;
+            cfg.maxLifetime = 1.0f;
+            cfg.initialSpeed = 2.4f;
             cfg.spread = 0.6f;
-            cfg.acceleration = Vector3(0.0f, 2.0f, 0.0f);
-            cfg.startColor = Color::fromRGB888(255, 230, 180);
-            cfg.endColor = Color::fromRGB888(120, 30, 0);
-            cfg.startSize = 6.0f;
+            cfg.acceleration = Vector3(0.0f, 4.0f, 0.0f);
+            cfg.startColor = Color::fromRGB888(255, 195, 30);
+            cfg.endColor = Color::fromRGB888(170, 10, 0);
+            cfg.startSize = 18.0f;
             cfg.endSize = 3.0f;
             cfg.looping = true;
             cfg.additive = true;
@@ -530,17 +518,18 @@ namespace pip3D
         ParticleEmitter *createSmoke(const Vector3 &pos)
         {
             ParticleEmitterConfig cfg;
-            cfg.maxParticles = 56;
-            cfg.emitRate = 28.0f;
-            cfg.minLifetime = 1.2f;
-            cfg.maxLifetime = 2.0f;
-            cfg.initialSpeed = 0.5f;
-            cfg.spread = 0.4f;
-            cfg.acceleration = Vector3(0.0f, 0.4f, 0.0f);
-            cfg.startColor = Color::fromRGB888(200, 200, 200);
-            cfg.endColor = Color::fromRGB888(70, 70, 70);
-            cfg.startSize = 9.0f;
-            cfg.endSize = 16.0f;
+            cfg.type = PARTICLE_TURBULENT;
+            cfg.maxParticles = 90;
+            cfg.emitRate = 45.0f;
+            cfg.minLifetime = 1.0f;
+            cfg.maxLifetime = 1.8f;
+            cfg.initialSpeed = 1.5f;
+            cfg.spread = 0.3f;
+            cfg.acceleration = Vector3(0.1f, 1.8f, 0.1f);
+            cfg.startColor = Color::fromRGB888(140, 140, 140);
+            cfg.endColor = Color::fromRGB888(45, 45, 45);
+            cfg.startSize = 15.0f;
+            cfg.endSize = 25.0f;
             cfg.looping = true;
             cfg.additive = false;
             return createEmitter(cfg, pos);
@@ -549,19 +538,20 @@ namespace pip3D
         ParticleEmitter *createExplosion(const Vector3 &pos)
         {
             ParticleEmitterConfig cfg;
-            cfg.maxParticles = 64;
+            cfg.type = PARTICLE_MASKED;
+            cfg.maxParticles = 80;
             cfg.emitRate = 0.0f;
             cfg.minLifetime = 0.4f;
             cfg.maxLifetime = 0.9f;
-            cfg.initialSpeed = 4.0f;
-            cfg.spread = 1.0f;
-            cfg.acceleration = Vector3(0.0f, -3.0f, 0.0f);
-            cfg.startColor = Color::fromRGB888(255, 230, 160);
-            cfg.endColor = Color::fromRGB888(90, 20, 0);
-            cfg.startSize = 6.0f;
-            cfg.endSize = 10.0f;
+            cfg.initialSpeed = 4.5f;
+            cfg.spread = 1.5f;
+            cfg.acceleration = Vector3(0.0f, -0.8f, 0.0f);
+            cfg.startColor = Color::fromRGB888(255, 230, 150);
+            cfg.endColor = Color::fromRGB888(60, 5, 0);
+            cfg.startSize = 12.0f;
+            cfg.endSize = 24.0f;
             cfg.looping = false;
-            cfg.additive = true;
+            cfg.additive = false;
 
             ParticleEmitter *e = createEmitter(cfg, pos);
             e->triggerBurst(cfg.maxParticles);
@@ -571,23 +561,22 @@ namespace pip3D
         ParticleEmitter *createSparks(const Vector3 &pos)
         {
             ParticleEmitterConfig cfg;
-            cfg.maxParticles = 40;
-            cfg.emitRate = 0.0f;
-            cfg.minLifetime = 0.3f;
-            cfg.maxLifetime = 0.6f;
-            cfg.initialSpeed = 5.0f;
-            cfg.spread = 1.0f;
-            cfg.acceleration = Vector3(0.0f, -4.0f, 0.0f);
+            cfg.type = PARTICLE_SPARK_STRETCH;
+            cfg.physicsCollision = true;
+            cfg.maxParticles = 200;
+            cfg.emitRate = 150.0f;
+            cfg.minLifetime = 0.8f;
+            cfg.maxLifetime = 1.8f;
+            cfg.initialSpeed = 7.5f;
+            cfg.spread = 1.3f;
+            cfg.acceleration = Vector3(0.0f, -11.0f, 0.0f);
             cfg.startColor = Color::fromRGB888(255, 255, 200);
-            cfg.endColor = Color::fromRGB888(255, 120, 60);
-            cfg.startSize = 3.0f;
-            cfg.endSize = 1.0f;
-            cfg.looping = false;
+            cfg.endColor = Color::fromRGB888(255, 40, 0);
+            cfg.startSize = 6.0f;
+            cfg.endSize = 1.5f;
+            cfg.looping = true;
             cfg.additive = true;
-
-            ParticleEmitter *e = createEmitter(cfg, pos);
-            e->triggerBurst(cfg.maxParticles / 2);
-            return e;
+            return createEmitter(cfg, pos);
         }
 
         ParticleEmitter *createTrail(const Vector3 &pos)
@@ -599,7 +588,6 @@ namespace pip3D
             cfg.maxLifetime = 0.8f;
             cfg.initialSpeed = 0.3f;
             cfg.spread = 0.4f;
-            cfg.acceleration = Vector3(0.0f, 0.0f, 0.0f);
             cfg.startColor = Color::fromRGB888(200, 220, 255);
             cfg.endColor = Color::fromRGB888(80, 120, 220);
             cfg.startSize = 3.0f;
@@ -610,4 +598,227 @@ namespace pip3D
         }
     };
 
+    class LensFlareRenderer
+    {
+    private:
+        static void drawCorona(uint16_t *fb, ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuf, int16_t sourceDepth,
+                               int cx, int cy, int rx, int ry, uint16_t color, uint8_t alpha, int bandTop, int bandBottom)
+        {
+            if (rx <= 0 || ry <= 0)
+                return;
+            int rx2 = rx * rx;
+            int ry2 = ry * ry;
+
+            int64_t maxVal = (int64_t)rx2 * ry2;
+            if (maxVal <= 0)
+                return;
+
+            int y0 = cy - ry;
+            int y1 = cy + ry;
+            if (y0 < bandTop)
+                y0 = bandTop;
+            if (y1 >= bandBottom)
+                y1 = bandBottom - 1;
+
+            const uint32_t s_rb = color & 0xF81F;
+            const uint32_t s_g = color & 0x07E0;
+
+            for (int y = y0; y <= y1; ++y)
+            {
+                int dy = y - cy;
+                int dy2 = dy * dy;
+                int localY = y - bandTop;
+                int x0 = std::max(0, cx - rx);
+                int x1 = std::min((int)SCREEN_WIDTH - 1, cx + rx);
+                size_t idx = (size_t)localY * SCREEN_WIDTH + x0;
+
+                for (int x = x0; x <= x1; ++x, ++idx)
+                {
+                    int dx = x - cx;
+                    int64_t val = (int64_t)dx * dx * ry2 + (int64_t)dy2 * rx2;
+                    if (val > maxVal)
+                        continue;
+
+                    if (zBuf)
+                    {
+                        int16_t stored = zBuf->getRawDepth(x, localY);
+                        if (stored != 0x7F7F && (sourceDepth - 10 > stored))
+                            continue;
+                    }
+
+                    uint32_t ratio = (val * 65536) / maxVal;
+                    if (ratio >= 65536)
+                        continue;
+                    uint32_t k = 65536 - ratio;
+                    uint32_t k_cubic = (((k * k) >> 16) * k) >> 16;
+                    uint8_t a = (alpha * k_cubic) >> 16;
+                    if (a == 0)
+                        continue;
+
+                    const uint32_t dst = fb[idx];
+                    const uint32_t cur_a = a >> 3;
+                    const uint32_t inv_a = 32 - cur_a;
+
+                    const uint32_t rb = (dst & 0xF81F);
+                    const uint32_t g = (dst & 0x07E0);
+                    const uint32_t blended_rb = ((rb * inv_a + s_rb * cur_a) >> 5) & 0xF81F;
+                    const uint32_t blended_g = ((g * inv_a + s_g * cur_a) >> 5) & 0x07E0;
+
+                    fb[idx] = static_cast<uint16_t>(blended_rb | blended_g);
+                }
+            }
+        }
+
+        static void drawHollowRing(uint16_t *fb, ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuf, int16_t sourceDepth,
+                                   int cx, int cy, int r_inner, int r_outer, uint16_t color, uint8_t alpha, int bandTop, int bandBottom)
+        {
+            if (r_outer <= r_inner || r_outer <= 0)
+                return;
+            int r_outer2 = r_outer * r_outer;
+            int r_inner2 = r_inner * r_inner;
+
+            int y0 = cy - r_outer;
+            int y1 = cy + r_outer;
+            if (y0 < bandTop)
+                y0 = bandTop;
+            if (y1 >= bandBottom)
+                y1 = bandBottom - 1;
+
+            const uint32_t s_rb = color & 0xF81F;
+            const uint32_t s_g = color & 0x07E0;
+
+            for (int y = y0; y <= y1; ++y)
+            {
+                int dy = y - cy;
+                int dy2 = dy * dy;
+                int localY = y - bandTop;
+                int x0 = std::max(0, cx - r_outer);
+                int x1 = std::min((int)SCREEN_WIDTH - 1, cx + r_outer);
+                size_t idx = (size_t)localY * SCREEN_WIDTH + x0;
+
+                for (int x = x0; x <= x1; ++x, ++idx)
+                {
+                    int dx = x - cx;
+                    int dist2 = dx * dx + dy2;
+                    if (dist2 > r_outer2 || dist2 < r_inner2)
+                        continue;
+
+                    if (zBuf)
+                    {
+                        int16_t stored = zBuf->getRawDepth(x, localY);
+                        if (stored != 0x7F7F && (sourceDepth - 10 > stored))
+                            continue;
+                    }
+
+                    int mid_r = (r_outer + r_inner) / 2;
+                    int dist = (int)sqrtf(dist2);
+                    int delta = std::abs(dist - mid_r);
+                    int half_thickness = (r_outer - r_inner) / 2;
+                    if (half_thickness <= 0)
+                        half_thickness = 1;
+
+                    uint32_t factor = (delta * 65536) / half_thickness;
+                    if (factor >= 65536)
+                        continue;
+                    uint32_t k = 65536 - factor;
+                    uint32_t k_sq = (k * k) >> 16;
+                    uint8_t cur_alpha = (alpha * k_sq) >> 16;
+                    if (cur_alpha == 0)
+                        continue;
+
+                    const uint32_t dst = fb[idx];
+                    const uint32_t cur_a = cur_alpha >> 3;
+                    const uint32_t inv_a = 32 - cur_a;
+
+                    const uint32_t rb = (dst & 0xF81F);
+                    const uint32_t g = (dst & 0x07E0);
+                    const uint32_t blended_rb = ((rb * inv_a + s_rb * cur_a) >> 5) & 0xF81F;
+                    const uint32_t blended_g = ((g * inv_a + s_g * cur_a) >> 5) & 0x07E0;
+
+                    fb[idx] = static_cast<uint16_t>(blended_rb | blended_g);
+                }
+            }
+        }
+
+    public:
+        static void renderSunFlares(Renderer &r, const Vector3 &sunPos, float &sunVisibility, int bandTop, int bandBottom)
+        {
+            uint16_t *fb = r.getFrameBuffer();
+            if (!fb)
+                return;
+
+            Vector3 sunScreen = r.project(sunPos);
+            if (sunScreen.z <= 0.0f || sunScreen.z >= 1.0f)
+                return;
+
+            int cx = (int)sunScreen.x;
+            int cy = (int)sunScreen.y;
+            int16_t sunDepth = static_cast<int16_t>(sunScreen.z * 32638.0f);
+            ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuf = r.getZBuffer();
+
+            if (cy >= bandTop && cy < bandBottom)
+            {
+                int occludedCount = 0;
+                int checked = 0;
+
+                if (zBuf)
+                {
+                    int localY = cy - bandTop;
+                    for (int dy = -1; dy <= 1; ++dy)
+                    {
+                        for (int dx = -1; dx <= 1; ++dx)
+                        {
+                            int sx = cx + dx;
+                            int sy = localY + dy;
+                            if (sx >= 0 && sx < SCREEN_WIDTH && sy >= 0 && sy < SCREEN_BAND_HEIGHT)
+                            {
+                                int16_t d = zBuf->getRawDepth(sx, sy);
+                                if (d != 0x7F7F && d < sunDepth - 10)
+                                {
+                                    occludedCount++;
+                                }
+                                checked++;
+                            }
+                        }
+                    }
+                }
+
+                float targetVis = 1.0f;
+                if (checked > 0)
+                {
+                    targetVis = 1.0f - ((float)occludedCount / (float)checked);
+                }
+
+                sunVisibility += (targetVis - sunVisibility) * 0.15f;
+            }
+
+            if (sunVisibility > 0.02f)
+            {
+                int centerX = SCREEN_WIDTH / 2;
+                int centerY = SCREEN_HEIGHT / 2;
+
+                int dx = centerX - cx;
+                int dy = centerY - cy;
+
+                uint8_t masterAlpha = (uint8_t)(sunVisibility * 255.0f);
+
+                drawCorona(fb, zBuf, sunDepth, cx, cy, 14, 14, Color::WHITE, (uint8_t)(masterAlpha * 0.9f), bandTop, bandBottom);
+                drawCorona(fb, zBuf, sunDepth, cx, cy, 45, 45, Color::rgb(255, 150, 40).rgb565, (uint8_t)(masterAlpha * 0.5f), bandTop, bandBottom);
+                drawCorona(fb, zBuf, sunDepth, cx, cy, 260, 2, Color::rgb(200, 220, 255).rgb565, (uint8_t)(masterAlpha * 0.7f), bandTop, bandBottom);
+                drawCorona(fb, zBuf, sunDepth, cx, cy, 2, 140, Color::rgb(200, 220, 255).rgb565, (uint8_t)(masterAlpha * 0.6f), bandTop, bandBottom);
+
+                drawHollowRing(fb, zBuf, sunDepth, cx, cy, 50, 58, Color::rgb(255, 90, 20).rgb565, (uint8_t)(masterAlpha * 0.35f), bandTop, bandBottom);
+                drawHollowRing(fb, zBuf, sunDepth, cx, cy, 58, 65, Color::rgb(0, 220, 255).rgb565, (uint8_t)(masterAlpha * 0.3f), bandTop, bandBottom);
+
+                drawCorona(fb, zBuf, sunDepth, cx + dx / 4, cy + dy / 4, 6, 6, Color::rgb(255, 40, 20).rgb565, (uint8_t)(masterAlpha * 0.45f), bandTop, bandBottom);
+                drawCorona(fb, zBuf, sunDepth, cx + (dx * 9) / 20, cy + (dy * 9) / 20, 14, 14, Color::CYAN, (uint8_t)(masterAlpha * 0.3f), bandTop, bandBottom);
+
+                drawHollowRing(fb, zBuf, sunDepth, cx + (dx * 13) / 20, cy + (dy * 13) / 20, 16, 24, Color::rgb(0, 255, 120).rgb565, (uint8_t)(masterAlpha * 0.35f), bandTop, bandBottom);
+
+                drawCorona(fb, zBuf, sunDepth, cx + (dx * 9) / 10, cy + (dy * 9) / 10, 10, 10, Color::MAGENTA, (uint8_t)(masterAlpha * 0.3f), bandTop, bandBottom);
+                drawCorona(fb, zBuf, sunDepth, cx + (dx * 13) / 10, cy + (dy * 13) / 10, 22, 22, Color::YELLOW, (uint8_t)(masterAlpha * 0.15f), bandTop, bandBottom);
+                drawCorona(fb, zBuf, sunDepth, cx + (dx * 33) / 20, cy + (dy * 33) / 20, 16, 16, Color::rgb(180, 50, 255).rgb565, (uint8_t)(masterAlpha * 0.25f), bandTop, bandBottom);
+            }
+        }
+    };
 }

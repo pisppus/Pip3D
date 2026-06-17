@@ -467,12 +467,17 @@ namespace pip3D
             if (faceCount == 0)
                 return;
 
+            const Vector3 &camFwd = camera.forward();
+            const Vector3 &camPos = camera.position;
+            const float nearPlane = camera.nearPlane;
+            const Vector3 cameraBackward = camFwd * -1.0f;
+
             bool useUniformColor = mesh->getSingleColorLighting();
             uint16_t uniformColor = 0;
             if (useUniformColor)
             {
                 Vector3 meshNormal = mesh->normal(0);
-                Vector3 viewDir = camera.position - center;
+                Vector3 viewDir = camPos - center;
                 viewDir.normalize();
 
                 float finalR, finalG, finalB;
@@ -502,7 +507,6 @@ namespace pip3D
             const float viewportHalfWidth = viewportWidth * 0.5f;
             const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
             const bool usePerspectiveFacing = camera.projectionType == PERSPECTIVE || camera.projectionType == FISHEYE;
-            const Vector3 cameraBackward = camera.forward() * -1.0f;
 
             if (mesh->getCachedProjectionFrameStamp() != frameStamp)
             {
@@ -525,7 +529,6 @@ namespace pip3D
                 if (vertexColors.size() < vertexCountUsed)
                     vertexColors.resize(vertexCountUsed);
 
-                const Vector3 camPos = camera.position;
                 for (uint16_t vi = 0; vi < vertexCountUsed; ++vi)
                 {
                     Vector3 v = worldVerts[vi];
@@ -546,6 +549,8 @@ namespace pip3D
 
             for (uint16_t i = 0; i < faceCount; ++i)
             {
+                statsTrianglesTotal++;
+
                 const Face &face = mesh->face(i);
                 uint16_t i0 = face.v0;
                 uint16_t i1 = face.v1;
@@ -555,18 +560,41 @@ namespace pip3D
                 const Vector3 &v1 = worldVerts[i1];
                 const Vector3 &v2 = worldVerts[i2];
 
+                if (backfaceCullingEnabled)
+                {
+                    Vector3 faceNormal = (v1 - v0).cross(v2 - v0);
+                    float normalLenSq = faceNormal.lengthSquared();
+                    if (normalLenSq <= 1e-10f)
+                    {
+                        statsTrianglesBackfaceCulled++;
+                        continue;
+                    }
+
+                    float facing = 0.0f;
+                    if (usePerspectiveFacing)
+                        facing = faceNormal.dot(camPos - v0);
+                    else
+                        facing = faceNormal.dot(cameraBackward);
+
+                    if (facing <= 0.0f)
+                    {
+                        statsTrianglesBackfaceCulled++;
+                        continue;
+                    }
+                }
+
                 const Vector3 &p0 = screenVerts[i0];
                 const Vector3 &p1 = screenVerts[i1];
                 const Vector3 &p2 = screenVerts[i2];
 
-                float d0 = (v0 - camera.position).dot(camera.forward());
-                float d1 = (v1 - camera.position).dot(camera.forward());
-                float d2 = (v2 - camera.position).dot(camera.forward());
+                float d0 = (v0 - camPos).dot(camFwd);
+                float d1 = (v1 - camPos).dot(camFwd);
+                float d2 = (v2 - camPos).dot(camFwd);
 
-                if (d0 < camera.nearPlane && d1 < camera.nearPlane && d2 < camera.nearPlane)
+                if (d0 < nearPlane && d1 < nearPlane && d2 < nearPlane)
                     continue;
 
-                bool partiallyClipped = (d0 < camera.nearPlane || d1 < camera.nearPlane || d2 < camera.nearPlane);
+                bool partiallyClipped = (d0 < nearPlane || d1 < nearPlane || d2 < nearPlane);
 
                 if (mesh->isTextured() && !partiallyClipped)
                 {
@@ -598,7 +626,6 @@ namespace pip3D
 
                 if (!partiallyClipped)
                 {
-
                     float minY = fminf(p0.y, fminf(p1.y, p2.y));
                     float maxY = fmaxf(p0.y, fmaxf(p1.y, p2.y));
                     if (maxY < bandTop || minY >= bandBottom)
@@ -608,30 +635,6 @@ namespace pip3D
                     float maxX = fmaxf(p0.x, fmaxf(p1.x, p2.x));
                     if (maxX < 0.0f || minX >= viewportWidth)
                         continue;
-                }
-
-                statsTrianglesTotal++;
-                if (backfaceCullingEnabled)
-                {
-                    Vector3 faceNormal = (v1 - v0).cross(v2 - v0);
-                    float normalLenSq = faceNormal.lengthSquared();
-                    if (normalLenSq <= 1e-10f)
-                    {
-                        statsTrianglesBackfaceCulled++;
-                        continue;
-                    }
-
-                    float facing = 0.0f;
-                    if (usePerspectiveFacing)
-                        facing = faceNormal.dot(camera.position - v0);
-                    else
-                        facing = faceNormal.dot(cameraBackward);
-
-                    if (facing <= 0.0f)
-                    {
-                        statsTrianglesBackfaceCulled++;
-                        continue;
-                    }
                 }
 
                 if (shadingMode == SHADING_GOURAUD && !useUniformColor && !partiallyClipped)
