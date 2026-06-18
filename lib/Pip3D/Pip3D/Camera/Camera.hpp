@@ -36,11 +36,75 @@ namespace pip3D
     CameraAnimation() : time(0), duration(1), invDuration(1.0f), type(SMOOTH), active(false) {}
   };
 
+  struct CameraShake
+  {
+    float trauma = 0.0f;
+    float decay = 1.3f;
+    float timePhase = 0.0f;
+    float frequency = 25.0f;
+
+    float maxPitch = 12.0f;
+    float maxYaw = 12.0f;
+    float maxRoll = 8.0f;
+    float maxOffsetX = 0.8f;
+    float maxOffsetY = 0.8f;
+    float maxOffsetZ = 0.5f;
+
+    void addTrauma(float amount)
+    {
+      trauma = fmaxf(0.0f, fminf(1.0f, trauma + amount));
+    }
+
+    void update(float dt)
+    {
+      if (trauma > 0.0f)
+      {
+        trauma -= decay * dt;
+        if (trauma < 0.0f)
+          trauma = 0.0f;
+
+        timePhase += dt * frequency;
+        if (timePhase > 628.318f)
+          timePhase -= 628.318f;
+      }
+      else
+      {
+        timePhase = 0.0f;
+      }
+    }
+
+    void getOffsets(float &outPitch, float &outYaw, float &outRoll, Vector3 &outOffset) const
+    {
+      if (trauma <= 0.0f)
+      {
+        outPitch = outYaw = outRoll = 0.0f;
+        outOffset = Vector3(0.0f, 0.0f, 0.0f);
+        return;
+      }
+
+      const float shakePos = trauma * trauma;
+      const float shakeRot = trauma * sqrtf(trauma);
+
+      const float s1 = FastMath::fastSin(timePhase);
+      const float s2 = FastMath::fastSin(timePhase * 1.618f);
+      const float s3 = FastMath::fastSin(timePhase * 2.236f);
+      const float s4 = FastMath::fastSin(timePhase * 3.141f);
+
+      outPitch = maxPitch * shakeRot * (s1 * 0.5f + s2 * 0.5f);
+      outYaw = maxYaw * shakeRot * (s3 * 0.5f + s4 * 0.5f);
+      outRoll = maxRoll * shakeRot * (s1 * 0.3f + s4 * 0.7f);
+
+      outOffset.x = maxOffsetX * shakePos * s2;
+      outOffset.y = maxOffsetY * shakePos * s3;
+      outOffset.z = maxOffsetZ * shakePos * s1;
+    }
+  };
+
   struct Camera
   {
-    Vector3 position;
-    Vector3 target;
-    Vector3 up;
+    mutable Vector3 position;
+    mutable Vector3 target;
+    mutable Vector3 up;
 
     ProjectionType projectionType;
 
@@ -55,12 +119,16 @@ namespace pip3D
 
     CameraConfig config;
     CameraAnimation anim;
+    CameraShake shakeState;
 
     struct Cache
     {
       Matrix4x4 view, proj, viewProj;
       Vector3 cachedForward, cachedRight;
       float lastAspect, halfW, halfH;
+
+      Vector3 basePosition, baseTarget, baseUp;
+      bool wasShakenLastFrame;
 
       struct
       {
@@ -71,7 +139,7 @@ namespace pip3D
         bool vectorsDirty : 1;
       } flags;
 
-      Cache() : lastAspect(0), halfW(0), halfH(0)
+      Cache() : lastAspect(0), halfW(0), halfH(0), wasShakenLastFrame(false)
       {
         flags = {true, true, true, true, true};
       }
@@ -86,15 +154,65 @@ namespace pip3D
           orthoHeight(10), fisheyeStrength(0)
     {
       up.normalize();
+      cache.basePosition = position;
+      cache.baseTarget = target;
+      cache.baseUp = up;
     }
 
     const Matrix4x4 &getViewMatrix() const
     {
       if (cache.flags.viewDirty)
       {
+        cache.basePosition = position;
+        cache.baseTarget = target;
+        cache.baseUp = up;
+        cache.wasShakenLastFrame = false;
+      }
+      else if (cache.wasShakenLastFrame)
+      {
+        position = cache.basePosition;
+        target = cache.baseTarget;
+        up = cache.baseUp;
+        cache.wasShakenLastFrame = false;
+      }
+
+      if (cache.flags.viewDirty || shakeState.trauma > 0.0f)
+      {
+        if (shakeState.trauma > 0.0f)
+        {
+          cache.wasShakenLastFrame = true;
+
+          float pitch, yaw, roll;
+          Vector3 offset;
+          shakeState.getOffsets(pitch, yaw, roll, offset);
+
+          Vector3 fwd = target - position;
+          fwd.normalize();
+          Vector3 rightVec = fwd.cross(up);
+          rightVec.normalize();
+
+          Vector3 translationOffset = rightVec * offset.x + up * offset.y + fwd * offset.z;
+          position += translationOffset;
+
+          if (pitch != 0.0f || yaw != 0.0f || roll != 0.0f)
+          {
+            Quaternion qShake = Quaternion::fromEuler(pitch * kDegToRad, yaw * kDegToRad, roll * kDegToRad);
+            fwd = qShake.rotate(fwd);
+            target = position + fwd;
+            up = qShake.rotate(up);
+            up.normalize();
+          }
+          else
+          {
+            target = position + fwd;
+          }
+        }
+
         cache.view.lookAt(position, target, up);
+
         cache.flags.viewDirty = false;
         cache.flags.vpDirty = true;
+        cache.flags.vectorsDirty = true;
       }
       return cache.view;
     }
@@ -402,6 +520,12 @@ namespace pip3D
   public:
     void updateAnim(float deltaTime)
     {
+      shakeState.update(deltaTime);
+      if (shakeState.trauma > 0.0f)
+      {
+        markDirty();
+      }
+
       if (!anim.active)
         return;
 
@@ -436,6 +560,16 @@ namespace pip3D
 
     void stopAnim() { anim.active = false; }
     bool isAnimating() const { return anim.active; }
+
+    void shake(float amount)
+    {
+      shakeState.addTrauma(amount);
+    }
+
+    void shakeExplosion() { shake(1.0f); }
+    void shakeDamage() { shake(0.55f); }
+    void shakeStep() { shake(0.12f); }
+    void shakeLanding() { shake(0.35f); }
 
   private:
     void setFisheyeProjection(float aspect) const

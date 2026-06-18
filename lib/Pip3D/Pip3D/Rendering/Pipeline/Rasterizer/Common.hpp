@@ -30,7 +30,6 @@ namespace pip3D
             float color_r = 0.0f;
             float color_g_f = 0.0f;
             float color_b_f = 0.0f;
-
             float kVal = 0.0f;
             float knVal = 0.0f;
         };
