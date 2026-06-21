@@ -6,6 +6,74 @@
 
 namespace pip3D
 {
+    static int collectActiveLightsForBounds(const Vector3 &center, float radius,
+                                            const Light *allLights, int allLightCount,
+                                            Light *outLights, int maxLights)
+    {
+        int count = 0;
+
+        for (int i = 0; i < allLightCount && count < maxLights; ++i)
+        {
+            if (allLights[i].type == LIGHT_DIRECTIONAL)
+            {
+                outLights[count++] = allLights[i];
+            }
+        }
+
+        struct LightScore
+        {
+            int index;
+            float score;
+        };
+
+        LightScore scores[32];
+        int scoreCount = 0;
+
+        for (int i = 0; i < allLightCount && scoreCount < 32; ++i)
+        {
+            const Light &l = allLights[i];
+            if (l.type == LIGHT_POINT)
+            {
+                float dx = l.position.x - center.x;
+                float dy = l.position.y - center.y;
+                float dz = l.position.z - center.z;
+                float distSq = dx * dx + dy * dy + dz * dz;
+
+                float maxDist = l.range + radius;
+                if (l.range > 0.0f && distSq > maxDist * maxDist)
+                    continue;
+
+                float atten = 1.0f;
+                if (l.range > 0.0f)
+                {
+                    atten = FastMath::fastReciprocal(1.0f + distSq * l.invRangeSq);
+                }
+                float score = l.intensity * atten;
+
+                scores[scoreCount++] = {i, score};
+            }
+        }
+
+        for (int i = 1; i < scoreCount; ++i)
+        {
+            LightScore temp = scores[i];
+            int j = i - 1;
+            while (j >= 0 && scores[j].score < temp.score)
+            {
+                scores[j + 1] = scores[j];
+                j--;
+            }
+            scores[j + 1] = temp;
+        }
+
+        for (int i = 0; i < scoreCount && count < maxLights; ++i)
+        {
+            outLights[count++] = allLights[scores[i].index];
+        }
+
+        return count;
+    }
+
     void Renderer::draw(MeshInstance *instance)
     {
         if (unlikely(!instance || !instance->isVisible()))
@@ -15,11 +83,19 @@ namespace pip3D
         if (!mesh)
             return;
 
-        if (shadowsEnabled && mesh->getCastShadows())
+        if (shadowsEnabled)
         {
-            if (shadowQueueCount < MAX_QUEUE_ELEMENTS)
+            if (instance->getBlobShadow() || mesh->getBlobShadow())
             {
-                shadowQueue[shadowQueueCount++] = instance;
+                if (blobShadowQueueCount < MAX_QUEUE_ELEMENTS)
+                    blobShadowQueue[blobShadowQueueCount++] = instance;
+            }
+            else if (mesh->getCastShadows())
+            {
+                if (shadowQueueCount < MAX_QUEUE_ELEMENTS)
+                {
+                    shadowQueue[shadowQueueCount++] = instance;
+                }
             }
         }
 
@@ -34,11 +110,19 @@ namespace pip3D
         if (unlikely(!mesh || !mesh->isVisible()))
             return;
 
-        if (shadowsEnabled && mesh->getCastShadows())
+        if (shadowsEnabled)
         {
-            if (meshShadowQueueCount < MAX_QUEUE_ELEMENTS)
+            if (mesh->getBlobShadow())
             {
-                meshShadowQueue[meshShadowQueueCount++] = mesh;
+                if (meshBlobShadowQueueCount < MAX_QUEUE_ELEMENTS)
+                    meshBlobShadowQueue[meshBlobShadowQueueCount++] = mesh;
+            }
+            else if (mesh->getCastShadows())
+            {
+                if (meshShadowQueueCount < MAX_QUEUE_ELEMENTS)
+                {
+                    meshShadowQueue[meshShadowQueueCount++] = mesh;
+                }
             }
         }
 
@@ -50,6 +134,20 @@ namespace pip3D
 
     void Renderer::flushQueue()
     {
+        const float blobOpacity = shadowSettings.shadowOpacity;
+
+        for (size_t i = 0; i < blobShadowQueueCount; ++i)
+        {
+            MeshInstance *inst = blobShadowQueue[i];
+            drawBlobShadow(inst->pos(), inst->radius(), blobOpacity);
+        }
+
+        for (size_t i = 0; i < meshBlobShadowQueueCount; ++i)
+        {
+            Mesh *m = meshBlobShadowQueue[i];
+            drawBlobShadow(m->center(), m->radius(), blobOpacity);
+        }
+
         for (size_t i = 0; i < shadowQueueCount; ++i)
         {
             drawMeshInstanceShadow(shadowQueue[i]);
@@ -62,7 +160,7 @@ namespace pip3D
 
         for (size_t i = 0; i < opaqueQueueCount; ++i)
         {
-            drawMeshInstanceInternal(opaqueQueue[i], false, true);
+            drawMeshInstanceInternal(opaqueQueue[i], false);
         }
 
         for (size_t i = 0; i < meshOpaqueQueueCount; ++i)
@@ -71,7 +169,7 @@ namespace pip3D
         }
     }
 
-    void Renderer::drawMeshInstanceInternal(MeshInstance *instance, bool performFrustumCull, bool trackDirty)
+    void Renderer::drawMeshInstanceInternal(MeshInstance *instance, bool performFrustumCull)
     {
         if (!instance || !instance->isVisible())
             return;
@@ -130,18 +228,18 @@ namespace pip3D
             return;
         }
 
-        if (trackDirty)
-        {
-            addDirtyFromSphere(instance, center, radius);
-        }
-
         const uint16_t instColor565 = instance->color().rgb565;
         float baseR, baseG, baseB;
         MeshRenderer::decodeColorToFloat(instColor565, baseR, baseG, baseB);
 
         bool useUniformColor = mesh->getSingleColorLighting();
         uint16_t uniformColor = 0;
-        const Light *const activeLights = lights.data();
+
+        Light localLights[4];
+        int localLightCount = collectActiveLightsForBounds(center, radius, lights.data(), activeLightCount, localLights, 4);
+        const Light *const activeLights = localLights;
+        const int actualLightCount = localLightCount;
+
         const Matrix4x4 &worldTransform = instance->transform();
 
         if (useUniformColor)
@@ -149,23 +247,23 @@ namespace pip3D
             Vector3 localNormal = mesh->numVertices() > 0 ? mesh->vert(0).normal.get() : Vector3(0.0f, 1.0f, 0.0f);
             Vector3 worldNormal = worldTransform.transformNormal(localNormal);
             Vector3 viewDir = cam.position - center;
+            const float viewDistSq = viewDir.lengthSquared();
             viewDir.normalize();
 
             float finalR, finalG, finalB;
-            Shading::calculateLighting(center, worldNormal, viewDir, activeLights, activeLightCount, baseR, baseG, baseB, finalR, finalG, finalB, true);
+            Shading::calculateLighting(center, worldNormal, viewDir, activeLights, actualLightCount, baseR, baseG, baseB, finalR, finalG, finalB, true);
 
             if (Rasterizer::g_fogState.enabled)
             {
-                float dist = (cam.position - center).length();
+                const float dist = sqrtf(viewDistSq);
                 float fogFactor = (dist - Rasterizer::g_fogState.worldNear) * Rasterizer::g_fogState.worldScale;
-                if (fogFactor < 0.0f)
-                    fogFactor = 0.0f;
-                if (fogFactor > 1.0f)
-                    fogFactor = 1.0f;
+                fogFactor = fminf(fogFactor, 1.0f);
+                fogFactor = fmaxf(fogFactor, 0.0f);
 
-                finalR = finalR * (1.0f - fogFactor) + Rasterizer::g_fogState.color_r * fogFactor;
-                finalG = finalG * (1.0f - fogFactor) + Rasterizer::g_fogState.color_g_f * fogFactor;
-                finalB = finalB * (1.0f - fogFactor) + Rasterizer::g_fogState.color_b_f * fogFactor;
+                const float invFog = 1.0f - fogFactor;
+                finalR = finalR * invFog + Rasterizer::g_fogState.color_r * fogFactor;
+                finalG = finalG * invFog + Rasterizer::g_fogState.color_g_f * fogFactor;
+                finalB = finalB * invFog + Rasterizer::g_fogState.color_b_f * fogFactor;
             }
 
             uniformColor = Shading::quantizeColor(finalR, finalG, finalB);
@@ -234,23 +332,23 @@ namespace pip3D
                     v = worldTransform.transformNoDiv(local);
                 }
                 Vector3 viewDir = camPos - v;
+                const float viewDistSq = viewDir.lengthSquared();
                 viewDir.normalize();
 
                 float r, g, b;
-                Shading::calculateLighting(v, worldNormal, viewDir, activeLights, activeLightCount, baseR, baseG, baseB, r, g, b);
+                Shading::calculateLighting(v, worldNormal, viewDir, activeLights, actualLightCount, baseR, baseG, baseB, r, g, b);
 
                 if (Rasterizer::g_fogState.enabled)
                 {
-                    float dist = (camPos - v).length();
+                    const float dist = sqrtf(viewDistSq);
                     float fogFactor = (dist - Rasterizer::g_fogState.worldNear) * Rasterizer::g_fogState.worldScale;
-                    if (fogFactor < 0.0f)
-                        fogFactor = 0.0f;
-                    if (fogFactor > 1.0f)
-                        fogFactor = 1.0f;
+                    fogFactor = fminf(fogFactor, 1.0f);
+                    fogFactor = fmaxf(fogFactor, 0.0f);
 
-                    r = r * (1.0f - fogFactor) + Rasterizer::g_fogState.color_r * fogFactor;
-                    g = g * (1.0f - fogFactor) + Rasterizer::g_fogState.color_g_f * fogFactor;
-                    b = b * (1.0f - fogFactor) + Rasterizer::g_fogState.color_b_f * fogFactor;
+                    const float invFog = 1.0f - fogFactor;
+                    r = r * invFog + Rasterizer::g_fogState.color_r * fogFactor;
+                    g = g * invFog + Rasterizer::g_fogState.color_g_f * fogFactor;
+                    b = b * invFog + Rasterizer::g_fogState.color_b_f * fogFactor;
                 }
 
                 vertexColors[vi] = Vector3(r, g, b);
@@ -258,10 +356,12 @@ namespace pip3D
         }
 
         const Vector3 &camFwd = cam.forward();
-        const Vector3 &camPos = cam.position;
+        const Vector3 camPos = cam.position;
         const float nearPlane = cam.nearPlane;
-        const Vector3 cameraBackward = camFwd * -1.0f;
         const bool usePerspectiveFacing = cam.projectionType == PERSPECTIVE || cam.projectionType == FISHEYE;
+        const bool isTextured = mesh->isTextured();
+        const bool doBackfaceCull = backfaceCullingEnabled;
+        const bool gouraudShading = (shadingMode == SHADING_GOURAUD) && !useUniformColor;
 
         for (uint16_t i = 0; i < faceCount; ++i)
         {
@@ -288,21 +388,21 @@ namespace pip3D
                 v2 = worldTransform.transformNoDiv(local2);
             }
 
-            if (backfaceCullingEnabled)
+            const Vector3 toCam0 = camPos - v0;
+
+            if (doBackfaceCull)
             {
-                Vector3 faceNormal = (v1 - v0).cross(v2 - v0);
-                float normalLenSq = faceNormal.lengthSquared();
+                const Vector3 faceNormal = (v1 - v0).cross(v2 - v0);
+                const float normalLenSq = faceNormal.lengthSquared();
                 if (normalLenSq <= 1e-10f)
                 {
                     statsTrianglesBackfaceCulled++;
                     continue;
                 }
 
-                float facing = 0.0f;
-                if (usePerspectiveFacing)
-                    facing = faceNormal.dot(camPos - v0);
-                else
-                    facing = faceNormal.dot(cameraBackward);
+                const float facing = usePerspectiveFacing
+                                         ? faceNormal.dot(toCam0)
+                                         : faceNormal.dot(-camFwd);
 
                 if (facing <= 0.0f)
                 {
@@ -326,16 +426,16 @@ namespace pip3D
                 p2 = CameraController::project(v2, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, viewport.x, viewport.y);
             }
 
-            float d0 = (v0 - camPos).dot(camFwd);
-            float d1 = (v1 - camPos).dot(camFwd);
-            float d2 = (v2 - camPos).dot(camFwd);
+            const float d0 = -toCam0.dot(camFwd);
+            const float d1 = (v1 - camPos).dot(camFwd);
+            const float d2 = (v2 - camPos).dot(camFwd);
 
             if (d0 < nearPlane && d1 < nearPlane && d2 < nearPlane)
                 continue;
 
-            bool partiallyClipped = (d0 < nearPlane || d1 < nearPlane || d2 < nearPlane);
+            const bool partiallyClipped = (d0 < nearPlane || d1 < nearPlane || d2 < nearPlane);
 
-            if (mesh->isTextured() && !partiallyClipped)
+            if (isTextured && !partiallyClipped)
             {
                 const Vertex &vert0 = mesh->vert(face.v0);
                 const Vertex &vert1 = mesh->vert(face.v1);
@@ -365,7 +465,7 @@ namespace pip3D
                     continue;
             }
 
-            if (shadingMode == SHADING_GOURAUD && !useUniformColor && !partiallyClipped)
+            if (gouraudShading && !partiallyClipped)
             {
                 const Vector3 &c0 = vertexColors[face.v0];
                 const Vector3 &c1 = vertexColors[face.v1];
@@ -382,13 +482,13 @@ namespace pip3D
                 continue;
             }
 
-            MeshRenderer::drawTriangle3D_Preprojected(v0, v1, v2, p0, p1, p2, instColor565, cam, viewport, viewProjMatrix, framebuffer, zBuffer, activeLights, activeLightCount, backfaceCullingEnabled, statsTrianglesTotal, statsTrianglesBackfaceCulled, useUniformColor, uniformColor);
+            MeshRenderer::drawTriangle3D_Preprojected(v0, v1, v2, p0, p1, p2, instColor565, cam, viewport, viewProjMatrix, framebuffer, zBuffer, activeLights, actualLightCount, backfaceCullingEnabled, statsTrianglesTotal, statsTrianglesBackfaceCulled, useUniformColor, uniformColor);
         }
     }
 
     void Renderer::drawMeshInstance(MeshInstance *instance)
     {
-        drawMeshInstanceInternal(instance, true, true);
+        drawMeshInstanceInternal(instance, true);
     }
 
     void Renderer::drawMeshInstance(MeshInstance *instance, ShadingMode mode)
@@ -401,7 +501,7 @@ namespace pip3D
 
     void Renderer::drawMeshInstanceStatic(MeshInstance *instance)
     {
-        drawMeshInstanceInternal(instance, true, false);
+        drawMeshInstanceInternal(instance, true);
     }
 
     void Renderer::drawInstances(InstanceManager &manager)
@@ -415,13 +515,22 @@ namespace pip3D
 
         for (auto *instance : visibleInstances)
         {
-            drawMeshInstanceInternal(instance, false, true);
+            drawMeshInstanceInternal(instance, false);
         }
     }
 
     void Renderer::drawMesh(Mesh *mesh)
     {
-        MeshRenderer::drawMesh(mesh, cameras[activeCameraIndex], viewport, frustum, viewProjMatrix, framebuffer, zBuffer, lights.data(), activeLightCount, backfaceCullingEnabled, statsTrianglesTotal, statsTrianglesBackfaceCulled, shadingMode);
+        if (!mesh || !mesh->isVisible())
+            return;
+
+        Vector3 center = mesh->center();
+        float radius = mesh->radius();
+
+        Light localLights[4];
+        int localLightCount = collectActiveLightsForBounds(center, radius, lights.data(), activeLightCount, localLights, 4);
+
+        MeshRenderer::drawMesh(mesh, cameras[activeCameraIndex], viewport, frustum, viewProjMatrix, framebuffer, zBuffer, localLights, localLightCount, backfaceCullingEnabled, statsTrianglesTotal, statsTrianglesBackfaceCulled, shadingMode);
     }
 
     void Renderer::drawMesh(Mesh *mesh, ShadingMode mode)
@@ -434,6 +543,6 @@ namespace pip3D
 
     void Renderer::drawTriangle3D(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2, uint16_t color)
     {
-        MeshRenderer::drawTriangle3D(v0, v1, v2, color, cameras[activeCameraIndex], viewport, viewProjMatrix, framebuffer, zBuffer, lights.data(), activeLightCount, backfaceCullingEnabled, statsTrianglesTotal, statsTrianglesBackfaceCulled);
+        MeshRenderer::drawTriangle3D(v0, v1, v2, color, cameras[activeCameraIndex], viewport, viewProjMatrix, framebuffer, zBuffer, lights.data(), activeLightCount, backfaceCullingEnabled, statsTrianglesTotal, statsTrianglesBackfaceCulled, false, 0);
     }
 }

@@ -113,27 +113,30 @@ namespace pip3D
     class MESH_SIMD_ALIGN Mesh
     {
     protected:
-        Vertex *__restrict vertices;
-        Face *__restrict faces;
+        Vertex *__restrict__ vertices;
+        Face *__restrict__ faces;
 
         uint16_t vertexCount;
         uint16_t faceCount;
         uint16_t maxVertices;
         uint16_t maxFaces;
 
-        MESH_SIMD_ALIGN Vector3 position;
-        MESH_SIMD_ALIGN Vector3 rotation;
-        MESH_SIMD_ALIGN Vector3 scale;
+        Vector3 position;
+        Vector3 rotation;
+        Vector3 scale;
 
         Color meshColor;
         bool visible;
         bool castShadows;
+        bool blobShadow;
         mutable bool transformDirty;
 
         bool singleColorLighting;
         bool isStaticStorage;
         float qScale;
         const Texture *meshTexture = nullptr;
+
+        Mesh *shadowProxy = nullptr;
 
         mutable MeshCache cache;
         mutable Vector3 *cachedLocalVertices;
@@ -144,15 +147,20 @@ namespace pip3D
         mutable uint16_t cachedProjectionCapacity;
         mutable uint32_t cachedProjectionFrameStamp;
 
+        mutable Vector3 *cachedShadowVerts;
+        mutable uint16_t cachedShadowVertCapacity;
+        mutable uint32_t cachedShadowGen;
+
     public:
         MESH_HOT_PATH Mesh(uint16_t maxVerts = 64, uint16_t maxFcs = 128, const Color &color = Color::WHITE)
             : vertexCount(0), faceCount(0), maxVertices(maxVerts), maxFaces(maxFcs),
               position(0, 0, 0), rotation(0, 0, 0), scale(1, 1, 1),
-              meshColor(color), visible(true), castShadows(true), transformDirty(true),
+              meshColor(color), visible(true), castShadows(true), blobShadow(false), transformDirty(true),
               isStaticStorage(false), qScale(1.0f),
               cachedLocalVertices(nullptr), singleColorLighting(false), cachedLocalVertexCapacity(0),
               cachedLocalVerticesValid(false), cachedWorldVertices(nullptr),
-              cachedScreenVertices(nullptr), cachedProjectionCapacity(0), cachedProjectionFrameStamp(0)
+              cachedScreenVertices(nullptr), cachedProjectionCapacity(0), cachedProjectionFrameStamp(0),
+              cachedShadowVerts(nullptr), cachedShadowVertCapacity(0), cachedShadowGen(0)
         {
 
             const size_t vertexSize = maxVertices * sizeof(Vertex);
@@ -187,11 +195,12 @@ namespace pip3D
               vertexCount(vertCount), faceCount(faceCountIn),
               maxVertices(vertCount), maxFaces(faceCountIn),
               position(0, 0, 0), rotation(0, 0, 0), scale(1, 1, 1),
-              meshColor(color), visible(true), castShadows(true), transformDirty(true),
+              meshColor(color), visible(true), castShadows(true), blobShadow(false), transformDirty(true),
               isStaticStorage(staticStorage), qScale(1.0f), singleColorLighting(false),
               cachedLocalVertices(nullptr), cachedLocalVertexCapacity(0), cachedLocalVerticesValid(false),
               cachedWorldVertices(nullptr), cachedScreenVertices(nullptr),
-              cachedProjectionCapacity(0), cachedProjectionFrameStamp(0)
+              cachedProjectionCapacity(0), cachedProjectionFrameStamp(0),
+              cachedShadowVerts(nullptr), cachedShadowVertCapacity(0), cachedShadowGen(0)
         {
             cache.transform.identity();
         }
@@ -260,6 +269,11 @@ namespace pip3D
                 MemUtils::freeData(cachedScreenVertices);
                 cachedScreenVertices = nullptr;
             }
+            if (cachedShadowVerts)
+            {
+                MemUtils::freeData(cachedShadowVerts);
+                cachedShadowVerts = nullptr;
+            }
             vertexCount = 0;
             faceCount = 0;
             maxVertices = 0;
@@ -269,6 +283,8 @@ namespace pip3D
             cachedLocalVerticesValid = false;
             cachedProjectionCapacity = 0;
             cachedProjectionFrameStamp = 0;
+            cachedShadowVertCapacity = 0;
+            cachedShadowGen = 0;
         }
 
         MESH_COLD_PATH virtual ~Mesh()
@@ -685,11 +701,33 @@ namespace pip3D
         MESH_PURE MESH_FORCE_INLINE bool isVisible() const { return visible; }
         MESH_FORCE_INLINE void setCastShadows(bool enabled) { castShadows = enabled; }
         MESH_PURE MESH_FORCE_INLINE bool getCastShadows() const { return castShadows; }
+        MESH_FORCE_INLINE void setBlobShadow(bool enabled) { blobShadow = enabled; if (enabled) castShadows = false; }
+        MESH_PURE MESH_FORCE_INLINE bool getBlobShadow() const { return blobShadow; }
+        MESH_FORCE_INLINE Vector3 *getCachedShadowVerts(uint32_t expectedGen, uint16_t expectedCount) const
+        {
+            if (cachedShadowGen != expectedGen || cachedShadowVertCapacity < expectedCount)
+                return nullptr;
+            return cachedShadowVerts;
+        }
+        Vector3 *ensureShadowVertCapacity(uint16_t count) const
+        {
+            if (cachedShadowVertCapacity >= count)
+                return cachedShadowVerts;
+            if (cachedShadowVerts)
+                MemUtils::freeData(cachedShadowVerts);
+            cachedShadowVerts = (Vector3 *)MemUtils::allocData(count * sizeof(Vector3), 16);
+            cachedShadowVertCapacity = cachedShadowVerts ? count : 0;
+            return cachedShadowVerts;
+        }
+        MESH_FORCE_INLINE void storeCachedShadowVerts(uint32_t gen) const { cachedShadowGen = gen; }
+        MESH_FORCE_INLINE void invalidateShadowCache() const { cachedShadowGen = 0; }
         MESH_FORCE_INLINE void setSingleColorLighting(bool enabled) { singleColorLighting = enabled; }
         MESH_PURE MESH_FORCE_INLINE bool getSingleColorLighting() const { return singleColorLighting; }
         MESH_FORCE_INLINE void setTexture(const Texture *tex) { meshTexture = tex; }
         MESH_PURE MESH_FORCE_INLINE const Texture *getTexture() const { return meshTexture; }
         MESH_PURE MESH_FORCE_INLINE bool isTextured() const { return meshTexture != nullptr; }
+        MESH_FORCE_INLINE void setShadowProxy(Mesh *proxy) { shadowProxy = proxy; }
+        MESH_PURE MESH_FORCE_INLINE Mesh* getShadowProxy() const { return shadowProxy; }
 
         MESH_HOT_PATH const Matrix4x4 &getTransform() const
         {

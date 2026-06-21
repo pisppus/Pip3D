@@ -15,7 +15,6 @@
 #include "Geometry/Mesh.hpp"
 #include "Rendering/UI/Font.hpp"
 #include "Rendering/Display/ZBuffer.hpp"
-#include "Display/DirtyRegions.hpp"
 #include "Lighting/Lighting.hpp"
 #include "Lighting/Shadow.hpp"
 #include "Pipeline/Rasterizer.hpp"
@@ -50,18 +49,14 @@ namespace pip3D
     class Renderer
     {
     private:
-        void updateReflectionBufferOnDemand();
-        void updateReflectionBuffer(int bandIndex);
-
-        uint16_t *reflectionBuffer = nullptr;
-        uint16_t reflectionWidth = 0;
-        uint16_t reflectionHeight = 0;
-
         static constexpr int BAND_COUNT = SCREEN_BAND_COUNT;
         static constexpr int BAND_HEIGHT = SCREEN_BAND_HEIGHT;
 
         FrameBuffer framebuffer;
         ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer;
+        uint16_t *reflectBuffer;
+        static constexpr uint16_t REFLECT_WIDTH = SCREEN_WIDTH / 2;
+        static constexpr uint16_t REFLECT_HEIGHT = SCREEN_HEIGHT / 2;
 
         static constexpr size_t MAX_QUEUE_ELEMENTS = 64;
         MeshInstance *shadowQueue[MAX_QUEUE_ELEMENTS];
@@ -73,6 +68,11 @@ namespace pip3D
         Mesh *meshOpaqueQueue[MAX_QUEUE_ELEMENTS];
         size_t meshShadowQueueCount = 0;
         size_t meshOpaqueQueueCount = 0;
+
+        MeshInstance *blobShadowQueue[MAX_QUEUE_ELEMENTS];
+        Mesh *meshBlobShadowQueue[MAX_QUEUE_ELEMENTS];
+        size_t blobShadowQueueCount = 0;
+        size_t meshBlobShadowQueueCount = 0;
 
         PhysicsWorld *physicsWorld = nullptr;
 #if defined(PIP3D_PC)
@@ -100,6 +100,8 @@ namespace pip3D
         bool occlusionCullingEnabled;
 
         ShadowSettings shadowSettings;
+        uint32_t shadowCacheGeneration;
+        Color lastAutoShadowColor;
         PerformanceCounter perfCounter;
         ShadingMode shadingMode;
 
@@ -108,27 +110,7 @@ namespace pip3D
         uint32_t statsInstancesTotal;
         uint32_t statsInstancesFrustumCulled;
         uint32_t statsInstancesOcclusionCulled;
-        WorldInstanceDirtySlot worldInstanceDirty[MAX_WORLD_DIRTY_INSTANCES];
 
-        int16_t worldDirtyMinX;
-        int16_t worldDirtyMinY;
-        int16_t worldDirtyMaxX;
-        int16_t worldDirtyMaxY;
-        int16_t lastWorldDirtyMinX;
-        int16_t lastWorldDirtyMinY;
-        int16_t lastWorldDirtyMaxX;
-        int16_t lastWorldDirtyMaxY;
-        bool hasWorldDirtyRegion;
-        bool hasLastWorldDirtyRegion;
-
-        int16_t hudDirtyMinX;
-        int16_t hudDirtyMinY;
-        int16_t hudDirtyMaxX;
-        int16_t hudDirtyMaxY;
-        bool hasHudDirtyRegion;
-
-        bool cameraChangedThisFrame;
-        bool debugShowDirtyRegions;
         bool initialized;
 
         bool fogEnabled;
@@ -138,11 +120,7 @@ namespace pip3D
 
         bool shouldRenderShadowForBounds(const Vector3 &center, float radius) const;
         void drawSunDiscAtScreen(int16_t cx, int16_t cyFull, const Color &color, float glow, float sizeScale);
-        void drawWaterTriangleInternal(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2, const Color &waterColor, uint8_t alphaByte, const Camera &cam, const DisplayConfig &cfg, uint16_t *frameBufferPtr);
-
-        void addDirtyRect(MeshInstance *instance, int16_t x, int16_t y, int16_t w, int16_t h);
-        void addHudDirtyRect(int16_t x, int16_t y, int16_t w, int16_t h);
-        void addDirtyFromSphere(MeshInstance *instance, const Vector3 &c, float r);
+        void drawWaterTriangleInternal(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2, const Color &waterColor, uint8_t alphaByte, const DisplayConfig &cfg, uint16_t *frameBufferPtr);
 
     public:
         Renderer();
@@ -151,7 +129,6 @@ namespace pip3D
         bool init(const DisplayConfig &cfg);
         void beginFrame();
         void endFrame();
-        void endFrameRegion(int16_t x, int16_t y, int16_t w, int16_t h);
         void beginFrameBand(int bandIndex);
         void endFrameBand(int bandIndex);
         void drawSkyboxBackground();
@@ -160,20 +137,14 @@ namespace pip3D
         int createCamera();
         void setActiveCamera(int index);
         Camera &getCamera();
-        Camera &getCamera(int index);
 
         void setLight(int index, const Light &light);
-        int addLight(const Light &light);
-        void removeLight(int index);
         Light *getLight(int index);
         void clearLights();
         void setMainDirectionalLight(const Vector3 &direction, const Color &color, float intensity = 1.0f);
-        void setMainPointLight(const Vector3 &position, const Color &color, float intensity = 1.0f, float range = 10.0f);
-        void setLightColor(const Color &color);
         void setLightPosition(const Vector3 &pos);
         void setLightDirection(const Vector3 &dir);
         void setLightTemperature(float kelvin);
-        Color getLightColor() const;
 
         bool isInitialized() const
         {
@@ -209,8 +180,6 @@ namespace pip3D
         bool getBackfaceCullingEnabled() const { return backfaceCullingEnabled; }
         void setOcclusionCullingEnabled(bool enabled) { occlusionCullingEnabled = enabled; }
         bool getOcclusionCullingEnabled() const { return occlusionCullingEnabled; }
-        void setDebugShowDirtyRegions(bool enabled) { debugShowDirtyRegions = enabled; }
-        bool getDebugShowDirtyRegions() const { return debugShowDirtyRegions; }
         void setShadingMode(ShadingMode mode) { shadingMode = mode; }
         ShadingMode getShadingMode() const { return shadingMode; }
 
@@ -232,12 +201,16 @@ namespace pip3D
         void setClearColor(Color color) { framebuffer.setClearColor(color); }
         Skybox &getSkybox() { return framebuffer.getSkybox(); }
         bool isSkyboxEnabled() const { return framebuffer.isSkyboxEnabled(); }
+        void invalidateSkyboxCache() { framebuffer.invalidateSkyboxCache(); }
 
-        void setShadowOpacity(float opacity) { shadowSettings.shadowOpacity = clamp(opacity, 0.0f, 1.0f); }
-        void setShadowColor(const Color &color) { shadowSettings.shadowColor = color; }
-        void setShadowPlane(const Vector3 &normal, float distance) { shadowSettings.plane = ShadowProjector::ShadowPlane(normal, distance); }
-        void setShadowPlaneY(float y) { shadowSettings.plane = ShadowProjector::ShadowPlane(Vector3(0, 1, 0), -y); }
+        void setShadowOpacity(float opacity) { shadowSettings.shadowOpacity = clamp(opacity, 0.0f, 1.0f); ++shadowCacheGeneration; }
+        void setShadowColor(const Color &color) { shadowSettings.shadowColor = color; shadowSettings.shadowColorAuto = false; ++shadowCacheGeneration; }
+        void setShadowColorAuto() { shadowSettings.shadowColorAuto = true; ++shadowCacheGeneration; }
+        void setShadowPlane(const Vector3 &normal, float distance) { shadowSettings.plane = ShadowProjector::ShadowPlane(normal, distance); ++shadowCacheGeneration; }
+        void setShadowPlaneY(float y) { shadowSettings.plane = ShadowProjector::ShadowPlane(Vector3(0, 1, 0), -y); ++shadowCacheGeneration; }
         ShadowSettings &getShadowSettings() { return shadowSettings; }
+        uint32_t getShadowCacheGeneration() const { return shadowCacheGeneration; }
+        void invalidateShadowCache() { ++shadowCacheGeneration; }
 
         void setFogEnabled(bool enabled) { fogEnabled = enabled; }
         bool getFogEnabled() const { return fogEnabled; }
@@ -254,7 +227,7 @@ namespace pip3D
         void draw(MeshInstance *instance);
         void draw(Mesh *mesh);
         void flushQueue();
-        void drawMeshInstanceInternal(MeshInstance *instance, bool performFrustumCull, bool trackDirty);
+        void drawMeshInstanceInternal(MeshInstance *instance, bool performFrustumCull);
         void drawMeshInstance(MeshInstance *instance);
         void drawMeshInstance(MeshInstance *instance, ShadingMode mode);
         void drawMeshInstanceStatic(MeshInstance *instance);
@@ -264,33 +237,17 @@ namespace pip3D
         void drawMesh(Mesh *mesh);
         void drawMesh(Mesh *mesh, ShadingMode mode);
         void drawTriangle3D(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2, uint16_t color);
-
+        void drawBlobShadow(const Vector3 &position, float radius, float opacity);
         void drawWaterMesh(Mesh *mesh, float time);
         void drawWater(float yLevel, float size, Color color, float alpha, float time);
+        static constexpr uint16_t reflectWidth() { return REFLECT_WIDTH; }
+        static constexpr uint16_t reflectHeight() { return REFLECT_HEIGHT; }
+        uint16_t *getReflectBuffer() const { return reflectBuffer; }
         void drawSunSprite(const Vector3 &worldPos, const Color &color, float glow, float sizeScale = 1.0f);
-        void drawSunSpriteDirectional(const Vector3 &sunDir, const Color &color, float glow, float sizeScale = 1.0f);
         void drawText(int16_t x, int16_t y, const char *text, uint16_t color = 0xFFFF);
         void drawText(int16_t x, int16_t y, const char *text, Color color);
         void drawTextAdaptive(int16_t x, int16_t y, const char *text);
         uint16_t getAdaptiveTextColor(int16_t x, int16_t y, int16_t width = 40, int16_t height = 8);
         int16_t getTextWidth(const char *text);
-    };
-
-    class MultiCameraHelper
-    {
-    public:
-        static int createIsometricCamera(Renderer &renderer, float distance)
-        {
-            int idx = renderer.createCamera();
-            Camera &c = renderer.getCamera(idx);
-            c.setOrtho(distance, distance, 0.1f, 100.0f);
-
-            float angle = 0.785398f;
-            float dist = distance * 1.5f;
-            c.position = Vector3(dist * cosf(angle), dist * 0.7f, dist * sinf(angle));
-            c.target = Vector3(0.0f, 0.0f, 0.0f);
-            c.markDirty();
-            return idx;
-        }
     };
 }

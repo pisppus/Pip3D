@@ -106,7 +106,7 @@ namespace pip3D
             renderer->clearLights();
 
             int lightIndex = 0;
-            for (size_t i = 0; i < lights.size() && lightIndex < 4; i++)
+            for (size_t i = 0; i < lights.size() && lightIndex < 16; i++)
             {
                 LightNode *node = lights[i];
                 if (!node || !node->isEnabled() || !node->isVisible())

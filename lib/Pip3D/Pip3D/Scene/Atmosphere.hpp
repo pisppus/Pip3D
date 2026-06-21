@@ -232,6 +232,7 @@ namespace pip3D
 
             Skybox &sky = renderer->getSkybox();
             sky.setCustom(state.top, state.horizon, state.ground);
+            renderer->invalidateSkyboxCache();
             renderer->setMainDirectionalLight(state.sunDir, state.sunColor, state.intensity);
         }
 

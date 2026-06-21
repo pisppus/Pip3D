@@ -182,6 +182,27 @@ namespace pip3D
             return 1.0f / input;
 #endif
         }
+        PIP3D_FORCE_INLINE static float fastInvSqrt(float input)
+        {
+#if defined(ESP_PLATFORM) || defined(ESP32)
+            float result;
+            float f0, f2, f4, f5;
+            __asm__ __volatile__(
+                "rsqrt0.s %1, %5\n"
+                "mul.s %2, %5, %1\n"
+                "const.s %3, 3\n"
+                "mul.s %3, %3, %1\n"
+                "const.s %4, 1\n"
+                "msub.s %4, %2, %1\n"
+                "maddn.s %1, %3, %4\n"
+                "mov.s %0, %1\n"
+                : "=f"(result), "=&f"(f0), "=&f"(f2), "=&f"(f4), "=&f"(f5)
+                : "f"(input));
+            return result;
+#else
+            return 1.0f / sqrtf(input);
+#endif
+        }
     };
 
     struct Vector3
@@ -260,7 +281,7 @@ namespace pip3D
             float lenSq = x * x + y * y + z * z;
             if (lenSq > 1e-8f)
             {
-                float invLen = FastMath::fastReciprocal(sqrtf(lenSq));
+                float invLen = FastMath::fastInvSqrt(lenSq);
                 x *= invLen;
                 y *= invLen;
                 z *= invLen;

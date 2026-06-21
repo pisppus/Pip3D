@@ -746,7 +746,7 @@ namespace pip3D
       const float clipY = viewProjMatrix.m[1] * v.x + viewProjMatrix.m[5] * v.y + viewProjMatrix.m[9] * v.z + viewProjMatrix.m[13];
       const float clipZ = viewProjMatrix.m[2] * v.x + viewProjMatrix.m[6] * v.y + viewProjMatrix.m[10] * v.z + viewProjMatrix.m[14];
       const float clipW = viewProjMatrix.m[3] * v.x + viewProjMatrix.m[7] * v.y + viewProjMatrix.m[11] * v.z + viewProjMatrix.m[15];
-      const float invW = 1.0f / clipW;
+      const float invW = FastMath::fastReciprocal(clipW);
 
       return Vector3(
           (clipX * invW + 1.0f) * halfWidth + viewportX,
@@ -760,12 +760,10 @@ namespace pip3D
                                              Matrix4x4 &projMatrix,
                                              Matrix4x4 &viewProjMatrix,
                                              CameraFrustum &frustum,
-                                             bool &viewProjMatrixDirty,
-                                             bool &cameraChangedThisFrame)
+                                             bool &viewProjMatrixDirty)
     {
       if (viewProjMatrixDirty || camera.cache.flags.viewDirty || camera.cache.flags.projDirty)
       {
-        cameraChangedThisFrame = true;
         float aspect = (float)viewport.width / viewport.height;
         viewMatrix = camera.getViewMatrix();
         projMatrix = camera.getProjectionMatrix(aspect);

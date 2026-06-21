@@ -31,6 +31,7 @@ namespace pip3D
         Vector3 scale;
         Color instanceColor;
         bool visible;
+        bool blobShadow;
         bool transformDirty;
 
         mutable Vector3 cachedWorldCenter;
@@ -40,6 +41,10 @@ namespace pip3D
         mutable Vector3 *cachedScreenVertices;
         mutable uint16_t cachedProjectionCapacity;
         mutable uint32_t cachedProjectionFrameStamp;
+
+        mutable Vector3 *cachedShadowVerts;
+        mutable uint16_t cachedShadowVertCapacity;
+        mutable uint32_t cachedShadowGen;
 
         size_t managerIndex;
 
@@ -53,12 +58,16 @@ namespace pip3D
               scale(1, 1, 1),
               instanceColor(Color::WHITE),
               visible(true),
+              blobShadow(false),
               transformDirty(true),
               boundsDirty(true),
               cachedWorldVertices(nullptr),
               cachedScreenVertices(nullptr),
               cachedProjectionCapacity(0),
               cachedProjectionFrameStamp(0),
+              cachedShadowVerts(nullptr),
+              cachedShadowVertCapacity(0),
+              cachedShadowGen(0),
               managerIndex(invalidManagerIndex)
         {
             localTransform.identity();
@@ -76,6 +85,11 @@ namespace pip3D
                 MemUtils::freeData(cachedScreenVertices);
                 cachedScreenVertices = nullptr;
             }
+            if (cachedShadowVerts)
+            {
+                MemUtils::freeData(cachedShadowVerts);
+                cachedShadowVerts = nullptr;
+            }
         }
 
         void reset(Mesh *mesh)
@@ -86,9 +100,11 @@ namespace pip3D
             scale = Vector3(1, 1, 1);
             instanceColor = Color::WHITE;
             visible = true;
+            blobShadow = false;
             transformDirty = true;
             boundsDirty = true;
             cachedProjectionFrameStamp = 0;
+            cachedShadowGen = 0;
             localTransform.identity();
         }
 
@@ -97,6 +113,7 @@ namespace pip3D
             sourceMesh = mesh;
             transformDirty = boundsDirty = true;
             cachedProjectionFrameStamp = 0;
+            cachedShadowGen = 0;
         }
         Mesh *getMesh() const { return sourceMesh; }
 
@@ -105,6 +122,7 @@ namespace pip3D
             position = pos;
             transformDirty = boundsDirty = true;
             cachedProjectionFrameStamp = 0;
+            cachedShadowGen = 0;
         }
         void setPosition(float x, float y, float z)
         {
@@ -116,12 +134,14 @@ namespace pip3D
             rotation = rot;
             transformDirty = boundsDirty = true;
             cachedProjectionFrameStamp = 0;
+            cachedShadowGen = 0;
         }
         void setEuler(float pitch, float yaw, float roll)
         {
             rotation = Quaternion::fromEuler(pitch * kDegToRad, yaw * kDegToRad, roll * kDegToRad);
             transformDirty = boundsDirty = true;
             cachedProjectionFrameStamp = 0;
+            cachedShadowGen = 0;
         }
 
         void setScale(const Vector3 &scl)
@@ -129,6 +149,7 @@ namespace pip3D
             scale = scl;
             transformDirty = boundsDirty = true;
             cachedProjectionFrameStamp = 0;
+            cachedShadowGen = 0;
         }
         void setScale(float uniform)
         {
@@ -145,6 +166,7 @@ namespace pip3D
             transformDirty = true;
             boundsDirty = true;
             cachedProjectionFrameStamp = 0;
+            cachedShadowGen = 0;
         }
 
         void setColor(const Color &c) { instanceColor = c; }
@@ -152,6 +174,9 @@ namespace pip3D
         void show() { visible = true; }
         void hide() { visible = false; }
         bool isVisible() const { return visible && sourceMesh; }
+
+        void setBlobShadow(bool enabled) { blobShadow = enabled; }
+        bool getBlobShadow() const { return blobShadow; }
 
         void updateTransform()
         {
@@ -282,6 +307,25 @@ namespace pip3D
         Vector3 *getCachedScreenVertices() const { return cachedScreenVertices; }
         uint32_t getCachedProjectionFrameStamp() const { return cachedProjectionFrameStamp; }
         void setCachedProjectionFrameStamp(uint32_t stamp) const { cachedProjectionFrameStamp = stamp; }
+
+        Vector3 *getCachedShadowVerts(uint32_t expectedGen, uint16_t expectedCount) const
+        {
+            if (cachedShadowGen != expectedGen || cachedShadowVertCapacity < expectedCount)
+                return nullptr;
+            return cachedShadowVerts;
+        }
+        Vector3 *ensureShadowVertCapacity(uint16_t count) const
+        {
+            if (cachedShadowVertCapacity >= count)
+                return cachedShadowVerts;
+            if (cachedShadowVerts)
+                MemUtils::freeData(cachedShadowVerts);
+            cachedShadowVerts = (Vector3 *)MemUtils::allocData(count * sizeof(Vector3), 16);
+            cachedShadowVertCapacity = cachedShadowVerts ? count : 0;
+            return cachedShadowVerts;
+        }
+        void storeCachedShadowVerts(uint32_t gen) const { cachedShadowGen = gen; }
+        void invalidateShadowCache() const { cachedShadowGen = 0; }
 
         MeshInstance *at(float x, float y, float z)
         {

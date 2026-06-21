@@ -2,6 +2,7 @@
 
 #include "Core/Platform.hpp"
 #include "Core/Color.hpp"
+#include "Math/Algebra.hpp"
 
 namespace pip3D
 {
@@ -12,53 +13,48 @@ namespace pip3D
         LIGHT_POINT
     };
 
-    struct Light
+    struct alignas(16) Light
     {
-        static constexpr float RGB565_RED_TO_FLOAT = 0.03225806451612903226f;
-        static constexpr float RGB565_GREEN_TO_FLOAT = 0.01587301587301587302f;
-        static constexpr float RGB565_BLUE_TO_FLOAT = 0.03225806451612903226f;
+        static constexpr float INV_31 = 1.0f / 31.0f;
+        static constexpr float INV_63 = 1.0f / 63.0f;
 
-        LightType type;
-        float intensity;
         Vector3 direction;
         Vector3 position;
         Color color;
+        float intensity;
         float range;
         float rangeSq;
         float invRangeSq;
-
         mutable float cachedR, cachedG, cachedB;
         mutable bool colorCacheDirty;
+        LightType type;
 
-        Light() : type(LIGHT_DIRECTIONAL),
-                  intensity(1.0f),
-                  direction(0, -1, 0),
+        Light() : direction(0, -1, 0),
                   position(0, 10, 0),
                   color(Color::WHITE),
+                  intensity(1.0f),
                   range(0.0f),
                   rangeSq(0.0f),
                   invRangeSq(0.0f),
                   cachedR(0.0f),
                   cachedG(0.0f),
                   cachedB(0.0f),
-                  colorCacheDirty(true)
+                  colorCacheDirty(true),
+                  type(LIGHT_DIRECTIONAL)
         {
             direction.normalize();
         }
 
-        __attribute__((always_inline)) inline void getCachedRGB(float &r, float &g, float &b) const
+        __attribute__((always_inline)) inline void warmCache() const
         {
             if (unlikely(colorCacheDirty))
             {
                 const uint16_t lightRGB = color.rgb565;
-                cachedR = ((lightRGB >> 11) & 0x1F) * RGB565_RED_TO_FLOAT;
-                cachedG = ((lightRGB >> 5) & 0x3F) * RGB565_GREEN_TO_FLOAT;
-                cachedB = (lightRGB & 0x1F) * RGB565_BLUE_TO_FLOAT;
+                cachedR = static_cast<float>((lightRGB >> 11) & 0x1F) * INV_31;
+                cachedG = static_cast<float>((lightRGB >> 5) & 0x3F) * INV_63;
+                cachedB = static_cast<float>(lightRGB & 0x1F) * INV_31;
                 colorCacheDirty = false;
             }
-            r = cachedR;
-            g = cachedG;
-            b = cachedB;
         }
 
         __attribute__((always_inline)) inline void setRange(float r)
@@ -66,7 +62,7 @@ namespace pip3D
             range = r;
             if (r > 0.0f)
             {
-                float rsq = r * r;
+                const float rsq = r * r;
                 rangeSq = rsq;
                 invRangeSq = 1.0f / rsq;
             }
@@ -79,4 +75,3 @@ namespace pip3D
     };
 
 }
-
