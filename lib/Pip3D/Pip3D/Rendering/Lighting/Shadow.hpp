@@ -1,6 +1,5 @@
 #pragma once
 
-#include <stdint.h>
 #include <math.h>
 
 #include "Core/Platform.hpp"
@@ -43,13 +42,15 @@ namespace pip3D
     {
         bool enabled;
         Color shadowColor;
+        bool shadowColorAuto;
         float shadowOpacity;
         float shadowOffset;
         bool softEdges;
         ShadowProjector::ShadowPlane plane;
 
         ShadowSettings()
-            : enabled(true), shadowColor(Color::fromRGB888(20, 20, 30)),
+            : enabled(true), shadowColor(Color::BLACK),
+              shadowColorAuto(true),
               shadowOpacity(0.7f),
               shadowOffset(0.0025f), softEdges(true), plane(Vector3(0, 1, 0), 0)
         {
@@ -58,6 +59,99 @@ namespace pip3D
 
     class ShadowRenderer
     {
+    public:
+        static void drawMeshShadow(Mesh *mesh,
+                                   Mesh *shadowMesh,
+                                   bool shadowsEnabled,
+                                   const ShadowSettings &shadowSettings,
+                                   const Camera &camera,
+                                   const Light *lights,
+                                   int activeLightCount,
+                                   const Matrix4x4 &viewProjMatrix,
+                                   const Viewport &viewport,
+                                   FrameBuffer &framebuffer,
+                                   ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+                                   bool &backfaceCullingEnabled,
+                                   uint32_t shadowCacheGen)
+        {
+            if (!mesh || !shadowMesh || !shadowsEnabled || !shadowSettings.enabled)
+                return;
+            if (activeLightCount == 0)
+                return;
+            const Light &light = lights[0];
+            if (light.type != LIGHT_DIRECTIONAL && light.type != LIGHT_POINT)
+                return;
+
+            const ShadowProjector::ShadowPlane &plane = shadowSettings.plane;
+            const Vector3 meshCenter = mesh->center();
+            const float meshRadius = mesh->radius();
+            const float centerDist = plane.normal.x * meshCenter.x + plane.normal.y * meshCenter.y + plane.normal.z * meshCenter.z + plane.d;
+            if (centerDist + meshRadius <= 0.0f)
+                return;
+
+            uint16_t shadowColor;
+            uint8_t baseAlpha;
+            computeShadowColorAndAlpha(shadowSettings, shadowColor, baseAlpha);
+
+            const int16_t bandTop = currentBandOffsetY();
+            const int16_t bandBottom = static_cast<int16_t>(bandTop + currentBandHeight());
+
+            renderShadowGeometry(meshCenter, meshRadius, mesh->getTransform(), shadowMesh,
+                                 light, shadowSettings, camera, viewProjMatrix, viewport,
+                                 bandTop, bandBottom, shadowColor, baseAlpha,
+                                 framebuffer.getBuffer(), zBuffer, framebuffer.getConfig(),
+                                 backfaceCullingEnabled,
+                                 mesh, shadowCacheGen);
+        }
+
+        static void drawMeshInstanceShadow(MeshInstance *instance,
+                                           Mesh *shadowMesh,
+                                           bool shadowsEnabled,
+                                           const ShadowSettings &shadowSettings,
+                                           const Camera &camera,
+                                           const Light *lights,
+                                           int activeLightCount,
+                                           const Matrix4x4 &viewProjMatrix,
+                                           const Viewport &viewport,
+                                           FrameBuffer &framebuffer,
+                                           ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+                                           bool &backfaceCullingEnabled,
+                                           uint32_t shadowCacheGen)
+        {
+            if (!instance || !shadowMesh || !instance->isVisible() || !shadowsEnabled || !shadowSettings.enabled)
+                return;
+
+            Mesh *mesh = instance->getMesh();
+            if (!mesh || !mesh->getCastShadows())
+                return;
+            if (activeLightCount == 0)
+                return;
+            const Light &light = lights[0];
+            if (light.type != LIGHT_DIRECTIONAL && light.type != LIGHT_POINT)
+                return;
+
+            const ShadowProjector::ShadowPlane &plane = shadowSettings.plane;
+            const Vector3 instCenter = instance->center();
+            const float instRadius = instance->radius();
+            const float centerDist = plane.normal.x * instCenter.x + plane.normal.y * instCenter.y + plane.normal.z * instCenter.z + plane.d;
+            if (centerDist + instRadius <= 0.0f)
+                return;
+
+            uint16_t shadowColor;
+            uint8_t baseAlpha;
+            computeShadowColorAndAlpha(shadowSettings, shadowColor, baseAlpha);
+
+            const int16_t bandTop = currentBandOffsetY();
+            const int16_t bandBottom = static_cast<int16_t>(bandTop + currentBandHeight());
+
+            renderShadowGeometry(instCenter, instRadius, instance->transform(), shadowMesh,
+                                 light, shadowSettings, camera, viewProjMatrix, viewport,
+                                 bandTop, bandBottom, shadowColor, baseAlpha,
+                                 framebuffer.getBuffer(), zBuffer, framebuffer.getConfig(),
+                                 backfaceCullingEnabled,
+                                 instance, shadowCacheGen);
+        }
+
     private:
         __attribute__((always_inline)) static inline bool isFiniteProjectedPoint(const Vector3 &p)
         {
@@ -129,27 +223,25 @@ namespace pip3D
             p1.z -= depthBias;
             p2.z -= depthBias;
 
-            float minY = fminf(p0.y, fminf(p1.y, p2.y));
-            float maxY = fmaxf(p0.y, fmaxf(p1.y, p2.y));
+            const float minY = fminf(p0.y, fminf(p1.y, p2.y));
+            const float maxY = fmaxf(p0.y, fmaxf(p1.y, p2.y));
             if (maxY < bandTop || minY >= bandBottom)
                 return;
 
-            Vector3 lp0 = p0;
-            Vector3 lp1 = p1;
-            Vector3 lp2 = p2;
-            lp0.y -= (float)bandTop;
-            lp1.y -= (float)bandTop;
-            lp2.y -= (float)bandTop;
+            const float bandTopF = static_cast<float>(bandTop);
+            p0.y -= bandTopF;
+            p1.y -= bandTopF;
+            p2.y -= bandTopF;
 
-            Rasterizer::fillShadowTriangle((int16_t)lp0.x, (int16_t)lp0.y, lp0.z,
-                                           (int16_t)lp1.x, (int16_t)lp1.y, lp1.z,
-                                           (int16_t)lp2.x, (int16_t)lp2.y, lp2.z,
-                                           shadowColor,
-                                           baseAlpha,
-                                           frameBuffer,
-                                           zBuffer,
-                                           framebufferConfig,
-                                           false);
+            Rasterizer::fillPlanarShadowTriangle((int16_t)p0.x, (int16_t)p0.y, p0.z,
+                                                 (int16_t)p1.x, (int16_t)p1.y, p1.z,
+                                                 (int16_t)p2.x, (int16_t)p2.y, p2.z,
+                                                 shadowColor,
+                                                 baseAlpha,
+                                                 frameBuffer,
+                                                 zBuffer,
+                                                 framebufferConfig,
+                                                 false);
         }
 
         static void clipAndRenderShadowTriangle(
@@ -253,363 +345,195 @@ namespace pip3D
             }
         }
 
-    public:
-        static void drawMeshShadow(Mesh *mesh,
-                                   bool shadowsEnabled,
-                                   const ShadowSettings &shadowSettings,
-                                   const Camera &camera,
-                                   const Light *lights,
-                                   int activeLightCount,
-                                   const Matrix4x4 &viewProjMatrix,
-                                   const Viewport &viewport,
-                                   FrameBuffer &framebuffer,
-                                   ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
-                                   bool &backfaceCullingEnabled)
+        __attribute__((always_inline)) static inline Vector3 computeDirNorm(const Light &light, const Vector3 &objectCenter)
         {
-            if (!mesh || !mesh->isVisible() || !shadowsEnabled || !shadowSettings.enabled)
-                return;
-
-            mesh->updateTransform();
-
-            if (activeLightCount == 0)
-                return;
-            const Light &light = lights[0];
-            if (light.type != LIGHT_DIRECTIONAL && light.type != LIGHT_POINT)
-                return;
-
-            const ShadowProjector::ShadowPlane &plane = shadowSettings.plane;
-            Vector3 meshCenter = mesh->center();
-            float meshRadius = mesh->radius();
-            float centerDist = plane.normal.x * meshCenter.x + plane.normal.y * meshCenter.y + plane.normal.z * meshCenter.z + plane.d;
-            if (centerDist + meshRadius <= 0.0f)
+            if (light.type == LIGHT_POINT)
             {
-                return;
+                Vector3 dir = objectCenter - light.position;
+                dir.normalize();
+                return dir;
             }
-
-            Vector3 dirNorm(0.0f, -1.0f, 0.0f);
-            if (light.type == LIGHT_DIRECTIONAL)
-            {
-                dirNorm = light.direction;
-                dirNorm.normalize();
-            }
-            else if (light.type == LIGHT_POINT)
-            {
-                dirNorm = meshCenter - light.position;
-                dirNorm.normalize();
-            }
-
-            const float planeY = -plane.d / plane.normal.y;
-            const int16_t bandTop = currentBandOffsetY();
-            const int16_t bandBottom = static_cast<int16_t>(bandTop + currentBandHeight());
-
-            if (fabsf(dirNorm.y) > 0.01f)
-            {
-                float tProj = (planeY - meshCenter.y) / dirNorm.y;
-                if (tProj > 0.0f)
-                {
-                    Vector3 shadowCenter = meshCenter + dirNorm * tProj;
-                    float shadowRadius = meshRadius / fabsf(dirNorm.y);
-
-                    Vector3 projCenter = CameraController::project(shadowCenter, viewProjMatrix, viewport);
-                    Vector3 projEdgeX = CameraController::project(shadowCenter + camera.right() * shadowRadius, viewProjMatrix, viewport);
-                    Vector3 projEdgeY = CameraController::project(shadowCenter + camera.upVec() * shadowRadius, viewProjMatrix, viewport);
-                    float rScr = fmaxf(fabsf(projEdgeX.x - projCenter.x), fabsf(projEdgeY.y - projCenter.y));
-
-                    if ((projCenter.y + rScr) < bandTop || (projCenter.y - rScr) >= bandBottom)
-                    {
-                        return;
-                    }
-                }
-            }
-
-            uint16_t shadowColor;
-            uint8_t baseAlpha;
-            computeShadowColorAndAlpha(shadowSettings, shadowColor, baseAlpha);
-
-            float absLy = fabsf(dirNorm.y);
-            float fadeFactor = 1.0f;
-            if (absLy < 0.35f)
-            {
-                fadeFactor = (absLy - 0.12f) / (0.35f - 0.12f);
-                if (fadeFactor < 0.0f)
-                    fadeFactor = 0.0f;
-            }
-            baseAlpha = (uint8_t)(baseAlpha * fadeFactor);
-            if (baseAlpha == 0)
-            {
-                return;
-            }
-
-            bool oldCulling = backfaceCullingEnabled;
-            backfaceCullingEnabled = false;
-
-            const float offsetY = shadowSettings.shadowOffset;
-            const float depthBias = 0.0015f;
-            const uint16_t vertexCount = mesh->numVertices();
-            const uint16_t faceCount = mesh->numFaces();
-            const float viewportHalfWidth = static_cast<float>(viewport.width) * 0.5f;
-            const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
-            const Vector3 *localVerts = nullptr;
-            if (mesh->ensureDecodedVertexCache())
-                localVerts = mesh->getCachedLocalVertices();
-            Vector3 *worldVerts = nullptr;
-            const uint32_t frameStamp = currentFrameStamp();
-            if (mesh->ensureProjectionCache(vertexCount))
-            {
-                worldVerts = mesh->getCachedWorldVertices();
-                if (mesh->getCachedProjectionFrameStamp() != frameStamp)
-                {
-                    const Matrix4x4 &meshTransform = mesh->getTransform();
-                    for (uint16_t vi = 0; vi < vertexCount; ++vi)
-                    {
-                        Vector3 localPos = localVerts ? localVerts[vi] : mesh->decodePosition(mesh->vert(vi));
-                        worldVerts[vi] = meshTransform.transformNoDiv(localPos);
-                    }
-                }
-            }
-
-            const DisplayConfig &framebufferConfig = framebuffer.getConfig();
-            uint16_t *const frameBuffer = framebuffer.getBuffer();
-
-            thread_local static std::vector<Vector3> shadowVertsCache;
-            if (shadowVertsCache.size() < vertexCount)
-            {
-                shadowVertsCache.resize(vertexCount);
-            }
-
-            const Vector3 &L_dir = dirNorm;
-            const float ly = L_dir.y;
-            const float signLy = (ly >= 0.0f) ? 1.0f : -1.0f;
-            const float absLyVal = fabsf(ly);
-            const float safeLy = (absLyVal < 0.22f) ? signLy * 0.22f : ly;
-
-            for (uint16_t vi = 0; vi < vertexCount; ++vi)
-            {
-                Vector3 v = worldVerts ? worldVerts[vi] : mesh->vertex(vi);
-                Vector3 sv;
-                if (light.type == LIGHT_DIRECTIONAL)
-                {
-                    float t = (planeY - v.y) / safeLy;
-                    sv = Vector3(v.x + t * L_dir.x, planeY, v.z + t * L_dir.z);
-                }
-                else
-                {
-                    Vector3 Ldir = v - light.position;
-                    if (fabsf(Ldir.y) > 0.001f)
-                    {
-                        float t = (planeY - light.position.y) / Ldir.y;
-                        sv = light.position + Ldir * t;
-                    }
-                    else
-                    {
-                        sv = Vector3(v.x, planeY, v.z);
-                    }
-                }
-                sv.y += offsetY;
-                shadowVertsCache[vi] = sv;
-            }
-
-            for (uint16_t i = 0; i < faceCount; ++i)
-            {
-                const Face &face = mesh->face(i);
-                Vector3 v0;
-                Vector3 v1;
-                Vector3 v2;
-                if (worldVerts)
-                {
-                    v0 = worldVerts[face.v0];
-                    v1 = worldVerts[face.v1];
-                    v2 = worldVerts[face.v2];
-                }
-                else
-                {
-                    v0 = mesh->vertex(face.v0);
-                    v1 = mesh->vertex(face.v1);
-                    v2 = mesh->vertex(face.v2);
-                }
-
-                float d0 = plane.normal.x * v0.x + plane.normal.y * v0.y + plane.normal.z * v0.z + plane.d;
-                float d1 = plane.normal.x * v1.x + plane.normal.y * v1.y + plane.normal.z * v1.z + plane.d;
-                float d2 = plane.normal.x * v2.x + plane.normal.y * v2.y + plane.normal.z * v2.z + plane.d;
-                if (d0 <= 0.0f && d1 <= 0.0f && d2 <= 0.0f)
-                    continue;
-
-                Vector3 n = (v1 - v0).cross(v2 - v0);
-                Vector3 L;
-                if (light.type == LIGHT_DIRECTIONAL)
-                {
-                    L = Vector3(-dirNorm.x, -dirNorm.y, -dirNorm.z);
-                }
-                else
-                {
-                    L = light.position - v0;
-                }
-                float nl = n.dot(L);
-                if (nl <= 0.0f)
-                    continue;
-
-                Vector3 sv0 = shadowVertsCache[face.v0];
-                Vector3 sv1 = shadowVertsCache[face.v1];
-                Vector3 sv2 = shadowVertsCache[face.v2];
-
-                clipAndRenderShadowTriangle(sv0, sv1, sv2,
-                                            camera, viewport, viewProjMatrix,
-                                            viewportHalfWidth, viewportHalfHeight,
-                                            bandTop, bandBottom, shadowColor, baseAlpha,
-                                            frameBuffer, zBuffer, framebufferConfig, depthBias);
-            }
-
-            backfaceCullingEnabled = oldCulling;
+            Vector3 dir = light.direction;
+            dir.normalize();
+            return dir;
         }
 
-        static void drawMeshInstanceShadow(MeshInstance *instance,
-                                           bool shadowsEnabled,
-                                           const ShadowSettings &shadowSettings,
-                                           const Camera &camera,
-                                           const Light *lights,
-                                           int activeLightCount,
-                                           const Matrix4x4 &viewProjMatrix,
-                                           const Viewport &viewport,
-                                           FrameBuffer &framebuffer,
-                                           ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
-                                           bool &backfaceCullingEnabled)
+        __attribute__((always_inline)) static inline bool computeBandReject(const Vector3 &dirNorm,
+                                                                            const Vector3 &center, float radius,
+                                                                            float planeY,
+                                                                            const Matrix4x4 &viewProjMatrix,
+                                                                            const Viewport &viewport,
+                                                                            const Camera &camera,
+                                                                            int16_t bandTop, int16_t bandBottom)
         {
-            if (!instance || !instance->isVisible() || !shadowsEnabled || !shadowSettings.enabled)
-                return;
+            if (fabsf(dirNorm.y) <= 0.01f)
+                return false;
 
-            Mesh *mesh = instance->getMesh();
-            if (!mesh || !mesh->getCastShadows())
-                return;
+            const float tProj = (planeY - center.y) / dirNorm.y;
+            if (tProj <= 0.0f)
+                return false;
 
-            if (activeLightCount == 0)
-                return;
-            const Light &light = lights[0];
-            if (light.type != LIGHT_DIRECTIONAL && light.type != LIGHT_POINT)
-                return;
+            const Vector3 shadowCenter = center + dirNorm * tProj;
+            const float shadowRadius = radius / fabsf(dirNorm.y);
 
-            const Matrix4x4 &worldTransform = instance->transform();
+            const Vector3 projCenter = CameraController::project(shadowCenter, viewProjMatrix, viewport);
+            const Vector3 projEdgeX = CameraController::project(shadowCenter + camera.right() * shadowRadius, viewProjMatrix, viewport);
+            const Vector3 projEdgeY = CameraController::project(shadowCenter + camera.upVec() * shadowRadius, viewProjMatrix, viewport);
+            const float rScr = fmaxf(fabsf(projEdgeX.x - projCenter.x), fabsf(projEdgeY.y - projCenter.y));
 
+            return ((projCenter.y + rScr) < bandTop || (projCenter.y - rScr) >= bandBottom);
+        }
+
+        template <typename CacheOwner>
+        static void renderShadowGeometry(
+            const Vector3 &objectCenter, float objectRadius,
+            const Matrix4x4 &worldTransform,
+            Mesh *shadowMesh,
+            const Light &light,
+            const ShadowSettings &shadowSettings,
+            const Camera &camera,
+            const Matrix4x4 &viewProjMatrix,
+            const Viewport &viewport,
+            int16_t bandTop, int16_t bandBottom,
+            uint16_t shadowColor, uint8_t baseAlpha,
+            uint16_t *frameBuffer,
+            ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+            const DisplayConfig &framebufferConfig,
+            bool &backfaceCullingEnabled,
+            CacheOwner *cacheOwner,
+            uint32_t shadowCacheGen)
+        {
             const ShadowProjector::ShadowPlane &plane = shadowSettings.plane;
-            Vector3 instCenter = instance->center();
-            float instRadius = instance->radius();
-            float centerDist = plane.normal.x * instCenter.x + plane.normal.y * instCenter.y + plane.normal.z * instCenter.z + plane.d;
-            if (centerDist + instRadius <= 0.0f)
-            {
-                return;
-            }
 
-            Vector3 dirNorm(0.0f, -1.0f, 0.0f);
-            if (light.type == LIGHT_DIRECTIONAL)
-            {
-                dirNorm = light.direction;
-                dirNorm.normalize();
-            }
-            else if (light.type == LIGHT_POINT)
-            {
-                dirNorm = instCenter - light.position;
-                dirNorm.normalize();
-            }
-
+            const Vector3 dirNorm = computeDirNorm(light, objectCenter);
             const float planeY = -plane.d / plane.normal.y;
-            const int16_t bandTop = currentBandOffsetY();
-            const int16_t bandBottom = static_cast<int16_t>(bandTop + currentBandHeight());
 
-            if (fabsf(dirNorm.y) > 0.01f)
-            {
-                float tProj = (planeY - instCenter.y) / dirNorm.y;
-                if (tProj > 0.0f)
-                {
-                    Vector3 shadowCenter = instCenter + dirNorm * tProj;
-                    float shadowRadius = instRadius / fabsf(dirNorm.y);
+            if (computeBandReject(dirNorm, objectCenter, objectRadius, planeY,
+                                  viewProjMatrix, viewport, camera, bandTop, bandBottom))
+                return;
 
-                    Vector3 projCenter = CameraController::project(shadowCenter, viewProjMatrix, viewport);
-                    Vector3 projEdgeX = CameraController::project(shadowCenter + camera.right() * shadowRadius, viewProjMatrix, viewport);
-                    Vector3 projEdgeY = CameraController::project(shadowCenter + camera.upVec() * shadowRadius, viewProjMatrix, viewport);
-                    float rScr = fmaxf(fabsf(projEdgeX.x - projCenter.x), fabsf(projEdgeY.y - projCenter.y));
+            const float absLy = fabsf(dirNorm.y);
+            const float ly = dirNorm.y;
+            const float signLy = (ly >= 0.0f) ? 1.0f : -1.0f;
+            const float safeLy = (absLy < 0.22f) ? signLy * 0.22f : ly;
+            const float invSafeLy = 1.0f / safeLy;
 
-                    if ((projCenter.y + rScr) < bandTop || (projCenter.y - rScr) >= bandBottom)
-                    {
-                        return;
-                    }
-                }
-            }
-
-            uint16_t shadowColor;
-            uint8_t baseAlpha;
-            computeShadowColorAndAlpha(shadowSettings, shadowColor, baseAlpha);
-
-            float absLy = fabsf(dirNorm.y);
             float fadeFactor = 1.0f;
             if (absLy < 0.35f)
             {
-                fadeFactor = (absLy - 0.12f) / (0.35f - 0.12f);
+                fadeFactor = (absLy - 0.12f) * (1.0f / (0.35f - 0.12f));
                 if (fadeFactor < 0.0f)
                     fadeFactor = 0.0f;
             }
-            baseAlpha = (uint8_t)(baseAlpha * fadeFactor);
-            if (baseAlpha == 0)
+
+            float heightDiff = objectCenter.y - planeY;
+            if (heightDiff < 0.0f)
+                heightDiff = 0.0f;
+            const float maxHeightDist = objectRadius * 5.0f;
+            if (maxHeightDist > 1e-4f)
             {
-                return;
+                float t = heightDiff * FastMath::fastReciprocal(maxHeightDist);
+                if (t > 1.0f)
+                    t = 1.0f;
+                float sm = t * t * (3.0f - 2.0f * t);
+                fadeFactor *= (1.0f - sm);
             }
 
-            bool oldCulling = backfaceCullingEnabled;
+            const float dx = objectCenter.x - camera.position.x;
+            const float dy = objectCenter.y - camera.position.y;
+            const float dz = objectCenter.z - camera.position.z;
+            const float camDistSq = dx * dx + dy * dy + dz * dz;
+            const float farFadeStart = camera.farPlane * 0.55f;
+            const float farFadeEnd = camera.farPlane * 0.9f;
+            if (camDistSq > farFadeStart * farFadeStart)
+            {
+                float distT = (camDistSq * FastMath::fastInvSqrt(camDistSq) - farFadeStart) *
+                              FastMath::fastReciprocal(farFadeEnd - farFadeStart);
+                if (distT > 1.0f)
+                    distT = 1.0f;
+                else if (distT < 0.0f)
+                    distT = 0.0f;
+                float distSm = distT * distT * (3.0f - 2.0f * distT);
+                fadeFactor *= (1.0f - distSm);
+            }
+
+            baseAlpha = (uint8_t)(baseAlpha * fadeFactor);
+            if (baseAlpha == 0)
+                return;
+
+            const bool oldCulling = backfaceCullingEnabled;
             backfaceCullingEnabled = false;
 
             const float offsetY = shadowSettings.shadowOffset;
             const float depthBias = 0.0015f;
-            const uint16_t vertexCount = mesh->numVertices();
-            const uint16_t faceCount = mesh->numFaces();
+
+            const uint16_t vertexCount = shadowMesh->numVertices();
+            const uint16_t faceCount = shadowMesh->numFaces();
             const float viewportHalfWidth = static_cast<float>(viewport.width) * 0.5f;
             const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
+
             const Vector3 *localVerts = nullptr;
-            if (mesh->ensureDecodedVertexCache())
-                localVerts = mesh->getCachedLocalVertices();
-            Vector3 *worldVerts = nullptr;
-            const uint32_t frameStamp = currentFrameStamp();
-            if (instance->ensureProjectionCache(vertexCount))
+            if (shadowMesh->ensureDecodedVertexCache())
+                localVerts = shadowMesh->getCachedLocalVertices();
+
+            Vector3 *worldVerts = (Vector3 *)alloca(vertexCount * sizeof(Vector3));
+
+            Vector3 *shadowVertsCache = nullptr;
+            bool cacheHit = false;
+            bool cacheStore = false;
+            if (cacheOwner && shadowCacheGen != 0)
             {
-                worldVerts = instance->getCachedWorldVertices();
-                if (instance->getCachedProjectionFrameStamp() != frameStamp)
+                shadowVertsCache = cacheOwner->getCachedShadowVerts(shadowCacheGen, vertexCount);
+                if (shadowVertsCache)
                 {
-                    for (uint16_t vi = 0; vi < vertexCount; ++vi)
-                    {
-                        Vector3 local = localVerts ? localVerts[vi] : mesh->decodePosition(mesh->vert(vi));
-                        worldVerts[vi] = worldTransform.transformNoDiv(local);
-                    }
-                }
-            }
-
-            const DisplayConfig &framebufferConfig = framebuffer.getConfig();
-            uint16_t *const frameBuffer = framebuffer.getBuffer();
-
-            thread_local static std::vector<Vector3> shadowVertsCache;
-            if (shadowVertsCache.size() < vertexCount)
-            {
-                shadowVertsCache.resize(vertexCount);
-            }
-
-            const Vector3 &L_dir = dirNorm;
-            const float ly = L_dir.y;
-            const float signLy = (ly >= 0.0f) ? 1.0f : -1.0f;
-            const float absLyVal = fabsf(ly);
-            const float safeLy = (absLyVal < 0.22f) ? signLy * 0.22f : ly;
-
-            for (uint16_t vi = 0; vi < vertexCount; ++vi)
-            {
-                Vector3 v = worldVerts ? worldVerts[vi] : worldTransform.transformNoDiv(localVerts ? localVerts[vi] : mesh->decodePosition(mesh->vert(vi)));
-                Vector3 sv;
-                if (light.type == LIGHT_DIRECTIONAL)
-                {
-                    float t = (planeY - v.y) / safeLy;
-                    sv = Vector3(v.x + t * L_dir.x, planeY, v.z + t * L_dir.z);
+                    cacheHit = true;
                 }
                 else
                 {
-                    Vector3 Ldir = v - light.position;
-                    if (fabsf(Ldir.y) > 0.001f)
+                    shadowVertsCache = cacheOwner->ensureShadowVertCapacity(vertexCount);
+                    if (shadowVertsCache)
+                        cacheStore = true;
+                }
+            }
+            if (!shadowVertsCache)
+            {
+                shadowVertsCache = (Vector3 *)alloca(vertexCount * sizeof(Vector3));
+            }
+
+            const bool recomputeShadow = !cacheHit;
+            const bool isDirectional = (light.type == LIGHT_DIRECTIONAL);
+            const Vector3 negDirNorm(-dirNorm.x, -dirNorm.y, -dirNorm.z);
+            const float dirX = dirNorm.x;
+            const float dirZ = dirNorm.z;
+            const float planeYMinusLightY = planeY - light.position.y;
+            const float lightPosX = light.position.x;
+            const float lightPosY = light.position.y;
+            const float lightPosZ = light.position.z;
+
+            for (uint16_t vi = 0; vi < vertexCount; ++vi)
+            {
+                const Vector3 localPos = localVerts ? localVerts[vi] : shadowMesh->decodePosition(shadowMesh->vert(vi));
+                const Vector3 v = worldTransform.transformNoDiv(localPos);
+                worldVerts[vi] = v;
+
+                if (!recomputeShadow)
+                    continue;
+
+                Vector3 sv;
+                if (isDirectional)
+                {
+                    const float t = (planeY - v.y) * invSafeLy;
+                    sv = Vector3(v.x + t * dirX, planeY, v.z + t * dirZ);
+                }
+                else
+                {
+                    const float ldy = v.y - lightPosY;
+                    if (fabsf(ldy) > 0.001f)
                     {
-                        float t = (planeY - light.position.y) / Ldir.y;
-                        sv = light.position + Ldir * t;
+                        const float t = planeYMinusLightY / ldy;
+                        sv = Vector3(lightPosX + (v.x - lightPosX) * t,
+                                     planeY,
+                                     lightPosZ + (v.z - lightPosZ) * t);
                     }
                     else
                     {
@@ -620,56 +544,44 @@ namespace pip3D
                 shadowVertsCache[vi] = sv;
             }
 
+            if (cacheStore)
+                cacheOwner->storeCachedShadowVerts(shadowCacheGen);
+
+            const float pnX = plane.normal.x;
+            const float pnY = plane.normal.y;
+            const float pnZ = plane.normal.z;
+            const float pd = plane.d;
+
             for (uint16_t i = 0; i < faceCount; ++i)
             {
-                const Face &face = mesh->face(i);
-                Vector3 v0;
-                Vector3 v1;
-                Vector3 v2;
-                if (worldVerts)
-                {
-                    v0 = worldVerts[face.v0];
-                    v1 = worldVerts[face.v1];
-                    v2 = worldVerts[face.v2];
-                }
-                else
-                {
-                    const Vertex &vert0 = mesh->vert(face.v0);
-                    const Vertex &vert1 = mesh->vert(face.v1);
-                    const Vertex &vert2 = mesh->vert(face.v2);
+                const Face &face = shadowMesh->face(i);
+                const Vector3 v0 = worldVerts[face.v0];
+                const Vector3 v1 = worldVerts[face.v1];
+                const Vector3 v2 = worldVerts[face.v2];
 
-                    Vector3 local0 = localVerts ? localVerts[face.v0] : mesh->decodePosition(vert0);
-                    Vector3 local1 = localVerts ? localVerts[face.v1] : mesh->decodePosition(vert1);
-                    Vector3 local2 = localVerts ? localVerts[face.v2] : mesh->decodePosition(vert2);
-
-                    v0 = worldTransform.transformNoDiv(local0);
-                    v1 = worldTransform.transformNoDiv(local1);
-                    v2 = worldTransform.transformNoDiv(local2);
-                }
-
-                float d0 = plane.normal.x * v0.x + plane.normal.y * v0.y + plane.normal.z * v0.z + plane.d;
-                float d1 = plane.normal.x * v1.x + plane.normal.y * v1.y + plane.normal.z * v1.z + plane.d;
-                float d2 = plane.normal.x * v2.x + plane.normal.y * v2.y + plane.normal.z * v2.z + plane.d;
+                const float d0 = pnX * v0.x + pnY * v0.y + pnZ * v0.z + pd;
+                const float d1 = pnX * v1.x + pnY * v1.y + pnZ * v1.z + pd;
+                const float d2 = pnX * v2.x + pnY * v2.y + pnZ * v2.z + pd;
                 if (d0 <= 0.0f && d1 <= 0.0f && d2 <= 0.0f)
                     continue;
 
-                Vector3 n = (v1 - v0).cross(v2 - v0);
+                const Vector3 n = (v1 - v0).cross(v2 - v0);
                 Vector3 L;
-                if (light.type == LIGHT_DIRECTIONAL)
+                if (isDirectional)
                 {
-                    L = Vector3(-dirNorm.x, -dirNorm.y, -dirNorm.z);
+                    L = negDirNorm;
                 }
                 else
                 {
                     L = light.position - v0;
                 }
-                float nl = n.dot(L);
+                const float nl = n.dot(L);
                 if (nl <= 0.0f)
                     continue;
 
-                Vector3 sv0 = shadowVertsCache[face.v0];
-                Vector3 sv1 = shadowVertsCache[face.v1];
-                Vector3 sv2 = shadowVertsCache[face.v2];
+                const Vector3 sv0 = shadowVertsCache[face.v0];
+                const Vector3 sv1 = shadowVertsCache[face.v1];
+                const Vector3 sv2 = shadowVertsCache[face.v2];
 
                 clipAndRenderShadowTriangle(sv0, sv1, sv2,
                                             camera, viewport, viewProjMatrix,

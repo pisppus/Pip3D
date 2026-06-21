@@ -9,8 +9,6 @@ namespace pip3D
         if (!mesh)
             return;
 
-        updateReflectionBufferOnDemand();
-
         MeshRenderer::drawWaterMesh(mesh,
                                     cameras[activeCameraIndex],
                                     viewport,
@@ -19,9 +17,9 @@ namespace pip3D
                                     framebuffer,
                                     zBuffer,
                                     time,
-                                    reflectionBuffer,
-                                    reflectionWidth,
-                                    reflectionHeight);
+                                    reflectBuffer,
+                                    REFLECT_WIDTH,
+                                    REFLECT_HEIGHT);
     }
 
     void Renderer::drawWater(float yLevel, float size, Color color, float alpha, float time)
@@ -38,50 +36,53 @@ namespace pip3D
         const uint8_t alphaByte = static_cast<uint8_t>(alpha * COLOR_BYTE_MAX_F);
         const DisplayConfig &cfg = framebuffer.getConfig();
 
-        Camera &cam = cameras[activeCameraIndex];
-
-        addDirtyRect(nullptr, 0, 0, viewport.width, viewport.height);
-
         const Vector3 center(0.0f, yLevel, 0.0f);
         const float radius = size * 0.75f;
         if (!frustum.sphere(center, radius))
-        {
             return;
-        }
 
-        const int GRID = 32;
+        constexpr int GRID = 32;
         const float half = size * 0.5f;
-        const float step = size / static_cast<float>(GRID);
+        constexpr float invGRID = 1.0f / static_cast<float>(GRID);
+        const float step = size * invGRID;
 
         const float freq = 0.6f;
         const float amp = size * 0.02f;
 
         float sinTerms[GRID + 1];
         float cosTerms[GRID + 1];
+        float val = -half;
         for (int i = 0; i <= GRID; ++i)
         {
-            float val = -half + step * static_cast<float>(i);
-            sinTerms[i] = FastMath::fastSin(val * freq + time) * amp;
-            cosTerms[i] = FastMath::fastCos(val * freq + time) * amp;
+            float s, c;
+            FastMath::fastSinCos(val * freq + time, s, c);
+            sinTerms[i] = s * amp;
+            cosTerms[i] = c * amp;
+            val += step;
         }
 
+        const float yBase = yLevel;
         for (int iz = 0; iz < GRID; ++iz)
         {
-            float z0 = -half + step * static_cast<float>(iz);
-            float z1 = z0 + step;
+            const float z0 = -half + step * static_cast<float>(iz);
+            const float z1 = z0 + step;
+            const float cosZ0 = cosTerms[iz];
+            const float cosZ1 = cosTerms[iz + 1];
 
             for (int ix = 0; ix < GRID; ++ix)
             {
-                float x0 = -half + step * static_cast<float>(ix);
-                float x1 = x0 + step;
+                const float x0 = -half + step * static_cast<float>(ix);
+                const float x1 = x0 + step;
+                const float sinX0 = sinTerms[ix];
+                const float sinX1 = sinTerms[ix + 1];
 
-                Vector3 v00(x0, yLevel + sinTerms[ix] + cosTerms[iz], z0);
-                Vector3 v10(x1, yLevel + sinTerms[ix + 1] + cosTerms[iz], z0);
-                Vector3 v01(x0, yLevel + sinTerms[ix] + cosTerms[iz + 1], z1);
-                Vector3 v11(x1, yLevel + sinTerms[ix + 1] + cosTerms[iz + 1], z1);
+                const Vector3 v00(x0, yBase + sinX0 + cosZ0, z0);
+                const Vector3 v10(x1, yBase + sinX1 + cosZ0, z0);
+                const Vector3 v01(x0, yBase + sinX0 + cosZ1, z1);
+                const Vector3 v11(x1, yBase + sinX1 + cosZ1, z1);
 
-                drawWaterTriangleInternal(v00, v10, v11, color, alphaByte, cam, cfg, fb);
-                drawWaterTriangleInternal(v00, v11, v01, color, alphaByte, cam, cfg, fb);
+                drawWaterTriangleInternal(v00, v10, v11, color, alphaByte, cfg, fb);
+                drawWaterTriangleInternal(v00, v11, v01, color, alphaByte, cfg, fb);
             }
         }
     }
@@ -90,58 +91,18 @@ namespace pip3D
     {
         Vector3 p = project(worldPos);
         if (cameras[activeCameraIndex].projectionType == PERSPECTIVE && p.z <= 0.0f)
-        {
             return;
-        }
-        drawSunDiscAtScreen((int16_t)p.x, (int16_t)p.y, color, glow, sizeScale);
-    }
-
-    void Renderer::drawSunSpriteDirectional(const Vector3 &sunDir, const Color &color, float glow, float sizeScale)
-    {
-        const Camera &cam = cameras[activeCameraIndex];
-        Vector3 dir = sunDir;
-        const float lenSq = dir.lengthSquared();
-        if (lenSq <= 1e-6f)
-        {
-            return;
-        }
-        dir *= (1.0f / sqrtf(lenSq));
-
-        const float forwardDot = dir.dot(cam.forward());
-        if (forwardDot <= 0.001f)
-        {
-            return;
-        }
-
-        const float aspect = viewport.height > 0 ? (float)viewport.width / (float)viewport.height : 1.0f;
-        const float tanHalfFov = tanf(cam.fov * kDegToRad * 0.5f);
-        if (tanHalfFov <= 1e-6f)
-        {
-            return;
-        }
-
-        const float rightDot = dir.dot(cam.right());
-        const float upDot = dir.dot(cam.upVec());
-        const float ndcX = rightDot / (forwardDot * tanHalfFov * aspect);
-        const float ndcY = upDot / (forwardDot * tanHalfFov);
-        if (ndcX < -1.2f || ndcX > 1.2f || ndcY < -1.2f || ndcY > 1.2f)
-        {
-            return;
-        }
-
-        const int16_t screenX = static_cast<int16_t>((ndcX + 1.0f) * 0.5f * viewport.width);
-        const int16_t screenY = static_cast<int16_t>((1.0f - ndcY) * 0.5f * viewport.height);
-        drawSunDiscAtScreen(screenX, screenY, color, glow, sizeScale);
+        drawSunDiscAtScreen(static_cast<int16_t>(p.x), static_cast<int16_t>(p.y), color, glow, sizeScale);
     }
 
     void Renderer::drawSunDiscAtScreen(int16_t cx, int16_t cyFull, const Color &color, float glow, float sizeScale)
     {
-        auto cfg = framebuffer.getConfig();
+        const DisplayConfig &cfg = framebuffer.getConfig();
         uint16_t *fb = framebuffer.getBuffer();
         if (!fb)
             return;
 
-        int16_t minDim = viewport.width < viewport.height ? viewport.width : viewport.height;
+        const int16_t minDim = viewport.width < viewport.height ? viewport.width : viewport.height;
         if (minDim <= 0)
             return;
 
@@ -160,7 +121,7 @@ namespace pip3D
         if (extra > 1.0f)
             extra = 1.0f;
 
-        int16_t radius = (int16_t)(baseRadius * (0.85f + extra * 0.35f));
+        const int16_t radius = static_cast<int16_t>(baseRadius * (0.85f + extra * 0.35f));
         if (radius <= 0)
             return;
 
@@ -170,26 +131,62 @@ namespace pip3D
             return;
 
         int16_t cy = static_cast<int16_t>(cyFull - bandTop);
-        int r2 = radius * radius;
 
-        for (int dy = -radius; dy <= radius; ++dy)
+        int16_t dyMin = -radius;
+        int16_t dyMax = radius;
+        if (cy + dyMin < 0)
+            dyMin = -cy;
+        if (cy + dyMax >= cfg.height)
+            dyMax = static_cast<int16_t>(cfg.height - 1 - cy);
+        if (dyMin > dyMax)
+            return;
+
+        int16_t dxMin = -radius;
+        int16_t dxMax = radius;
+        if (cx + dxMin < 0)
+            dxMin = -cx;
+        if (cx + dxMax >= cfg.width)
+            dxMax = static_cast<int16_t>(cfg.width - 1 - cx);
+        if (dxMin > dxMax)
+            return;
+
+        const int32_t r2 = static_cast<int32_t>(radius) * radius;
+        const uint16_t color565 = color.rgb565;
+        const int16_t stride = cfg.width;
+        const int32_t dxMinSq = static_cast<int32_t>(dxMin) * dxMin;
+
+        for (int16_t dy = dyMin; dy <= dyMax; ++dy)
         {
-            int yy = cy + dy;
-            if (yy < 0 || yy >= cfg.height)
+            const int32_t dySq = static_cast<int32_t>(dy) * dy;
+            const int32_t rowLimit = r2 - dySq;
+            int32_t dxSq = dxMinSq;
+            int16_t dx = dxMin;
+
+            const int32_t rowOffset = static_cast<int32_t>(cy + dy) * stride;
+
+            int16_t xLeft = dxMin;
+            while (xLeft <= dxMax && dxSq + dySq > r2)
+            {
+                ++xLeft;
+                ++dx;
+                dxSq = static_cast<int32_t>(xLeft) * xLeft;
+            }
+
+            if (xLeft > dxMax)
                 continue;
 
-            for (int dx = -radius; dx <= radius; ++dx)
+            int16_t xRight = dxMax;
+            int32_t dxSqR = static_cast<int32_t>(xRight) * xRight;
+            while (xRight > xLeft && dxSqR + dySq > r2)
             {
-                int xx = cx + dx;
-                if (xx < 0 || xx >= cfg.width)
-                    continue;
-
-                int d2 = dx * dx + dy * dy;
-                if (d2 <= r2)
-                {
-                    fb[yy * cfg.width + xx] = color.rgb565;
-                }
+                --xRight;
+                dxSqR = static_cast<int32_t>(xRight) * xRight;
             }
+
+            const int32_t baseIdx = rowOffset + cx;
+            const int32_t spanEnd = baseIdx + xRight;
+            for (int32_t i = baseIdx + xLeft; i <= spanEnd; ++i)
+                fb[i] = color565;
         }
     }
 
@@ -198,17 +195,16 @@ namespace pip3D
                                              const Vector3 &v2,
                                              const Color &waterColor,
                                              uint8_t alphaByte,
-                                             const Camera &cam,
                                              const DisplayConfig &cfg,
                                              uint16_t *frameBufferPtr)
     {
-        Vector3 p0 = CameraController::project(v0, viewProjMatrix, viewport);
-        Vector3 p1 = CameraController::project(v1, viewProjMatrix, viewport);
-        Vector3 p2 = CameraController::project(v2, viewProjMatrix, viewport);
+        const Vector3 p0 = CameraController::project(v0, viewProjMatrix, viewport);
+        const Vector3 p1 = CameraController::project(v1, viewProjMatrix, viewport);
+        const Vector3 p2 = CameraController::project(v2, viewProjMatrix, viewport);
 
-        float x0 = p0.x, y0 = p0.y, z0 = p0.z;
-        float x1 = p1.x, y1 = p1.y, z1 = p1.z;
-        float x2 = p2.x, y2 = p2.y, z2 = p2.z;
+        const float x0 = p0.x, y0 = p0.y;
+        const float x1 = p1.x, y1 = p1.y;
+        const float x2 = p2.x, y2 = p2.y;
 
         float minXf = fminf(x0, fminf(x1, x2));
         float maxXf = fmaxf(x0, fmaxf(x1, x2));
@@ -232,9 +228,9 @@ namespace pip3D
         if (maxY >= (int16_t)SCREEN_HEIGHT)
             maxY = (int16_t)SCREEN_HEIGHT - 1;
 
-        int16_t bandTop = currentBandOffsetY();
-        int16_t bandH = currentBandHeight();
-        int16_t bandBottom = static_cast<int16_t>(bandTop + bandH);
+        const int16_t bandTop = currentBandOffsetY();
+        const int16_t bandH = currentBandHeight();
+        const int16_t bandBottom = static_cast<int16_t>(bandTop + bandH);
 
         if (maxY < bandTop || minY >= bandBottom)
             return;
@@ -244,31 +240,65 @@ namespace pip3D
         if (maxY >= bandBottom)
             maxY = static_cast<int16_t>(bandBottom - 1);
 
-        float denom = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2);
+        const float denom = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2);
         if (fabsf(denom) < 1e-6f)
             return;
-        float invDenom = 1.0f / denom;
+        const float invDenom = 1.0f / denom;
+
+        if (alphaByte == 0)
+            return;
+
+        const bool opaque = (alphaByte == 255);
+        const uint16_t solidColor = opaque ? waterColor.rgb565 : 0;
+        const Color waterColorLocal = waterColor;
+
+        const int32_t stride = cfg.width;
+        const int16_t yLocalBase = static_cast<int16_t>(minY - bandTop);
+        uint16_t *row = frameBufferPtr + static_cast<int32_t>(yLocalBase) * stride + minX;
+
+        const float px0 = static_cast<float>(minX) + 0.5f;
+        const float py0 = static_cast<float>(minY) + 0.5f;
+
+        const float dw0dx = (y1 - y2) * invDenom;
+        const float dw0dy = (x2 - x1) * invDenom;
+        const float dw1dx = (y2 - y0) * invDenom;
+        const float dw1dy = (x0 - x2) * invDenom;
+
+        const float w0row0 = (dw0dx * (px0 - x2) + dw0dy * (py0 - y2));
+        const float w1row0 = (dw1dx * (px0 - x2) + dw1dy * (py0 - y2));
 
         for (int16_t y = minY; y <= maxY; ++y)
         {
-            float py = static_cast<float>(y) + 0.5f;
-            int16_t yLocal = static_cast<int16_t>(y - bandTop);
+            float w0 = w0row0 + dw0dy * static_cast<float>(y - minY);
+            float w1 = w1row0 + dw1dy * static_cast<float>(y - minY);
 
-            for (int16_t x = minX; x <= maxX; ++x)
+            if (opaque)
             {
-                float px = static_cast<float>(x) + 0.5f;
-
-                float w0 = ((y1 - y2) * (px - x2) + (x2 - x1) * (py - y2)) * invDenom;
-                float w1 = ((y2 - y0) * (px - x2) + (x0 - x2) * (py - y2)) * invDenom;
-                float w2 = 1.0f - w0 - w1;
-
-                if (w0 < 0.0f || w1 < 0.0f || w2 < 0.0f)
-                    continue;
-
-                uint16_t &dst = frameBufferPtr[yLocal * cfg.width + x];
-                Color bg(dst);
-                dst = bg.blend(waterColor, alphaByte).rgb565;
+                for (int16_t x = minX; x <= maxX; ++x)
+                {
+                    const float w2 = 1.0f - w0 - w1;
+                    if (w0 >= 0.0f && w1 >= 0.0f && w2 >= 0.0f)
+                        row[x - minX] = solidColor;
+                    w0 += dw0dx;
+                    w1 += dw1dx;
+                }
             }
+            else
+            {
+                for (int16_t x = minX; x <= maxX; ++x)
+                {
+                    const float w2 = 1.0f - w0 - w1;
+                    if (w0 >= 0.0f && w1 >= 0.0f && w2 >= 0.0f)
+                    {
+                        uint16_t &dst = row[x - minX];
+                        dst = Color(dst).blend(waterColorLocal, alphaByte).rgb565;
+                    }
+                    w0 += dw0dx;
+                    w1 += dw1dx;
+                }
+            }
+
+            row += stride;
         }
     }
 }

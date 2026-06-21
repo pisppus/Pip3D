@@ -58,11 +58,13 @@ namespace pip3D
             const Viewport &viewport,
             const Matrix4x4 &viewProjMatrix,
             ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
-            const DisplayConfig &cfg,
-            const CullingCache &cache)
+            const DisplayConfig &cfg)
         {
             if (unlikely(!zBuffer || radius <= 0.0f))
                 return false;
+
+            static CullingCache cache;
+            cache.update(camera, viewport);
 
             const Vector3 toCenter = center - camera.position;
             const Vector3 camFwd = camera.forward();
@@ -114,22 +116,21 @@ namespace pip3D
             const int16_t cfgW = static_cast<int16_t>(cfg.width);
 
             const int16_t *zb = zBuffer->getBufferPtr();
-            const int16_t localCy = cy - bandTop;
-
-            const auto sampleOccluded = [&](int16_t sx, int16_t sy) -> bool
-            {
-                const int16_t d = zb[static_cast<size_t>(sy) * SCREEN_WIDTH + sx] & 0x7FFF;
-                return (d != 0x7F7F && d < objDepthInt);
-            };
 
             int validSamples = 0;
 
             const bool cyInBand = (cy >= bandTop && cy < bandBottom);
             const bool cxInScr = (cx >= 0 && cx < cfgW);
 
+            const auto sampleOccluded = [&](int16_t sx, int16_t localSy) -> bool
+            {
+                const int16_t d = zb[static_cast<size_t>(localSy) * SCREEN_WIDTH + sx] & 0x7FFF;
+                return (d != 0x7F7F && d < objDepthInt);
+            };
+
             if (cyInBand && cxInScr)
             {
-                if (!sampleOccluded(cx, localCy))
+                if (!sampleOccluded(cx, cy - bandTop))
                     return false;
                 ++validSamples;
             }
@@ -138,7 +139,7 @@ namespace pip3D
                 const int16_t sxR = cx + rScrInt;
                 if (cyInBand && sxR >= 0 && sxR < cfgW)
                 {
-                    if (!sampleOccluded(sxR, localCy))
+                    if (!sampleOccluded(sxR, cy - bandTop))
                         return false;
                     ++validSamples;
                 }
@@ -148,7 +149,7 @@ namespace pip3D
                 const int16_t sxL = cx - rScrInt;
                 if (cyInBand && sxL >= 0 && sxL < cfgW)
                 {
-                    if (!sampleOccluded(sxL, localCy))
+                    if (!sampleOccluded(sxL, cy - bandTop))
                         return false;
                     ++validSamples;
                 }
@@ -175,21 +176,6 @@ namespace pip3D
             }
 
             return (validSamples > 0);
-        }
-
-        static bool IRAM_ATTR isInstanceOccluded(
-            const Vector3 &center,
-            float radius,
-            const Camera &camera,
-            const Viewport &viewport,
-            const Matrix4x4 &viewProjMatrix,
-            ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
-            const DisplayConfig &cfg)
-        {
-            static CullingCache s_cache;
-            s_cache.update(camera, viewport);
-            return isInstanceOccluded(center, radius, camera, viewport,
-                                      viewProjMatrix, zBuffer, cfg, s_cache);
         }
     };
 }

@@ -12,14 +12,6 @@
 #include "Rasterizer/Solid.hpp"
 #include "Rasterizer/Smooth.hpp"
 #include "Rasterizer/Textured.hpp"
-#include "Rasterizer/Shadow.hpp"
+#include "Rasterizer/Planar.hpp"
+#include "Rasterizer/Blob.hpp"
 #include "Rasterizer/Water.hpp"
-
-namespace pip3D
-{
-    struct Sky;
-
-    namespace Rasterizer
-    {
-    }
-}

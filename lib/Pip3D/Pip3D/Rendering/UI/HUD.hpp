@@ -9,101 +9,92 @@ namespace pip3D
     class HudRenderer
     {
     public:
-        static void drawText(FrameBuffer &framebuffer,
-                             int16_t x, int16_t y,
-                             const char *text,
-                             uint16_t color);
-
-        static uint16_t getAdaptiveTextColor(FrameBuffer &framebuffer,
-                                             const Viewport &viewport,
-                                             int16_t x, int16_t y,
-                                             int16_t width = 40,
-                                             int16_t height = 8);
-
-        static int16_t getTextWidth(const char *text);
-    };
-}
-
-namespace pip3D
-{
-    inline __attribute__((always_inline)) void HudRenderer::drawText(FrameBuffer &framebuffer,
-                                                                     int16_t x, int16_t y,
-                                                                     const char *text,
-                                                                     uint16_t color)
-    {
-        uint16_t *fb = framebuffer.getBuffer();
-        if (!fb || !text || !*text)
-            return;
-
-        const DisplayConfig &cfg = framebuffer.getConfig();
-        const int16_t bandTop = currentBandOffsetY();
-        const int16_t bandBottom = static_cast<int16_t>(bandTop + cfg.height);
-        const int16_t textBottom = static_cast<int16_t>(y + BitmapFont::getCharHeight());
-        if (textBottom <= bandTop || y >= bandBottom)
-            return;
-
-        const int16_t localY = static_cast<int16_t>(y - bandTop);
-        BitmapFont::drawString(fb, x, localY, text, color,
-                               cfg.width, cfg.height);
-    }
-
-    inline __attribute__((always_inline)) uint16_t HudRenderer::getAdaptiveTextColor(FrameBuffer &framebuffer,
-                                                                                     const Viewport &viewport,
-                                                                                     int16_t x, int16_t y,
-                                                                                     int16_t width,
-                                                                                     int16_t height)
-    {
-        uint16_t *fb = framebuffer.getBuffer();
-        if (!fb)
-            return 0xFFFF;
-
-        const DisplayConfig &cfg = framebuffer.getConfig();
-        if (cfg.width == 0 || cfg.height == 0 || viewport.width == 0 || viewport.height == 0 ||
-            width <= 0 || height <= 0)
-            return 0xFFFF;
-
-        uint32_t totalBrightness = 0;
-        int samples = 0;
-
-        for (int16_t dy = 0; dy < height && dy < 8; dy += 2)
+        static __attribute__((always_inline)) inline void drawText(FrameBuffer &framebuffer,
+                                                                   int16_t x, int16_t y,
+                                                                   const char *text,
+                                                                   uint16_t color)
         {
-            int16_t sy = y + dy;
+            uint16_t *fb = framebuffer.getBuffer();
+            if (!fb || !text || !*text)
+                return;
+
+            const DisplayConfig &cfg = framebuffer.getConfig();
             const int16_t bandTop = currentBandOffsetY();
-            const int16_t bandBottom = static_cast<int16_t>(bandTop + cfg.height);
-            if (sy < bandTop || sy >= bandBottom)
-                continue;
+            const int16_t textBottom = static_cast<int16_t>(y + BitmapFont::getCharHeight());
+            if (textBottom <= bandTop || y >= bandTop + cfg.height)
+                return;
 
-            for (int16_t dx = 0; dx < width && dx < 40; dx += 8)
-            {
-                int16_t sx = x + dx;
-                if (sx < 0 || sx >= cfg.width)
-                    continue;
-
-                if (!viewport.contains(sx, sy))
-                    continue;
-
-                const int16_t localY = static_cast<int16_t>(sy - bandTop);
-                uint16_t pixel = fb[localY * cfg.width + sx];
-                uint8_t r = ((pixel >> 11) & 0x1F) << 3;
-                uint8_t g = ((pixel >> 5) & 0x3F) << 2;
-                uint8_t b = (pixel & 0x1F) << 3;
-                uint32_t brightness = (r * 299 + g * 587 + b * 114) / 1000;
-                totalBrightness += brightness;
-                samples++;
-            }
+            BitmapFont::drawString(fb, x, static_cast<int16_t>(y - bandTop), text, color,
+                                   cfg.width, cfg.height);
         }
 
-        if (samples == 0)
-            return 0xFFFF;
-        uint8_t avgBrightness = totalBrightness / samples;
-        return (avgBrightness > 128) ? 0x0000 : 0xFFFF;
-    }
+        static __attribute__((always_inline)) inline uint16_t getAdaptiveTextColor(FrameBuffer &framebuffer,
+                                                                                   const Viewport &viewport,
+                                                                                   int16_t x, int16_t y,
+                                                                                   int16_t width = 40,
+                                                                                   int16_t height = 8)
+        {
+            uint16_t *fb = framebuffer.getBuffer();
+            if (!fb)
+                return 0xFFFF;
 
-    inline __attribute__((always_inline)) int16_t HudRenderer::getTextWidth(const char *text)
-    {
-        if (!text || !*text)
-            return 0;
-        return BitmapFont::getStringWidth(text);
-    }
+            const DisplayConfig &cfg = framebuffer.getConfig();
+            if (cfg.width == 0 || cfg.height == 0)
+                return 0xFFFF;
+
+            const int16_t bandTop = currentBandOffsetY();
+            const int16_t bandBottom = static_cast<int16_t>(bandTop + cfg.height);
+
+            if (width > 40)
+                width = 40;
+            if (height > 8)
+                height = 8;
+            if (width <= 0 || height <= 0)
+                return 0xFFFF;
+
+            const int16_t vpRight = static_cast<int16_t>(viewport.x + viewport.width);
+            const int16_t vpBottom = static_cast<int16_t>(viewport.y + viewport.height);
+            const int16_t vpLeft = viewport.x;
+            const int16_t vpTop = viewport.y;
+
+            uint32_t totalLuma = 0;
+            uint8_t samples = 0;
+            const size_t rowStride = static_cast<size_t>(cfg.width);
+
+            for (int16_t dy = 0; dy < height; dy += 2)
+            {
+                const int16_t sy = static_cast<int16_t>(y + dy);
+                if (sy < bandTop || sy >= bandBottom || sy < vpTop || sy >= vpBottom)
+                    continue;
+
+                const size_t rowBase = static_cast<size_t>(sy - bandTop) * rowStride;
+
+                for (int16_t dx = 0; dx < width; dx += 8)
+                {
+                    const int16_t sx = static_cast<int16_t>(x + dx);
+                    if (sx < 0 || sx >= cfg.width || sx < vpLeft || sx >= vpRight)
+                        continue;
+
+                    const uint16_t pixel = fb[rowBase + sx];
+                    const uint32_t r = (pixel >> 11) & 0x1Fu;
+                    const uint32_t g = (pixel >> 5) & 0x3Fu;
+                    const uint32_t b = pixel & 0x1Fu;
+                    totalLuma += (r * 2392u) + (g * 2348u) + (b * 912u);
+                    ++samples;
+                }
+            }
+
+            if (samples == 0)
+                return 0xFFFF;
+
+            return (totalLuma > (128000u * samples)) ? 0x0000u : 0xFFFFu;
+        }
+
+        static __attribute__((always_inline)) inline int16_t getTextWidth(const char *text)
+        {
+            if (!text || !*text)
+                return 0;
+            return BitmapFont::getStringWidth(text);
+        }
+    };
 }
-

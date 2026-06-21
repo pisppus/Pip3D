@@ -1,11 +1,12 @@
 #include "Renderer.hpp"
-#include "Physics/Physics.hpp"
 #include "Debug/Logging.hpp"
 #include "Debug/Gizmos.hpp"
+#include <cstring>
 
 namespace pip3D
 {
     Renderer::Renderer() : zBuffer(nullptr),
+                           reflectBuffer(nullptr),
 #if defined(PIP3D_PC)
                            pcDisplayReady(false),
 #else
@@ -19,6 +20,8 @@ namespace pip3D
                            shadowsEnabled(true),
                            backfaceCullingEnabled(true),
                            occlusionCullingEnabled(false),
+                           shadowCacheGeneration(1),
+                           lastAutoShadowColor(Color::BLACK),
                            shadingMode(SHADING_FLAT),
                            statsTrianglesTotal(0),
                            statsTrianglesBackfaceCulled(0),
@@ -36,48 +39,22 @@ namespace pip3D
         lights[0].direction.normalize();
         lights[0].color = Color::WHITE;
         lights[0].intensity = 1.0f;
-
-        hasWorldDirtyRegion = false;
-        hasLastWorldDirtyRegion = false;
-        hasHudDirtyRegion = false;
-        cameraChangedThisFrame = false;
-        debugShowDirtyRegions = false;
-        worldDirtyMinX = 0;
-        worldDirtyMinY = 0;
-        worldDirtyMaxX = 0;
-        worldDirtyMaxY = 0;
-        lastWorldDirtyMinX = 0;
-        lastWorldDirtyMinY = 0;
-        lastWorldDirtyMaxX = 0;
-        lastWorldDirtyMaxY = 0;
-        hudDirtyMinX = 0;
-        hudDirtyMinY = 0;
-        hudDirtyMaxX = 0;
-        hudDirtyMaxY = 0;
-
-        for (int i = 0; i < MAX_WORLD_DIRTY_INSTANCES; ++i)
-        {
-            worldInstanceDirty[i].instance = nullptr;
-            worldInstanceDirty[i].hasCurrent = false;
-            worldInstanceDirty[i].hasLast = false;
-        }
     }
 
     Renderer::~Renderer()
     {
         if (zBuffer)
             delete zBuffer;
-        if (reflectionBuffer)
+        if (reflectBuffer)
         {
-            MemUtils::freeAligned(reflectionBuffer);
-            reflectionBuffer = nullptr;
+            MemUtils::freeData(reflectBuffer);
+            reflectBuffer = nullptr;
         }
     }
 
     bool Renderer::init(const DisplayConfig &cfg)
     {
         initialized = false;
-        Shading::initLUT();
         useDualCore(true);
 
         LOGI(::pip3D::Debug::LOG_MODULE_RENDER,
@@ -173,22 +150,24 @@ namespace pip3D
         }
 
         viewport = Viewport(0, 0, cfg.width, cfg.height);
-
-        if (reflectionBuffer)
+        const size_t reflectBytes = static_cast<size_t>(REFLECT_WIDTH) *
+                                    static_cast<size_t>(REFLECT_HEIGHT) *
+                                    sizeof(uint16_t);
+        reflectBuffer = static_cast<uint16_t *>(MemUtils::allocData(reflectBytes, 16));
+        if (reflectBuffer)
         {
-            MemUtils::freeAligned(reflectionBuffer);
-            reflectionBuffer = nullptr;
+            memset(reflectBuffer, 0, reflectBytes);
+            LOGI(::pip3D::Debug::LOG_MODULE_RENDER,
+                 "Renderer::init: reflection buffer %ux%u (%u bytes) — water SSR enabled",
+                 static_cast<unsigned>(REFLECT_WIDTH),
+                 static_cast<unsigned>(REFLECT_HEIGHT),
+                 static_cast<unsigned>(reflectBytes));
         }
-
-        reflectionWidth = cfg.width / 2;
-        reflectionHeight = cfg.height / 2;
-        size_t reflSize = reflectionWidth * reflectionHeight * sizeof(uint16_t);
-
-        reflectionBuffer = (uint16_t *)MemUtils::allocAligned(reflSize, 16, pipcore::AllocCaps::PreferInternal);
-        if (reflectionBuffer)
+        else
         {
-            memset(reflectionBuffer, 0, reflSize);
-            LOGI(::pip3D::Debug::LOG_MODULE_RENDER, "Renderer::init: SSPR reflection buffer allocated (%dx%d)", (int)reflectionWidth, (int)reflectionHeight);
+            LOGW(::pip3D::Debug::LOG_MODULE_RENDER,
+                 "Renderer::init: reflection buffer OOM (%u bytes) — water SSR disabled (tint/sky fallback)",
+                 static_cast<unsigned>(reflectBytes));
         }
 
         LOGI(::pip3D::Debug::LOG_MODULE_RENDER, "Renderer::init OK: viewport %dx%d", cfg.width, cfg.height);
@@ -212,19 +191,12 @@ namespace pip3D
         ::pip3D::Debug::Gizmos::render(*this);
 #endif
 
-        framebuffer.endFrameRegion(0, currentBandOffsetY(),
-                                   framebuffer.getConfig().width,
-                                   framebuffer.getConfig().height);
+        const DisplayConfig &cfg = framebuffer.getConfig();
+        framebuffer.endFrameRegion(0, currentBandOffsetY(), cfg.width, cfg.height);
         perfCounter.endFrame();
     }
 
-    void Renderer::endFrameRegion(int16_t x, int16_t y, int16_t w, int16_t h)
-    {
-        framebuffer.endFrameRegion(x, y, w, h);
-        perfCounter.endFrame();
-    }
-
-    void Renderer::beginFrameBand(int bandIndex)
+    void IRAM_ATTR Renderer::beginFrameBand(int bandIndex)
     {
         if (!isInitialized())
             return;
@@ -233,6 +205,8 @@ namespace pip3D
         opaqueQueueCount = 0;
         meshShadowQueueCount = 0;
         meshOpaqueQueueCount = 0;
+        blobShadowQueueCount = 0;
+        meshBlobShadowQueueCount = 0;
 
         if (bandIndex < 0)
             bandIndex = 0;
@@ -250,14 +224,8 @@ namespace pip3D
 
             for (int i = 0; i < activeLightCount; ++i)
             {
-                float r, g, b;
-                lights[i].getCachedRGB(r, g, b);
+                lights[i].warmCache();
             }
-
-            hasWorldDirtyRegion = false;
-            hasLastWorldDirtyRegion = false;
-            hasHudDirtyRegion = false;
-            cameraChangedThisFrame = false;
 
             CameraController::updateViewProjectionIfNeeded(cameras[activeCameraIndex],
                                                            viewport,
@@ -265,8 +233,7 @@ namespace pip3D
                                                            projMatrix,
                                                            viewProjMatrix,
                                                            frustum,
-                                                           viewProjMatrixDirty,
-                                                           cameraChangedThisFrame);
+                                                           viewProjMatrixDirty);
 
             statsTrianglesTotal = 0;
             statsTrianglesBackfaceCulled = 0;
@@ -274,57 +241,53 @@ namespace pip3D
             statsInstancesFrustumCulled = 0;
             statsInstancesOcclusionCulled = 0;
 
+            const bool skyEnabled = framebuffer.isSkyboxEnabled();
+            const Color skyHorizon = skyEnabled ? framebuffer.getSkybox().horizon
+                                                : Color::rgb(40, 42, 50);
+
+            if (shadowSettings.shadowColorAuto)
+            {
+                const Color autoColor = skyHorizon.darken(200);
+                if (autoColor.rgb565 != lastAutoShadowColor.rgb565)
+                {
+                    lastAutoShadowColor = autoColor;
+                    shadowSettings.shadowColor = autoColor;
+                    ++shadowCacheGeneration;
+                }
+            }
+
             Rasterizer::g_fogState.enabled = fogEnabled;
             if (fogEnabled)
             {
-                Color activeFogColor = fogColor;
-                if (framebuffer.isSkyboxEnabled())
-                {
-                    activeFogColor = framebuffer.getSkybox().horizon;
-                }
+                const Color activeFogColor = skyEnabled ? skyHorizon : fogColor;
+                const uint16_t fogRGB = activeFogColor.rgb565;
 
-                Rasterizer::g_fogState.color = activeFogColor.rgb565;
-                Rasterizer::g_fogState.color_rb = activeFogColor.rgb565 & 0xF81F;
-                Rasterizer::g_fogState.color_g = activeFogColor.rgb565 & 0x07E0;
+                Rasterizer::g_fogState.color = fogRGB;
+                Rasterizer::g_fogState.color_rb = fogRGB & 0xF81F;
+                Rasterizer::g_fogState.color_g = fogRGB & 0x07E0;
                 Rasterizer::g_fogState.worldNear = fogNear;
-                Rasterizer::g_fogState.worldFar = fogFar;
 
-                float worldRange = fogFar - fogNear;
-                Rasterizer::g_fogState.worldScale = (worldRange > 1e-4f) ? (1.0f / worldRange) : 0.0f;
-                Rasterizer::g_fogState.worldScale32 = (worldRange > 1e-4f) ? (32.0f / worldRange) : 0.0f;
+                const float worldRange = fogFar - fogNear;
+                const float invWorldRange = (worldRange > 1e-4f) ? (1.0f / worldRange) : 0.0f;
+                Rasterizer::g_fogState.worldScale = invWorldRange;
+                Rasterizer::g_fogState.worldScale32 = 32.0f * invWorldRange;
 
-                float r_f, g_f, b_f;
-                MeshRenderer::decodeColorToFloat(activeFogColor.rgb565, r_f, g_f, b_f);
-                Rasterizer::g_fogState.color_r = r_f;
-                Rasterizer::g_fogState.color_g_f = g_f;
-                Rasterizer::g_fogState.color_b_f = b_f;
+                Rasterizer::g_fogState.color_r = static_cast<float>((fogRGB >> 11) & 0x1F) * (1.0f / 31.0f);
+                Rasterizer::g_fogState.color_g_f = static_cast<float>((fogRGB >> 5) & 0x3F) * (1.0f / 63.0f);
+                Rasterizer::g_fogState.color_b_f = static_cast<float>(fogRGB & 0x1F) * (1.0f / 31.0f);
 
                 const Camera &cam = cameras[activeCameraIndex];
-                float camNear = cam.nearPlane;
-                float camFar = cam.farPlane;
+                const float camNear = cam.nearPlane;
+                const float camFar = cam.farPlane;
 
-                float denomFarNear = camFar - camNear;
-                float k = 32638.0f * (camFar / (denomFarNear > 1e-4f ? denomFarNear : 1.0f));
+                const float denomFarNear = camFar - camNear;
+                const float safeDenom = (denomFarNear > 1e-4f) ? denomFarNear : 1.0f;
+                const float k = 32638.0f * (camFar / safeDenom);
                 Rasterizer::g_fogState.kVal = k;
                 Rasterizer::g_fogState.knVal = k * camNear;
-
-                float distToZScale = 32638.0f / (camFar - camNear);
-                int32_t nearDepth = static_cast<int32_t>((fogNear - camNear) * distToZScale);
-                int32_t farDepth = static_cast<int32_t>((fogFar - camNear) * distToZScale);
-
-                if (nearDepth < 0)
-                    nearDepth = 0;
-                if (farDepth > 32638)
-                    farDepth = 32638;
-                if (farDepth <= nearDepth)
-                    farDepth = nearDepth + 1;
-
-                Rasterizer::g_fogState.nearDepth = nearDepth;
-                Rasterizer::g_fogState.scaleFixed = (32 << 16) / (farDepth - nearDepth);
             }
         }
 
-        framebuffer.beginFrame();
         if (zBuffer)
             zBuffer->clear();
 
@@ -333,7 +296,7 @@ namespace pip3D
 #endif
     }
 
-    void Renderer::endFrameBand(int bandIndex)
+    void IRAM_ATTR Renderer::endFrameBand(int bandIndex)
     {
         if (!isInitialized())
             return;
@@ -346,6 +309,56 @@ namespace pip3D
         int16_t bandY = static_cast<int16_t>(bandIndex * fbCfg.height);
 
         framebuffer.endFrameRegion(0, bandY, fbCfg.width, fbCfg.height);
+        if (reflectBuffer)
+        {
+            const uint16_t *src = framebuffer.getBuffer();
+            if (src)
+            {
+                const int16_t srcW = fbCfg.width;
+                const int16_t srcH = fbCfg.height;
+                const int16_t halfW = srcW >> 1;
+                const int16_t halfH = srcH >> 1;
+                const int16_t dstYBase = bandY >> 1;
+
+                const int16_t rowsToCopy = (dstYBase + halfH <= REFLECT_HEIGHT)
+                                               ? halfH
+                                               : static_cast<int16_t>(REFLECT_HEIGHT - dstYBase);
+                if (rowsToCopy > 0)
+                {
+                    const uint32_t *__restrict__ src32 = reinterpret_cast<const uint32_t *>(src);
+                    uint16_t *__restrict__ dstBase = reflectBuffer +
+                                                     static_cast<size_t>(dstYBase) * halfW;
+
+                    for (int16_t dy = 0; dy < rowsToCopy; ++dy)
+                    {
+                        const int16_t y = dy << 1;
+                        const uint32_t *row0 = src32 + static_cast<size_t>(y) * halfW;
+                        const uint32_t *row1 = row0 + halfW;
+                        uint16_t *__restrict__ dst = dstBase + static_cast<size_t>(dy) * halfW;
+
+                        for (int16_t x = 0; x < halfW; ++x)
+                        {
+                            const uint32_t p0 = row0[x];
+                            const uint32_t p1 = row1[x];
+                            const uint16_t a = static_cast<uint16_t>(p0);
+                            const uint16_t b = static_cast<uint16_t>(p0 >> 16);
+                            const uint16_t c = static_cast<uint16_t>(p1);
+                            const uint16_t d = static_cast<uint16_t>(p1 >> 16);
+
+                            const uint32_t r = ((a >> 11) & 0x1F) + ((b >> 11) & 0x1F) +
+                                               ((c >> 11) & 0x1F) + ((d >> 11) & 0x1F);
+                            const uint32_t g = ((a >> 5) & 0x3F) + ((b >> 5) & 0x3F) +
+                                               ((c >> 5) & 0x3F) + ((d >> 5) & 0x3F);
+                            const uint32_t bb = (a & 0x1F) + (b & 0x1F) +
+                                                (c & 0x1F) + (d & 0x1F);
+                            dst[x] = static_cast<uint16_t>(((r >> 2) << 11) |
+                                                           ((g >> 2) << 5) |
+                                                           (bb >> 2));
+                        }
+                    }
+                }
+            }
+        }
 
         if (bandIndex == BAND_COUNT - 1)
         {
@@ -372,7 +385,7 @@ namespace pip3D
 
     void Renderer::drawSkyboxBackground()
     {
-        framebuffer.drawSkyboxWhereEmpty(*zBuffer);
+        framebuffer.fillBackground<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>();
     }
 
     Vector3 Renderer::project(const Vector3 &v)
@@ -400,13 +413,6 @@ namespace pip3D
         return cameras[activeCameraIndex];
     }
 
-    Camera &Renderer::getCamera(int index)
-    {
-        if (index >= 0 && index < (int)cameras.size())
-            return cameras[index];
-        return cameras[activeCameraIndex];
-    }
-
     void Renderer::setLight(int index, const Light &light)
     {
         if (index < 0)
@@ -419,43 +425,10 @@ namespace pip3D
 
         lights[index] = light;
         lights[index].colorCacheDirty = true;
+        ++shadowCacheGeneration;
 
         if (index + 1 > activeLightCount)
             activeLightCount = index + 1;
-    }
-
-    int Renderer::addLight(const Light &light)
-    {
-        if (activeLightCount < static_cast<int>(lights.size()))
-        {
-            lights[activeLightCount] = light;
-        }
-        else
-        {
-            lights.push_back(light);
-        }
-
-        lights[activeLightCount].colorCacheDirty = true;
-        return activeLightCount++;
-    }
-
-    void Renderer::removeLight(int index)
-    {
-        if (index < 0 || index >= activeLightCount)
-            return;
-
-        if (index == activeLightCount - 1)
-        {
-            activeLightCount--;
-            return;
-        }
-
-        for (int i = index; i < activeLightCount - 1; i++)
-        {
-            lights[i] = lights[i + 1];
-        }
-
-        activeLightCount--;
     }
 
     Light *Renderer::getLight(int index)
@@ -467,6 +440,7 @@ namespace pip3D
 
     void Renderer::clearLights()
     {
+        ++shadowCacheGeneration;
         activeLightCount = 0;
     }
 
@@ -482,28 +456,7 @@ namespace pip3D
         lights[0].color = color;
         lights[0].intensity = intensity;
         lights[0].colorCacheDirty = true;
-    }
-
-    void Renderer::setMainPointLight(const Vector3 &position, const Color &color, float intensity, float range)
-    {
-        if (activeLightCount == 0)
-            activeLightCount = 1;
-        if (lights.empty())
-            lights.resize(1);
-        lights[0].type = LIGHT_POINT;
-        lights[0].position = position;
-        lights[0].color = color;
-        lights[0].intensity = intensity;
-        lights[0].setRange(range);
-        lights[0].colorCacheDirty = true;
-    }
-
-    void Renderer::setLightColor(const Color &color)
-    {
-        if (activeLightCount == 0 || lights.empty())
-            return;
-        lights[0].color = color;
-        lights[0].colorCacheDirty = true;
+        ++shadowCacheGeneration;
     }
 
     void Renderer::setLightPosition(const Vector3 &pos)
@@ -511,6 +464,7 @@ namespace pip3D
         if (activeLightCount == 0 || lights.empty())
             return;
         lights[0].position = pos;
+        ++shadowCacheGeneration;
     }
 
     void Renderer::setLightDirection(const Vector3 &dir)
@@ -519,6 +473,7 @@ namespace pip3D
             return;
         lights[0].direction = dir;
         lights[0].direction.normalize();
+        ++shadowCacheGeneration;
     }
 
     void Renderer::setLightTemperature(float kelvin)
@@ -528,88 +483,5 @@ namespace pip3D
         Color color = Color::fromTemperature(kelvin);
         lights[0].color = color;
         lights[0].colorCacheDirty = true;
-    }
-
-    Color Renderer::getLightColor() const
-    {
-        if (activeLightCount == 0 || lights.empty())
-            return Color::WHITE;
-        return lights[0].color;
-    }
-
-    void Renderer::updateReflectionBufferOnDemand()
-    {
-        if (!reflectionBuffer)
-            return;
-
-        const DisplayConfig &fbCfg = framebuffer.getConfig();
-        int16_t bandY = currentBandOffsetY();
-        const uint16_t *fb = framebuffer.getBuffer();
-        if (!fb)
-            return;
-
-        int16_t startRefly = bandY / 2;
-        int16_t endRefly = (bandY + fbCfg.height) / 2;
-
-        for (int16_t refly = startRefly; refly < endRefly; ++refly)
-        {
-            int16_t fbY = refly * 2 - bandY;
-            if (fbY < 0 || fbY >= fbCfg.height)
-                continue;
-
-            uint16_t *dstRow = reflectionBuffer + refly * reflectionWidth;
-            const uint16_t *srcRow = fb + fbY * fbCfg.width;
-
-            int16_t reflx = 0;
-            for (; reflx < reflectionWidth - 3; reflx += 4)
-            {
-                dstRow[reflx] = srcRow[reflx * 2];
-                dstRow[reflx + 1] = srcRow[(reflx + 1) * 2];
-                dstRow[reflx + 2] = srcRow[(reflx + 2) * 2];
-                dstRow[reflx + 3] = srcRow[(reflx + 3) * 2];
-            }
-            for (; reflx < reflectionWidth; ++reflx)
-            {
-                dstRow[reflx] = srcRow[reflx * 2];
-            }
-        }
-    }
-
-    void Renderer::updateReflectionBuffer(int bandIndex)
-    {
-        if (!reflectionBuffer)
-            return;
-
-        const DisplayConfig &fbCfg = framebuffer.getConfig();
-        int16_t bandY = static_cast<int16_t>(bandIndex * fbCfg.height);
-        const uint16_t *fb = framebuffer.getBuffer();
-        if (!fb)
-            return;
-
-        int16_t startRefly = bandY / 2;
-        int16_t endRefly = (bandY + fbCfg.height) / 2;
-
-        for (int16_t refly = startRefly; refly < endRefly; ++refly)
-        {
-            int16_t fbY = refly * 2 - bandY;
-            if (fbY < 0 || fbY >= fbCfg.height)
-                continue;
-
-            uint16_t *dstRow = reflectionBuffer + refly * reflectionWidth;
-            const uint16_t *srcRow = fb + fbY * fbCfg.width;
-
-            int16_t reflx = 0;
-            for (; reflx < reflectionWidth - 3; reflx += 4)
-            {
-                dstRow[reflx] = srcRow[reflx * 2];
-                dstRow[reflx + 1] = srcRow[(reflx + 1) * 2];
-                dstRow[reflx + 2] = srcRow[(reflx + 2) * 2];
-                dstRow[reflx + 3] = srcRow[(reflx + 3) * 2];
-            }
-            for (; reflx < reflectionWidth; ++reflx)
-            {
-                dstRow[reflx] = srcRow[reflx * 2];
-            }
-        }
     }
 }

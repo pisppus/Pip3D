@@ -120,12 +120,6 @@ namespace pip3D
 
             const uint32_t reflAlpha = 125u >> 3;
 
-            // Reflections are sampled from a half-resolution full-frame
-            // snapshot (reflectionBuffer, reflectionWidth x reflectionHeight).
-            // The downscale keeps it small (~38 KB) yet band-order
-            // independent — every reflected pixel has a valid source.
-            // When reflectionBuffer is null (e.g. OOM), water degrades to
-            // a tint/sky-only surface.
             const bool hasReflection = (reflectionBuffer != nullptr);
             const int16_t reflW = static_cast<int16_t>(reflectionWidth);
             const int16_t reflH = static_cast<int16_t>(reflectionHeight);
@@ -147,8 +141,6 @@ namespace pip3D
                 const float shimmerPhaseX = waveTimeA * 0.9f;
                 const float shimmerPhaseY = waveTimeB * 0.6f;
 
-                // Mirror axis in global screen coordinates. The reflection
-                // of a row at globalY lies at mirrorY = 2*waterline - globalY.
                 int16_t mirrorY = static_cast<int16_t>(wl2) - globalY + rowRipple;
 
                 bool waterSkyFallback = false;
@@ -172,8 +164,6 @@ namespace pip3D
                 int16_t *__restrict__ zbRow = zBufferPtr + offsetBase;
                 uint16_t *__restrict__ fbRow = frameBuffer + offsetBase;
 
-                // Don't sample the water surface itself (rows at/above the
-                // waterline) to avoid self-reflection feedback.
                 const int16_t feedbackGuard = wl;
 
                 for (int16_t x = x_start; x <= x_end; ++x)
@@ -198,8 +188,6 @@ namespace pip3D
                         }
                         else
                         {
-                            // Sample the half-resolution reflection buffer:
-                            // global full-res mirror coords -> half-res index.
                             int16_t hx = reflX >> 1;
                             int16_t hy = reflY >> 1;
                             if (hx < 0)

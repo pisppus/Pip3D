@@ -373,8 +373,6 @@ r.drawTextAdaptive(8, 20, "FPS auto-color");
 - `getBackfaceCullingEnabled()`
 - `setOcclusionCullingEnabled(bool enabled)`
 - `getOcclusionCullingEnabled()`
-- `setDebugShowDirtyRegions(bool enabled)`
-- `getDebugShowDirtyRegions()`
 - `setShadingMode(ShadingMode mode)`
 - `getShadingMode()`
 
@@ -387,7 +385,6 @@ r.drawTextAdaptive(8, 20, "FPS auto-color");
 Публичные helper-методы:
 
 - `drawSunSprite(...)`
-- `drawSunSpriteDirectional(...)`
 - `drawWater(...)`
 
 Это user-facing API, но это именно convenience effects, а не базовая часть пайплайна.

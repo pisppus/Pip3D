@@ -14,54 +14,17 @@ namespace pip3D
     class Shading
     {
     public:
-        static constexpr float AMBIENT_LIGHT = 0.06f;
         static constexpr float DIFFUSE_STRENGTH = 1.20f;
         static constexpr float SPECULAR_STRENGTH = 0.35f;
         static constexpr float RIM_STRENGTH = 0.25f;
-        static constexpr float HDR_EXPOSURE = 1.8f;
         static constexpr float DIFFUSE_WRAP = 0.18f;
-        static constexpr float CONTRAST = 1.35f;
-        static constexpr float SATURATION = 1.30f;
 
-        static constexpr float INV_DIFFUSE_WRAP = 0.84745762711864406780f;
+        static constexpr float INV_DIFFUSE_WRAP = 1.0f / (1.0f + DIFFUSE_WRAP);
         static constexpr float HEMI_SCALE = 0.25f;
         static constexpr float AMBIENT_BASE = 0.03f;
-        static constexpr float CONTRAST_OFFSET = -0.175f;
-        static constexpr float INV_HDR_EXPOSURE = 0.55555555555555555556f;
+        static constexpr float SATURATION = 1.30f;
         static constexpr float SATURATION_LUM_FACTOR = SATURATION - 1.0f;
-        static constexpr float INV_255 = 0.00392156862745098039f;
-        static constexpr float BAYER_MATRIX_4X4[4][4] = {
-            {0.0f / 16.0f, 8.0f / 16.0f, 2.0f / 16.0f, 10.0f / 16.0f},
-            {12.0f / 16.0f, 4.0f / 16.0f, 14.0f / 16.0f, 6.0f / 16.0f},
-            {3.0f / 16.0f, 11.0f / 16.0f, 1.0f / 16.0f, 9.0f / 16.0f},
-            {15.0f / 16.0f, 7.0f / 16.0f, 13.0f / 16.0f, 5.0f / 16.0f}};
-
-        static float GAMMA_LUT[256];
-        static bool lutInitialized;
-
-        static void initLUT()
-        {
-            if (lutInitialized)
-                return;
-
-            for (int i = 0; i < 256; ++i)
-            {
-                GAMMA_LUT[i] = sqrtf(static_cast<float>(i) * INV_255);
-            }
-
-            lutInitialized = true;
-        }
-
-        __attribute__((always_inline)) static inline float fastSqrt01(float x)
-        {
-            if (x <= 0.0f)
-                return 0.0f;
-            if (x >= 1.0f)
-                return 1.0f;
-
-            const int idx = static_cast<int>(x * 255.0f);
-            return GAMMA_LUT[idx];
-        }
+        static constexpr float DIFFUSE_SCALE = DIFFUSE_STRENGTH * INV_DIFFUSE_WRAP;
 
         __attribute__((always_inline, hot)) static inline void IRAM_ATTR calculateLighting(
             const Vector3 &fragPos,
@@ -73,8 +36,15 @@ namespace pip3D
             float &outR, float &outG, float &outB,
             bool skipSpecularAndRim = false)
         {
-            const float hemi = normal.y * HEMI_SCALE + AMBIENT_BASE;
-            const float ambientTerm = fmaxf(0.0f, AMBIENT_BASE + hemi);
+            const float nx = normal.x;
+            const float ny = normal.y;
+            const float nz = normal.z;
+            const float vdx = viewDir.x;
+            const float vdy = viewDir.y;
+            const float vdz = viewDir.z;
+
+            const float hemi = ny * HEMI_SCALE + AMBIENT_BASE;
+            const float ambientTerm = (hemi > 0.0f) ? (AMBIENT_BASE + hemi) : 0.0f;
 
             outR = baseR * ambientTerm;
             outG = baseG * ambientTerm;
@@ -83,52 +53,59 @@ namespace pip3D
             float rimAmount = 0.0f;
             if (!skipSpecularAndRim)
             {
-                float NdotV = normal.dot(viewDir);
-                NdotV = (NdotV < 0.0f) ? 0.0f : NdotV;
+                float NdotV = nx * vdx + ny * vdy + nz * vdz;
+                if (NdotV < 0.0f)
+                    NdotV = 0.0f;
                 float rim = 1.0f - NdotV;
-                rim *= rim;
-                rimAmount = rim * RIM_STRENGTH;
+                rimAmount = rim * rim * RIM_STRENGTH;
             }
+
+            const float fpx = fragPos.x;
+            const float fpy = fragPos.y;
+            const float fpz = fragPos.z;
 
             for (int i = 0; i < lightCount; ++i)
             {
                 const Light &light = lights[i];
-                Vector3 lightDir;
+                float ldx, ldy, ldz;
                 float attenuation = 1.0f;
 
                 if (likely(light.type == LIGHT_DIRECTIONAL))
                 {
-                    lightDir.x = -light.direction.x;
-                    lightDir.y = -light.direction.y;
-                    lightDir.z = -light.direction.z;
+                    ldx = -light.direction.x;
+                    ldy = -light.direction.y;
+                    ldz = -light.direction.z;
                 }
                 else if (light.type == LIGHT_POINT)
                 {
-                    lightDir.x = light.position.x - fragPos.x;
-                    lightDir.y = light.position.y - fragPos.y;
-                    lightDir.z = light.position.z - fragPos.z;
+                    ldx = light.position.x - fpx;
+                    ldy = light.position.y - fpy;
+                    ldz = light.position.z - fpz;
+
+                    const float distSq = ldx * ldx +
+                                         ldy * ldy +
+                                         ldz * ldz;
 
                     if (light.range > 0.0f)
                     {
-                        const float distSq = lightDir.x * lightDir.x +
-                                             lightDir.y * lightDir.y +
-                                             lightDir.z * lightDir.z;
-
                         if (distSq > light.rangeSq)
                             continue;
 
                         if (distSq > 1e-8f)
                         {
-                            const float invDist = 1.0f / sqrtf(distSq);
-                            lightDir.x *= invDist;
-                            lightDir.y *= invDist;
-                            lightDir.z *= invDist;
-                            attenuation = 1.0f / (1.0f + distSq * light.invRangeSq);
+                            const float invDist = FastMath::fastInvSqrt(distSq);
+                            ldx *= invDist;
+                            ldy *= invDist;
+                            ldz *= invDist;
+                            attenuation = FastMath::fastReciprocal(1.0f + distSq * light.invRangeSq);
                         }
                     }
-                    else
+                    else if (distSq > 1e-8f)
                     {
-                        lightDir.normalize();
+                        const float invDist = FastMath::fastInvSqrt(distSq);
+                        ldx *= invDist;
+                        ldy *= invDist;
+                        ldz *= invDist;
                     }
                 }
                 else
@@ -136,32 +113,31 @@ namespace pip3D
                     continue;
                 }
 
-                const float NdotL = normal.x * lightDir.x +
-                                    normal.y * lightDir.y +
-                                    normal.z * lightDir.z;
+                const float NdotL = nx * ldx + ny * ldy + nz * ldz;
 
-                float wrappedNdotL = (NdotL + DIFFUSE_WRAP) * INV_DIFFUSE_WRAP;
-                wrappedNdotL = (wrappedNdotL < 0.0f) ? 0.0f : wrappedNdotL;
+                float diffuse = (NdotL + DIFFUSE_WRAP) * DIFFUSE_SCALE;
+                if (diffuse < 0.0f)
+                    diffuse = 0.0f;
 
                 const float lightIntensityAtten = light.intensity * attenuation;
-                const float diffuse = wrappedNdotL * DIFFUSE_STRENGTH * lightIntensityAtten;
+                diffuse *= lightIntensityAtten;
 
                 float specular = 0.0f;
                 if (!skipSpecularAndRim && NdotL > 0.0f && SPECULAR_STRENGTH > 0.0f)
                 {
-                    float hx = lightDir.x + viewDir.x;
-                    float hy = lightDir.y + viewDir.y;
-                    float hz = lightDir.z + viewDir.z;
+                    float hx = ldx + vdx;
+                    float hy = ldy + vdy;
+                    float hz = ldz + vdz;
 
                     const float hLenSq = hx * hx + hy * hy + hz * hz;
                     if (hLenSq > 1e-8f)
                     {
-                        const float invHLen = 1.0f / sqrtf(hLenSq);
+                        const float invHLen = FastMath::fastInvSqrt(hLenSq);
                         hx *= invHLen;
                         hy *= invHLen;
                         hz *= invHLen;
 
-                        const float NdotH = normal.x * hx + normal.y * hy + normal.z * hz;
+                        const float NdotH = nx * hx + ny * hy + nz * hz;
                         if (NdotH > 0.0f)
                         {
                             float spec = NdotH * NdotH;
@@ -173,42 +149,40 @@ namespace pip3D
                     }
                 }
 
-                float lightR, lightG, lightB;
-                light.getCachedRGB(lightR, lightG, lightB);
+                const float lightR = light.cachedR;
+                const float lightG = light.cachedG;
+                const float lightB = light.cachedB;
 
-                const float diffuseR = baseR * diffuse;
-                const float diffuseG = baseG * diffuse;
-                const float diffuseB = baseB * diffuse;
-
-                outR += (diffuseR + specular) * lightR;
-                outG += (diffuseG + specular) * lightG;
-                outB += (diffuseB + specular) * lightB;
+                outR += (baseR * diffuse + specular) * lightR;
+                outG += (baseG * diffuse + specular) * lightG;
+                outB += (baseB * diffuse + specular) * lightB;
             }
 
             outR += baseR * rimAmount;
             outG += baseG * rimAmount;
             outB += baseB * rimAmount;
 
-            outR = outR / (INV_HDR_EXPOSURE + outR);
-            outG = outG / (INV_HDR_EXPOSURE + outG);
-            outB = outB / (INV_HDR_EXPOSURE + outB);
-
-            outR = fastSqrt01(outR);
-            outG = fastSqrt01(outG);
-            outB = fastSqrt01(outB);
+            outR *= 1.15f * FastMath::fastReciprocal(0.25f + outR);
+            outG *= 1.15f * FastMath::fastReciprocal(0.25f + outG);
+            outB *= 1.15f * FastMath::fastReciprocal(0.25f + outB);
 
             const float lum = outR * 0.299f + outG * 0.587f + outB * 0.114f;
             outR += (outR - lum) * SATURATION_LUM_FACTOR;
             outG += (outG - lum) * SATURATION_LUM_FACTOR;
             outB += (outB - lum) * SATURATION_LUM_FACTOR;
 
-            outR = outR * CONTRAST + CONTRAST_OFFSET;
-            outG = outG * CONTRAST + CONTRAST_OFFSET;
-            outB = outB * CONTRAST + CONTRAST_OFFSET;
-
-            outR = clamp(outR, 0.0f, 1.0f);
-            outG = clamp(outG, 0.0f, 1.0f);
-            outB = clamp(outB, 0.0f, 1.0f);
+            if (outR < 0.0f)
+                outR = 0.0f;
+            else if (outR > 1.0f)
+                outR = 1.0f;
+            if (outG < 0.0f)
+                outG = 0.0f;
+            else if (outG > 1.0f)
+                outG = 1.0f;
+            if (outB < 0.0f)
+                outB = 0.0f;
+            else if (outB > 1.0f)
+                outB = 1.0f;
         }
 
         __attribute__((always_inline)) static inline uint16_t quantizeColor(float r, float g, float b)
@@ -216,25 +190,6 @@ namespace pip3D
             const int ir = static_cast<int>(r * 31.0f + 0.5f);
             const int ig = static_cast<int>(g * 63.0f + 0.5f);
             const int ib = static_cast<int>(b * 31.0f + 0.5f);
-
-            const uint16_t rc = (ir > 31) ? 31 : ((ir < 0) ? 0 : ir);
-            const uint16_t gc = (ig > 63) ? 63 : ((ig < 0) ? 0 : ig);
-            const uint16_t bc = (ib > 31) ? 31 : ((ib < 0) ? 0 : ib);
-
-            return static_cast<uint16_t>((rc << 11) | (gc << 5) | bc);
-        }
-
-        __attribute__((always_inline, hot)) static inline uint16_t IRAM_ATTR applyDithering(float r, float g, float b, int16_t x, int16_t y)
-        {
-            r *= 31.0f;
-            g *= 63.0f;
-            b *= 31.0f;
-
-            const float bayerValue = BAYER_MATRIX_4X4[y & 3][x & 3];
-
-            const int ir = static_cast<int>(r + bayerValue);
-            const int ig = static_cast<int>(g + bayerValue);
-            const int ib = static_cast<int>(b + bayerValue);
 
             const uint16_t rc = (ir > 31) ? 31 : ((ir < 0) ? 0 : ir);
             const uint16_t gc = (ig > 63) ? 63 : ((ig < 0) ? 0 : ig);

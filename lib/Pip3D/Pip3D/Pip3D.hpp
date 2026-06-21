@@ -36,7 +36,6 @@
 
 #include "Rendering/Pipeline/Rasterizer.hpp"
 #include "Rendering/Pipeline/Shading.hpp"
-#include "Rendering/Pipeline/Water.hpp"
 
 #include "Rendering/Lighting/Lighting.hpp"
 #include "Rendering/Lighting/Shadow.hpp"
