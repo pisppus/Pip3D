@@ -124,6 +124,9 @@ namespace pip3D
             const int16_t reflW = static_cast<int16_t>(reflectionWidth);
             const int16_t reflH = static_cast<int16_t>(reflectionHeight);
 
+            const int16_t shiftX = (reflectionWidth == 80) ? 2 : 1;
+            const int16_t shiftY = (reflectionHeight == 60) ? 2 : 1;
+
             auto drawSpan = [&](int y, int16_t x_start, int16_t x_end, int32_t depthStart, int32_t depthStep)
             {
                 const int16_t globalY = bandTop + y;
@@ -188,8 +191,8 @@ namespace pip3D
                         }
                         else
                         {
-                            int16_t hx = reflX >> 1;
-                            int16_t hy = reflY >> 1;
+                            int16_t hx = reflX >> shiftX;
+                            int16_t hy = reflY >> shiftY;
                             if (hx < 0)
                                 hx = 0;
                             else if (hx >= reflW)

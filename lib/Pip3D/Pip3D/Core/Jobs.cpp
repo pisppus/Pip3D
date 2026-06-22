@@ -14,6 +14,9 @@ namespace pip3D
     static SemaphoreHandle_t s_queueMutex = nullptr;
     static SemaphoreHandle_t s_jobSemaphore = nullptr;
 
+    static volatile int s_pending = 0;
+    static SemaphoreHandle_t s_doneSemaphore = nullptr;
+
     static bool s_initialized = false;
     static bool s_enabled = false;
 
@@ -62,6 +65,18 @@ namespace pip3D
             return false;
         }
 
+        s_doneSemaphore = xSemaphoreCreateCounting(MAX_JOBS, 0);
+        if (!s_doneSemaphore)
+        {
+            vSemaphoreDelete(s_queueMutex);
+            vSemaphoreDelete(s_jobSemaphore);
+            s_queueMutex = nullptr;
+            s_jobSemaphore = nullptr;
+            LOGE(::pip3D::Debug::LOG_MODULE_CORE,
+                 "JobSystem::init failed: could not create done semaphore");
+            return false;
+        }
+
         const uint32_t STACK_SIZE = 4096;
         BaseType_t res = xTaskCreatePinnedToCore(
             JobSystem::workerLoop,
@@ -76,8 +91,10 @@ namespace pip3D
         {
             vSemaphoreDelete(s_queueMutex);
             vSemaphoreDelete(s_jobSemaphore);
+            vSemaphoreDelete(s_doneSemaphore);
             s_queueMutex = nullptr;
             s_jobSemaphore = nullptr;
+            s_doneSemaphore = nullptr;
             s_workerTask = nullptr;
             LOGE(::pip3D::Debug::LOG_MODULE_CORE,
                  "JobSystem::init failed: xTaskCreatePinnedToCore returned %d",
@@ -87,6 +104,7 @@ namespace pip3D
 
         s_head = 0;
         s_tail = 0;
+        s_pending = 0;
         s_initialized = true;
         s_enabled = true;
         return true;
@@ -115,8 +133,15 @@ namespace pip3D
                 s_jobSemaphore = nullptr;
             }
 
+            if (s_doneSemaphore)
+            {
+                vSemaphoreDelete(s_doneSemaphore);
+                s_doneSemaphore = nullptr;
+            }
+
             s_head = 0;
             s_tail = 0;
+            s_pending = 0;
             s_initialized = false;
         }
 
@@ -156,6 +181,8 @@ namespace pip3D
                 nextHead = 0;
             s_head = nextHead;
 
+            ++s_pending;
+
             xSemaphoreGive(s_queueMutex);
             xSemaphoreGive(s_jobSemaphore);
 
@@ -165,6 +192,48 @@ namespace pip3D
         bool JobSystem::isEnabled()
         {
             return s_enabled;
+        }
+
+        bool JobSystem::waitAll(uint32_t timeoutTicks)
+        {
+            if (!s_initialized)
+                return true;
+
+            int snapshot;
+            if (xSemaphoreTake(s_queueMutex, portMAX_DELAY) == pdTRUE)
+            {
+                snapshot = s_pending;
+                xSemaphoreGive(s_queueMutex);
+            }
+            else
+            {
+                return false;
+            }
+
+            for (int i = 0; i < snapshot; ++i)
+            {
+                if (xSemaphoreTake(s_doneSemaphore, timeoutTicks) != pdTRUE)
+                    return false;
+            }
+            return true;
+        }
+
+        int JobSystem::pendingCount()
+        {
+            if (!s_initialized)
+                return 0;
+
+            int count;
+            if (xSemaphoreTake(s_queueMutex, portMAX_DELAY) == pdTRUE)
+            {
+                count = s_pending;
+                xSemaphoreGive(s_queueMutex);
+            }
+            else
+            {
+                count = s_pending;
+            }
+            return count;
         }
 
         void JobSystem::workerLoop(void *param)
@@ -205,6 +274,21 @@ namespace pip3D
                 {
                     job.func(job.userData);
                 }
+
+                bool notify;
+                if (xSemaphoreTake(s_queueMutex, portMAX_DELAY) == pdTRUE)
+                {
+                    notify = (s_pending > 0) && (--s_pending == 0);
+                    xSemaphoreGive(s_queueMutex);
+                }
+                else
+                {
+                    --s_pending;
+                    notify = (s_pending == 0);
+                }
+
+                xSemaphoreGive(s_doneSemaphore);
+                (void)notify;
             }
         }
 
@@ -229,6 +313,17 @@ namespace pip3D
             return false;
         func(userData);
         return true;
+    }
+
+    bool JobSystem::waitAll(uint32_t timeoutTicks)
+    {
+        (void)timeoutTicks;
+        return true;
+    }
+
+    int JobSystem::pendingCount()
+    {
+        return 0;
     }
 
     bool JobSystem::isEnabled()

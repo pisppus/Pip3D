@@ -24,6 +24,8 @@ namespace pip3D
         static bool init();
         static void shutdown();
         static bool submit(JobFunc func, void *userData = nullptr);
+        static bool waitAll(uint32_t timeoutTicks = portMAX_DELAY);
+        static int pendingCount();
         static bool isEnabled();
 
     private:
@@ -33,4 +35,3 @@ namespace pip3D
     void useDualCore(bool enabled);
     bool isDualCoreEnabled();
 }
-
