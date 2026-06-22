@@ -20,6 +20,7 @@
 #include "Pipeline/Rasterizer.hpp"
 #include "Pipeline/Shading.hpp"
 #include "Rendering/Display/Sky.hpp"
+#include <PipCore/Display.hpp>
 #if defined(PIP3D_PC)
 #include <PipCore/Platforms/Desktop/Runtime.hpp>
 #else
@@ -46,6 +47,17 @@ namespace pip3D
 {
     class PhysicsWorld;
 
+    struct FlushJob
+    {
+        pipcore::Display *display;
+        const uint16_t *pixels;
+        int16_t x;
+        int16_t y;
+        int16_t w;
+        int16_t h;
+        int32_t stridePixels;
+    };
+
     class Renderer
     {
     private:
@@ -55,8 +67,9 @@ namespace pip3D
         FrameBuffer framebuffer;
         ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer;
         uint16_t *reflectBuffer;
-        static constexpr uint16_t REFLECT_WIDTH = SCREEN_WIDTH / 2;
-        static constexpr uint16_t REFLECT_HEIGHT = SCREEN_HEIGHT / 2;
+        uint16_t *reflectWriteBuffer;
+        static constexpr uint16_t REFLECT_WIDTH = SCREEN_WIDTH / 4;
+        static constexpr uint16_t REFLECT_HEIGHT = SCREEN_HEIGHT / 4;
 
         static constexpr size_t MAX_QUEUE_ELEMENTS = 64;
         MeshInstance *shadowQueue[MAX_QUEUE_ELEMENTS];
@@ -121,6 +134,11 @@ namespace pip3D
         bool shouldRenderShadowForBounds(const Vector3 &center, float radius) const;
         void drawSunDiscAtScreen(int16_t cx, int16_t cyFull, const Color &color, float glow, float sizeScale);
         void drawWaterTriangleInternal(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2, const Color &waterColor, uint8_t alphaByte, const DisplayConfig &cfg, uint16_t *frameBufferPtr);
+
+        static void flushJobFunc(void *userData);
+        static constexpr int FLUSH_JOB_SLOTS = 2;
+        FlushJob flushJobs[FLUSH_JOB_SLOTS];
+        int flushJobNext = 0;
 
     public:
         Renderer();
@@ -203,11 +221,32 @@ namespace pip3D
         bool isSkyboxEnabled() const { return framebuffer.isSkyboxEnabled(); }
         void invalidateSkyboxCache() { framebuffer.invalidateSkyboxCache(); }
 
-        void setShadowOpacity(float opacity) { shadowSettings.shadowOpacity = clamp(opacity, 0.0f, 1.0f); ++shadowCacheGeneration; }
-        void setShadowColor(const Color &color) { shadowSettings.shadowColor = color; shadowSettings.shadowColorAuto = false; ++shadowCacheGeneration; }
-        void setShadowColorAuto() { shadowSettings.shadowColorAuto = true; ++shadowCacheGeneration; }
-        void setShadowPlane(const Vector3 &normal, float distance) { shadowSettings.plane = ShadowProjector::ShadowPlane(normal, distance); ++shadowCacheGeneration; }
-        void setShadowPlaneY(float y) { shadowSettings.plane = ShadowProjector::ShadowPlane(Vector3(0, 1, 0), -y); ++shadowCacheGeneration; }
+        void setShadowOpacity(float opacity)
+        {
+            shadowSettings.shadowOpacity = clamp(opacity, 0.0f, 1.0f);
+            ++shadowCacheGeneration;
+        }
+        void setShadowColor(const Color &color)
+        {
+            shadowSettings.shadowColor = color;
+            shadowSettings.shadowColorAuto = false;
+            ++shadowCacheGeneration;
+        }
+        void setShadowColorAuto()
+        {
+            shadowSettings.shadowColorAuto = true;
+            ++shadowCacheGeneration;
+        }
+        void setShadowPlane(const Vector3 &normal, float distance)
+        {
+            shadowSettings.plane = ShadowProjector::ShadowPlane(normal, distance);
+            ++shadowCacheGeneration;
+        }
+        void setShadowPlaneY(float y)
+        {
+            shadowSettings.plane = ShadowProjector::ShadowPlane(Vector3(0, 1, 0), -y);
+            ++shadowCacheGeneration;
+        }
         ShadowSettings &getShadowSettings() { return shadowSettings; }
         uint32_t getShadowCacheGeneration() const { return shadowCacheGeneration; }
         void invalidateShadowCache() { ++shadowCacheGeneration; }

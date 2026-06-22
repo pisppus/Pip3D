@@ -24,7 +24,8 @@ namespace pip3D
     {
     private:
         Skybox skybox;
-        uint16_t *buffer;
+        uint16_t *buffer[2];
+        uint8_t activeSlot;
         uint16_t *skyboxColorCache;
 #if !defined(PIP3D_PC)
         pipcore::Display *display;
@@ -47,9 +48,9 @@ namespace pip3D
         __attribute__((always_inline)) inline bool readyForFlush() const
         {
 #if defined(PIP3D_PC)
-            return buffer && displayReady;
+            return buffer[0] && displayReady;
 #else
-            return buffer && display;
+            return buffer[0] && display;
 #endif
         }
 
@@ -91,7 +92,8 @@ namespace pip3D
 #if defined(PIP3D_PC)
         __attribute__((always_inline)) inline void swapEndianInPlace(uint32_t count)
         {
-            uint32_t *fb32 = reinterpret_cast<uint32_t *>(buffer);
+            uint16_t *buf = buffer[activeSlot];
+            uint32_t *fb32 = reinterpret_cast<uint32_t *>(buf);
             const uint32_t count32 = count >> 1;
             for (uint32_t i = 0; i < count32; ++i)
             {
@@ -99,13 +101,14 @@ namespace pip3D
                 fb32[i] = ((v & 0x00FF00FFu) << 8) | ((v >> 8) & 0x00FF00FFu);
             }
             if (count & 1u)
-                buffer[count - 1] = __builtin_bswap16(buffer[count - 1]);
+                buf[count - 1] = __builtin_bswap16(buf[count - 1]);
         }
 #endif
 
     public:
         FrameBuffer() : skybox(),
-                        buffer(nullptr),
+                        buffer{nullptr, nullptr},
+                        activeSlot(0),
                         skyboxColorCache(nullptr),
 #if !defined(PIP3D_PC)
                         display(nullptr),
@@ -129,7 +132,7 @@ namespace pip3D
 #endif
         )
         {
-            if (buffer)
+            if (buffer[0] || buffer[1])
                 return false;
 
             config = cfg;
@@ -145,14 +148,25 @@ namespace pip3D
             size_t bufferSize = totalPixels * sizeof(uint16_t);
             bufferSize = (bufferSize + DMA_ALIGNMENT - 1) & ~(DMA_ALIGNMENT - 1);
 
-            buffer = static_cast<uint16_t *>(
-                MemUtils::allocAligned(bufferSize, DMA_ALIGNMENT, pipcore::AllocCaps::PreferInternal));
-            if (!buffer)
+            for (int slot = 0; slot < 2; ++slot)
             {
-                LOGE(::pip3D::Debug::LOG_MODULE_RENDER, "FrameBuffer::init failed: SRAM OOM!");
-                return false;
+                buffer[slot] = static_cast<uint16_t *>(
+                    MemUtils::allocAligned(bufferSize, DMA_ALIGNMENT, pipcore::AllocCaps::PreferInternal));
+                if (!buffer[slot])
+                {
+                    LOGE(::pip3D::Debug::LOG_MODULE_RENDER,
+                         "FrameBuffer::init failed: SRAM OOM (staging slot %d, %u bytes)!",
+                         slot, (unsigned)bufferSize);
+                    for (int s = 0; s < slot; ++s)
+                    {
+                        MemUtils::freeAligned(buffer[s]);
+                        buffer[s] = nullptr;
+                    }
+                    return false;
+                }
+                memset(buffer[slot], 0, bufferSize);
             }
-            memset(buffer, 0, bufferSize);
+            activeSlot = 0;
 
             skyboxColorCache = static_cast<uint16_t *>(MemUtils::allocAligned(
                 SCREEN_HEIGHT * sizeof(uint16_t), 4, pipcore::AllocCaps::PreferInternal));
@@ -162,11 +176,15 @@ namespace pip3D
 
         ~FrameBuffer()
         {
-            if (buffer)
+            for (int slot = 0; slot < 2; ++slot)
             {
-                MemUtils::freeAligned(buffer);
-                buffer = nullptr;
+                if (buffer[slot])
+                {
+                    MemUtils::freeAligned(buffer[slot]);
+                    buffer[slot] = nullptr;
+                }
             }
+            activeSlot = 0;
             if (skyboxColorCache)
             {
                 MemUtils::freeAligned(skyboxColorCache);
@@ -177,8 +195,20 @@ namespace pip3D
         FrameBuffer(const FrameBuffer &) = delete;
         FrameBuffer &operator=(const FrameBuffer &) = delete;
 
-        __attribute__((always_inline)) inline uint16_t *getBuffer() { return buffer; }
-        __attribute__((always_inline)) inline const uint16_t *getBuffer() const { return buffer; }
+        __attribute__((always_inline)) inline uint16_t *getBuffer() { return buffer[activeSlot]; }
+        __attribute__((always_inline)) inline const uint16_t *getBuffer() const { return buffer[activeSlot]; }
+        __attribute__((always_inline)) inline uint16_t *getStagingBufferForFlush()
+        {
+            return buffer[activeSlot];
+        }
+
+        __attribute__((always_inline)) inline void swapStagingSlot()
+        {
+            activeSlot ^= 1u;
+        }
+
+        __attribute__((always_inline)) inline uint8_t getActiveSlot() const { return activeSlot; }
+
         __attribute__((always_inline)) inline const DisplayConfig &getConfig() const { return config; }
 
         __attribute__((always_inline)) inline Skybox &getSkybox() { return skybox; }
@@ -213,17 +243,17 @@ namespace pip3D
             {
                 LOGE(::pip3D::Debug::LOG_MODULE_RENDER,
                      "FrameBuffer::endFrame called with invalid state (buffer=%p)",
-                     (void *)buffer);
+                     (void *)getBuffer());
                 return;
             }
 
             const uint32_t count = static_cast<uint32_t>(config.width) * static_cast<uint32_t>(config.height);
 #if defined(PIP3D_PC)
             swapEndianInPlace(count);
-            pipcore::desktop::Runtime::instance().writeRect565(0, 0, config.width, config.height, buffer, config.width);
+            pipcore::desktop::Runtime::instance().writeRect565(0, 0, config.width, config.height, getBuffer(), config.width);
             swapEndianInPlace(count);
 #else
-            display->writeRect565(0, 0, config.width, config.height, buffer, config.width);
+            display->writeRect565(0, 0, config.width, config.height, getBuffer(), config.width);
 #endif
         }
 
@@ -233,7 +263,7 @@ namespace pip3D
             {
                 LOGE(::pip3D::Debug::LOG_MODULE_RENDER,
                      "FrameBuffer::endFrameRegion called with invalid state (buffer=%p)",
-                     (void *)buffer);
+                     (void *)getBuffer());
                 return;
             }
 
@@ -266,7 +296,7 @@ namespace pip3D
 
             const int16_t clippedW = static_cast<int16_t>(x1 - x0);
             const int16_t clippedH = static_cast<int16_t>(y1 - y0);
-            const uint16_t *region = buffer + static_cast<size_t>(localY) * config.width + x0;
+            const uint16_t *region = getBuffer() + static_cast<size_t>(localY) * config.width + x0;
 
 #if defined(PIP3D_PC)
             for (int16_t row = 0; row < clippedH; ++row)
@@ -290,7 +320,8 @@ namespace pip3D
         template <uint16_t WIDTH, uint16_t HEIGHT>
         __attribute__((always_inline, hot)) inline void fillBackground()
         {
-            if (unlikely(!buffer))
+            uint16_t *__restrict__ buf = buffer[activeSlot];
+            if (unlikely(!buf))
                 return;
 
             const bool skyActive = useSkybox && skybox.enabled;
@@ -330,7 +361,7 @@ namespace pip3D
                 }
 
                 uint32_t *__restrict__ row32 =
-                    reinterpret_cast<uint32_t *>(buffer + static_cast<size_t>(y) * WIDTH);
+                    reinterpret_cast<uint32_t *>(buf + static_cast<size_t>(y) * WIDTH);
 
                 uint16_t x = 0;
                 for (; x < widthHalf; ++x)
@@ -346,10 +377,9 @@ namespace pip3D
                     const uint16_t lastColor = skyActive ? ditherRGB565(
                                                                skyboxColorCache[static_cast<size_t>(globalY)], tLast)
                                                          : baseClear;
-                    buffer[static_cast<size_t>(y) * WIDTH + WIDTH - 1] = lastColor;
+                    buf[static_cast<size_t>(y) * WIDTH + WIDTH - 1] = lastColor;
                 }
             }
         }
-
     };
 }

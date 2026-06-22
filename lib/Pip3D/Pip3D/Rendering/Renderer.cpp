@@ -46,10 +46,9 @@ namespace pip3D
         if (zBuffer)
             delete zBuffer;
         if (reflectBuffer)
-        {
             MemUtils::freeData(reflectBuffer);
-            reflectBuffer = nullptr;
-        }
+        if (reflectWriteBuffer)
+            MemUtils::freeData(reflectWriteBuffer);
     }
 
     bool Renderer::init(const DisplayConfig &cfg)
@@ -153,21 +152,21 @@ namespace pip3D
         const size_t reflectBytes = static_cast<size_t>(REFLECT_WIDTH) *
                                     static_cast<size_t>(REFLECT_HEIGHT) *
                                     sizeof(uint16_t);
+
         reflectBuffer = static_cast<uint16_t *>(MemUtils::allocData(reflectBytes, 16));
-        if (reflectBuffer)
+        reflectWriteBuffer = static_cast<uint16_t *>(MemUtils::allocData(reflectBytes, 16));
+
+        if (reflectBuffer && reflectWriteBuffer)
         {
             memset(reflectBuffer, 0, reflectBytes);
+            memset(reflectWriteBuffer, 0, reflectBytes);
             LOGI(::pip3D::Debug::LOG_MODULE_RENDER,
-                 "Renderer::init: reflection buffer %ux%u (%u bytes) — water SSR enabled",
-                 static_cast<unsigned>(REFLECT_WIDTH),
-                 static_cast<unsigned>(REFLECT_HEIGHT),
+                 "Renderer::init: double reflection buffers allocated (2x %u bytes)",
                  static_cast<unsigned>(reflectBytes));
         }
         else
         {
-            LOGW(::pip3D::Debug::LOG_MODULE_RENDER,
-                 "Renderer::init: reflection buffer OOM (%u bytes) — water SSR disabled (tint/sky fallback)",
-                 static_cast<unsigned>(reflectBytes));
+            LOGW(::pip3D::Debug::LOG_MODULE_RENDER, "Renderer::init: Reflection buffers OOM!");
         }
 
         LOGI(::pip3D::Debug::LOG_MODULE_RENDER, "Renderer::init OK: viewport %dx%d", cfg.width, cfg.height);
@@ -308,79 +307,105 @@ namespace pip3D
         const DisplayConfig &fbCfg = framebuffer.getConfig();
         int16_t bandY = static_cast<int16_t>(bandIndex * fbCfg.height);
 
-        framebuffer.endFrameRegion(0, bandY, fbCfg.width, fbCfg.height);
-        if (reflectBuffer)
+        if (reflectWriteBuffer)
         {
             const uint16_t *src = framebuffer.getBuffer();
             if (src)
             {
                 const int16_t srcW = fbCfg.width;
                 const int16_t srcH = fbCfg.height;
-                const int16_t halfW = srcW >> 1;
-                const int16_t halfH = srcH >> 1;
-                const int16_t dstYBase = bandY >> 1;
+                const int16_t quarterW = srcW >> 2;
+                const int16_t quarterH = srcH >> 2;
+                const int16_t dstYBase = bandY >> 2;
 
-                const int16_t rowsToCopy = (dstYBase + halfH <= REFLECT_HEIGHT)
-                                               ? halfH
+                const int16_t rowsToCopy = (dstYBase + quarterH <= REFLECT_HEIGHT)
+                                               ? quarterH
                                                : static_cast<int16_t>(REFLECT_HEIGHT - dstYBase);
                 if (rowsToCopy > 0)
                 {
-                    const uint32_t *__restrict__ src32 = reinterpret_cast<const uint32_t *>(src);
-                    uint16_t *__restrict__ dstBase = reflectBuffer +
-                                                     static_cast<size_t>(dstYBase) * halfW;
+                    uint16_t *__restrict__ dstBase = reflectWriteBuffer + static_cast<size_t>(dstYBase) * quarterW;
 
                     for (int16_t dy = 0; dy < rowsToCopy; ++dy)
                     {
-                        const int16_t y = dy << 1;
-                        const uint32_t *row0 = src32 + static_cast<size_t>(y) * halfW;
-                        const uint32_t *row1 = row0 + halfW;
-                        uint16_t *__restrict__ dst = dstBase + static_cast<size_t>(dy) * halfW;
+                        const int16_t y = dy << 2;
+                        const uint16_t *srcRow = src + static_cast<size_t>(y) * srcW;
+                        uint16_t *__restrict__ dst = dstBase + static_cast<size_t>(dy) * quarterW;
 
-                        for (int16_t x = 0; x < halfW; ++x)
+                        for (int16_t dx = 0; dx < quarterW; ++dx)
                         {
-                            const uint32_t p0 = row0[x];
-                            const uint32_t p1 = row1[x];
-                            const uint16_t a = static_cast<uint16_t>(p0);
-                            const uint16_t b = static_cast<uint16_t>(p0 >> 16);
-                            const uint16_t c = static_cast<uint16_t>(p1);
-                            const uint16_t d = static_cast<uint16_t>(p1 >> 16);
-
-                            const uint32_t r = ((a >> 11) & 0x1F) + ((b >> 11) & 0x1F) +
-                                               ((c >> 11) & 0x1F) + ((d >> 11) & 0x1F);
-                            const uint32_t g = ((a >> 5) & 0x3F) + ((b >> 5) & 0x3F) +
-                                               ((c >> 5) & 0x3F) + ((d >> 5) & 0x3F);
-                            const uint32_t bb = (a & 0x1F) + (b & 0x1F) +
-                                                (c & 0x1F) + (d & 0x1F);
-                            dst[x] = static_cast<uint16_t>(((r >> 2) << 11) |
-                                                           ((g >> 2) << 5) |
-                                                           (bb >> 2));
+                            dst[dx] = srcRow[dx << 2];
                         }
                     }
                 }
             }
         }
 
+#if !defined(PIP3D_PC)
+        if (isDualCoreEnabled())
+        {
+            JobSystem::waitAll();
+            FlushJob &job = flushJobs[flushJobNext];
+            job.display = display;
+            job.pixels = framebuffer.getStagingBufferForFlush();
+            job.x = 0;
+            job.y = bandY;
+            job.w = fbCfg.width;
+            job.h = fbCfg.height;
+            job.stridePixels = fbCfg.width;
+
+            if (JobSystem::submit(&Renderer::flushJobFunc, &job))
+            {
+                framebuffer.swapStagingSlot();
+                flushJobNext ^= 1;
+            }
+            else
+            {
+                framebuffer.endFrameRegion(0, bandY, fbCfg.width, fbCfg.height);
+            }
+        }
+        else
+        {
+            framebuffer.endFrameRegion(0, bandY, fbCfg.width, fbCfg.height);
+        }
+#else
+        framebuffer.endFrameRegion(0, bandY, fbCfg.width, fbCfg.height);
+#endif
+
         if (bandIndex == BAND_COUNT - 1)
         {
+            if (isDualCoreEnabled())
+                JobSystem::waitAll();
+
+            std::swap(reflectBuffer, reflectWriteBuffer);
+
             perfCounter.endFrame();
 
             static uint32_t diagnosticFrameCount = 0;
             diagnosticFrameCount++;
             if ((diagnosticFrameCount & 31u) == 0u)
             {
-                uint16_t *buf = framebuffer.getBuffer();
-                uint16_t p0 = buf ? buf[0] : 0xFFFF;
-                uint16_t p160 = buf ? buf[160] : 0xFFFF;
-                uint16_t p319 = buf ? buf[319] : 0xFFFF;
-
                 LOGI(::pip3D::Debug::LOG_MODULE_RENDER,
-                     "Renderer: Frame %lu. FPS: %.1f | Triangles: %lu | Pixel Dump: [0]=0x%04X, [160]=0x%04X, [319]=0x%04X",
+                     "Renderer: Frame %lu. FPS: %.1f | Triangles: %lu",
                      (unsigned long)diagnosticFrameCount,
                      (double)perfCounter.getFPS(),
-                     (unsigned long)statsTrianglesTotal,
-                     p0, p160, p319);
+                     (unsigned long)statsTrianglesTotal);
             }
         }
+    }
+
+    void Renderer::flushJobFunc(void *userData)
+    {
+        FlushJob *job = static_cast<FlushJob *>(userData);
+        if (!job || !job->display || !job->pixels)
+            return;
+
+#if defined(PIP3D_PC)
+        pipcore::desktop::Runtime::instance().writeRect565(
+            job->x, job->y, job->w, job->h, job->pixels, job->stridePixels);
+#else
+        job->display->writeRect565(job->x, job->y, job->w, job->h,
+                                   job->pixels, job->stridePixels);
+#endif
     }
 
     void Renderer::drawSkyboxBackground()
