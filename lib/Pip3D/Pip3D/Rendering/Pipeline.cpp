@@ -390,7 +390,18 @@ namespace pip3D
 
             const Vector3 toCam0 = camPos - v0;
 
-            if (doBackfaceCull)
+            const float d0 = -toCam0.dot(camFwd);
+            const float d1 = (v1 - camPos).dot(camFwd);
+            const float d2 = (v2 - camPos).dot(camFwd);
+
+            if (d0 < nearPlane && d1 < nearPlane && d2 < nearPlane)
+                continue;
+
+            const bool partiallyClipped = (d0 < nearPlane || d1 < nearPlane || d2 < nearPlane);
+
+            Vector3 p0, p1, p2;
+
+            if (doBackfaceCull && (useFallbackPath || partiallyClipped))
             {
                 const Vector3 faceNormal = (v1 - v0).cross(v2 - v0);
                 const float normalLenSq = faceNormal.lengthSquared();
@@ -411,8 +422,6 @@ namespace pip3D
                 }
             }
 
-            Vector3 p0, p1, p2;
-
             if (!useFallbackPath)
             {
                 p0 = screenVerts[face.v0];
@@ -426,14 +435,15 @@ namespace pip3D
                 p2 = CameraController::project(v2, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, viewport.x, viewport.y);
             }
 
-            const float d0 = -toCam0.dot(camFwd);
-            const float d1 = (v1 - camPos).dot(camFwd);
-            const float d2 = (v2 - camPos).dot(camFwd);
-
-            if (d0 < nearPlane && d1 < nearPlane && d2 < nearPlane)
-                continue;
-
-            const bool partiallyClipped = (d0 < nearPlane || d1 < nearPlane || d2 < nearPlane);
+            if (doBackfaceCull && !useFallbackPath && !partiallyClipped)
+            {
+                const float area = (p1.x - p0.x) * (p2.y - p0.y) - (p2.x - p0.x) * (p1.y - p0.y);
+                if (area >= 0.0f)
+                {
+                    statsTrianglesBackfaceCulled++;
+                    continue;
+                }
+            }
 
             if (isTextured && !partiallyClipped)
             {

@@ -262,47 +262,6 @@ namespace pip3D
                 const Vector3 &v1 = worldVerts[i1];
                 const Vector3 &v2 = worldVerts[i2];
 
-                if (backfaceCullingEnabled)
-                {
-                    const float bx = v1.x - v0.x;
-                    const float by = v1.y - v0.y;
-                    const float bz = v1.z - v0.z;
-                    const float cx = v2.x - v0.x;
-                    const float cy = v2.y - v0.y;
-                    const float cz = v2.z - v0.z;
-
-                    const float nx = by * cz - bz * cy;
-                    const float ny = bz * cx - bx * cz;
-                    const float nz = bx * cy - by * cx;
-
-                    const float normalLenSq = nx * nx + ny * ny + nz * nz;
-                    if (normalLenSq <= 1e-10f)
-                    {
-                        statsTrianglesBackfaceCulled++;
-                        continue;
-                    }
-
-                    float facing;
-                    if (usePerspectiveFacing)
-                    {
-                        facing = nx * (camPos.x - v0.x) +
-                                 ny * (camPos.y - v0.y) +
-                                 nz * (camPos.z - v0.z);
-                    }
-                    else
-                    {
-                        facing = nx * cameraBackward.x +
-                                 ny * cameraBackward.y +
-                                 nz * cameraBackward.z;
-                    }
-
-                    if (facing <= 0.0f)
-                    {
-                        statsTrianglesBackfaceCulled++;
-                        continue;
-                    }
-                }
-
                 const Vector3 &p0 = screenVerts[i0];
                 const Vector3 &p1 = screenVerts[i1];
                 const Vector3 &p2 = screenVerts[i2];
@@ -324,6 +283,59 @@ namespace pip3D
                     continue;
 
                 bool partiallyClipped = (d0 < nearPlane || d1 < nearPlane || d2 < nearPlane);
+
+                if (backfaceCullingEnabled)
+                {
+                    if (partiallyClipped)
+                    {
+                        const float bx = v1.x - v0.x;
+                        const float by = v1.y - v0.y;
+                        const float bz = v1.z - v0.z;
+                        const float cx = v2.x - v0.x;
+                        const float cy = v2.y - v0.y;
+                        const float cz = v2.z - v0.z;
+
+                        const float nx = by * cz - bz * cy;
+                        const float ny = bz * cx - bx * cz;
+                        const float nz = bx * cy - by * cx;
+
+                        const float normalLenSq = nx * nx + ny * ny + nz * nz;
+                        if (normalLenSq <= 1e-10f)
+                        {
+                            statsTrianglesBackfaceCulled++;
+                            continue;
+                        }
+
+                        float facing;
+                        if (usePerspectiveFacing)
+                        {
+                            facing = nx * (camPos.x - v0.x) +
+                                     ny * (camPos.y - v0.y) +
+                                     nz * (camPos.z - v0.z);
+                        }
+                        else
+                        {
+                            facing = nx * cameraBackward.x +
+                                     ny * cameraBackward.y +
+                                     nz * cameraBackward.z;
+                        }
+
+                        if (facing <= 0.0f)
+                        {
+                            statsTrianglesBackfaceCulled++;
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        const float area = (p1.x - p0.x) * (p2.y - p0.y) - (p2.x - p0.x) * (p1.y - p0.y);
+                        if (area >= 0.0f)
+                        {
+                            statsTrianglesBackfaceCulled++;
+                            continue;
+                        }
+                    }
+                }
 
                 if (mesh->isTextured() && !partiallyClipped)
                 {
