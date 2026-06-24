@@ -199,23 +199,25 @@ namespace pip3D
             if (!s_initialized)
                 return true;
 
-            int snapshot;
-            if (xSemaphoreTake(s_queueMutex, portMAX_DELAY) == pdTRUE)
+            for (;;)
             {
-                snapshot = s_pending;
-                xSemaphoreGive(s_queueMutex);
-            }
-            else
-            {
-                return false;
-            }
+                while (xSemaphoreTake(s_doneSemaphore, 0) == pdTRUE)
+                {
+                }
 
-            for (int i = 0; i < snapshot; ++i)
-            {
+                int pendingNow;
+                while (xSemaphoreTake(s_queueMutex, portMAX_DELAY) != pdTRUE)
+                {
+                }
+                pendingNow = s_pending;
+                xSemaphoreGive(s_queueMutex);
+
+                if (pendingNow == 0)
+                    return true;
+
                 if (xSemaphoreTake(s_doneSemaphore, timeoutTicks) != pdTRUE)
                     return false;
             }
-            return true;
         }
 
         int JobSystem::pendingCount()
@@ -275,20 +277,21 @@ namespace pip3D
                     job.func(job.userData);
                 }
 
-                bool notify;
-                if (xSemaphoreTake(s_queueMutex, portMAX_DELAY) == pdTRUE)
+                bool notify = false;
+                while (xSemaphoreTake(s_queueMutex, portMAX_DELAY) != pdTRUE)
                 {
-                    notify = (s_pending > 0) && (--s_pending == 0);
-                    xSemaphoreGive(s_queueMutex);
                 }
-                else
+                if (s_pending > 0)
                 {
                     --s_pending;
                     notify = (s_pending == 0);
                 }
+                xSemaphoreGive(s_queueMutex);
 
-                xSemaphoreGive(s_doneSemaphore);
-                (void)notify;
+                if (notify)
+                {
+                    xSemaphoreGive(s_doneSemaphore);
+                }
             }
         }
 

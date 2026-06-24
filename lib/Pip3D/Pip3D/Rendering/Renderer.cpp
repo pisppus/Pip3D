@@ -373,9 +373,6 @@ namespace pip3D
 
         if (bandIndex == BAND_COUNT - 1)
         {
-            if (isDualCoreEnabled())
-                JobSystem::waitAll();
-
             std::swap(reflectBuffer, reflectWriteBuffer);
 
             perfCounter.endFrame();
