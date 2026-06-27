@@ -1,6 +1,6 @@
 #pragma once
 
-#include <PipCore/Config/Features.hpp>
+#include <PipCore/Features.hpp>
 
 #if PIPCORE_TARGET_DESKTOP
 
@@ -8,6 +8,9 @@
 #include <PipCore/Network/Wifi.hpp>
 #include <PipCore/Platform.hpp>
 #include <PipCore/Update/Ota.hpp>
+#if PIPCORE_ENABLE_TOUCH
+#include <PipCore/Platforms/Desktop/Touch.hpp>
+#endif
 
 namespace pipcore::desktop
 {
@@ -49,6 +52,14 @@ namespace pipcore::desktop
 
         [[nodiscard]] ota::Backend *update() noexcept override { return &_ota; }
         [[nodiscard]] const ota::Backend *update() const noexcept override { return &_ota; }
+
+#if PIPCORE_ENABLE_TOUCH
+        [[nodiscard]] pipcore::Touch *touch() noexcept override { return &_touch; }
+        [[nodiscard]] const pipcore::Touch *touch() const noexcept override { return &_touch; }
+#else
+        [[nodiscard]] pipcore::Touch *touch() noexcept override { return nullptr; }
+        [[nodiscard]] const pipcore::Touch *touch() const noexcept override { return nullptr; }
+#endif
 
     private:
         class WifiBackend final : public pipcore::net::Backend
@@ -101,6 +112,9 @@ namespace pipcore::desktop
         uint8_t _brightness = 100;
         WifiBackend _wifi = {};
         OtaBackend _ota = {};
+#if PIPCORE_ENABLE_TOUCH
+        Touch _touch;
+#endif
     };
 }
 

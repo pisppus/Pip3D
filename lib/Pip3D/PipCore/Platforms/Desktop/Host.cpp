@@ -1,3 +1,4 @@
+#include <Compat.hpp>
 #include <Arduino.h>
 #include <PipCore/Platforms/Desktop/Runtime.hpp>
 
@@ -5,6 +6,9 @@
 #undef INPUT
 #include <windows.h>
 #endif
+
+HardwareSerial Serial;
+EspCompat ESP;
 
 void setup();
 void loop();

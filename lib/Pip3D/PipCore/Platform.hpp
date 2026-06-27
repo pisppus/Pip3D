@@ -22,6 +22,8 @@ namespace pipcore
         struct Status;
     }
 
+    class Touch;
+
     enum class InputMode : uint8_t
     {
         Floating = 0,
@@ -136,5 +138,8 @@ namespace pipcore
 
         [[nodiscard]] virtual ota::Backend *update() noexcept { return nullptr; }
         [[nodiscard]] virtual const ota::Backend *update() const noexcept { return nullptr; }
+
+        [[nodiscard]] virtual Touch *touch() noexcept { return nullptr; }
+        [[nodiscard]] virtual const Touch *touch() const noexcept { return nullptr; }
     };
 }

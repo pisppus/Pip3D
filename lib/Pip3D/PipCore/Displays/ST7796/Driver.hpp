@@ -2,9 +2,9 @@
 
 #include <PipCore/Displays/StDriver.hpp>
 
-namespace pipcore::st7789
+namespace pipcore::st7796
 {
-    using Driver = pipcore::detail::StDriver<pipcore::detail::StDisplayType::ST7789>;
+    using Driver = pipcore::detail::StDriver<pipcore::detail::StDisplayType::ST7796>;
     using Transport = pipcore::st::Transport;
     using IoError = pipcore::st::IoError;
     using pipcore::st::bswap16;
