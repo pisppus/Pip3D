@@ -1,10 +1,9 @@
-#include <PipCore/Config/Features.hpp>
-
-#if PIPCORE_DISPLAY_ID(PIPCORE_DISPLAY) == PIPCORE_DISPLAY_TAG_ST7789
-
-#include <PipCore/Platforms/ESP32/Transports/St7789Spi.hpp>
+#include <PipCore/Features.hpp>
 
 #if PIPCORE_TARGET_ESP32
+
+#include <PipCore/Platforms/ESP32/Transports/StSpiTransport.hpp>
+
 #include <sdkconfig.h>
 #include <esp_heap_caps.h>
 #include <esp_attr.h>
@@ -23,7 +22,6 @@
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
-#endif
 
 #include <PipCore/Debug/MemoryHooks.hpp>
 
@@ -37,11 +35,9 @@ namespace pipcore::esp32
         [[nodiscard]] inline constexpr bool isPinValid(int8_t pin) noexcept { return pin >= 0; }
         constexpr size_t DmaBufSize = 16384U;
 
-#if PIPCORE_TARGET_ESP32
         static DMA_ATTR uint8_t g_dmaBuf[2][DmaBufSize];
-#endif
 
-        inline void IRAM_ATTR __attribute__((always_inline)) fastFill32(uint32_t *dest, size_t words, uint32_t value) noexcept
+        inline void IRAM_ATTR fastFill32(uint32_t *dest, size_t words, uint32_t value) noexcept
         {
             size_t blocks = words >> 3;
             while (blocks--)
@@ -66,21 +62,15 @@ namespace pipcore::esp32
 
         [[nodiscard]] inline bool isDmaCapable(const void *p) noexcept
         {
-#if PIPCORE_TARGET_ESP32
 #if defined(CONFIG_IDF_TARGET_ESP32S3)
             return esp_ptr_internal(p) || esp_ptr_dma_ext_capable(p);
 #else
             return esp_ptr_dma_capable(p);
 #endif
-#else
-            (void)p;
-            return false;
-#endif
         }
 
         inline void IRAM_ATTR gpio_fast_write_high(int8_t pin) noexcept
         {
-#if PIPCORE_TARGET_ESP32
             if (__builtin_expect(pin < 32, 1))
             {
                 GPIO.out_w1ts = (1UL << pin);
@@ -89,14 +79,10 @@ namespace pipcore::esp32
             {
                 gpio_ll_set_level(&GPIO, static_cast<gpio_num_t>(pin), 1);
             }
-#else
-            (void)pin;
-#endif
         }
 
         inline void IRAM_ATTR gpio_fast_write_low(int8_t pin) noexcept
         {
-#if PIPCORE_TARGET_ESP32
             if (__builtin_expect(pin < 32, 1))
             {
                 GPIO.out_w1tc = (1UL << pin);
@@ -105,14 +91,10 @@ namespace pipcore::esp32
             {
                 gpio_ll_set_level(&GPIO, static_cast<gpio_num_t>(pin), 0);
             }
-#else
-            (void)pin;
-#endif
         }
 
         void IRAM_ATTR lcd_spi_pre_cb(spi_transaction_t *t)
         {
-#if PIPCORE_TARGET_ESP32
             const uint32_t packed = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(t->user));
             const int8_t pin = static_cast<int8_t>(packed >> 8);
             const uint8_t level = static_cast<uint8_t>(packed);
@@ -142,9 +124,6 @@ namespace pipcore::esp32
                     }
                 }
             }
-#else
-            (void)t;
-#endif
         }
 
         [[nodiscard]] inline void *packDcInfo(int8_t pin, uint8_t level) noexcept
@@ -195,7 +174,7 @@ namespace pipcore::esp32
         }
     }
 
-    void St7789Spi::configure(int8_t mosi, int8_t sclk, int8_t cs, int8_t dc, int8_t rst, uint32_t hz) noexcept
+    void StSpiTransport::configure(int8_t mosi, int8_t sclk, int8_t cs, int8_t dc, int8_t rst, uint32_t hz) noexcept
     {
         deinit();
 
@@ -212,7 +191,7 @@ namespace pipcore::esp32
         _dmaBuf[1] = nullptr;
         _busAcquired = false;
         _initialized = false;
-        _lastError = st7789::IoError::None;
+        _lastError = st::IoError::None;
 
         std::memset(_asyncTrans, 0, sizeof(_asyncTrans));
 
@@ -225,22 +204,22 @@ namespace pipcore::esp32
         _lastYe = 0xFFFF;
     }
 
-    St7789Spi::~St7789Spi() { St7789Spi::deinit(); }
+    StSpiTransport::~StSpiTransport() { StSpiTransport::deinit(); }
 
-    bool St7789Spi::fail(st7789::IoError error)
+    bool StSpiTransport::fail(st::IoError error)
     {
         _lastError = error;
         return false;
     }
 
-    bool St7789Spi::init()
+    bool StSpiTransport::init()
     {
         clearError();
         if (_initialized)
             return true;
 
         if (__builtin_expect(!isPinValid(_pinDc), 0))
-            return fail(st7789::IoError::InvalidConfig);
+            return fail(st::IoError::InvalidConfig);
 
         if (__builtin_expect(!initSpi(), 0))
             return false;
@@ -257,15 +236,15 @@ namespace pipcore::esp32
 
         if (__builtin_expect(gpio_config(&io) != ESP_OK, 0))
         {
-            St7789Spi::deinit();
-            return fail(st7789::IoError::Gpio);
+            StSpiTransport::deinit();
+            return fail(st::IoError::Gpio);
         }
 
         _initialized = true;
         return true;
     }
 
-    void St7789Spi::deinit()
+    void StSpiTransport::deinit()
     {
         if (_spiHandle)
         {
@@ -284,13 +263,13 @@ namespace pipcore::esp32
         _asyncInFlight = 0;
     }
 
-    bool St7789Spi::initSpi()
+    bool StSpiTransport::initSpi()
     {
         if (_spiHandle)
             return true;
 
         if (__builtin_expect(!isPinValid(_pinMosi) || !isPinValid(_pinSclk), 0))
-            return fail(st7789::IoError::InvalidConfig);
+            return fail(st::IoError::InvalidConfig);
 
         spi_bus_config_t bus{};
         bus.mosi_io_num = _pinMosi;
@@ -304,7 +283,7 @@ namespace pipcore::esp32
 #endif
 
         if (__builtin_expect(spi_bus_initialize(SPI2_HOST, &bus, SPI_DMA_CH_AUTO) != ESP_OK, 0))
-            return fail(st7789::IoError::SpiBusInit);
+            return fail(st::IoError::SpiBusInit);
 
         spi_device_interface_config_t dev{};
         dev.mode = 0;
@@ -318,17 +297,12 @@ namespace pipcore::esp32
         if (__builtin_expect(spi_bus_add_device(SPI2_HOST, &dev, &h) != ESP_OK, 0))
         {
             spi_bus_free(SPI2_HOST);
-            return fail(st7789::IoError::SpiDeviceAdd);
+            return fail(st::IoError::SpiDeviceAdd);
         }
         _spiHandle = h;
 
-#if PIPCORE_TARGET_ESP32
         _dmaBuf[0] = g_dmaBuf[0];
         _dmaBuf[1] = g_dmaBuf[1];
-#else
-        _dmaBuf[0] = nullptr;
-        _dmaBuf[1] = nullptr;
-#endif
 
         std::memset(_asyncTrans, 0, sizeof(_asyncTrans));
 
@@ -373,7 +347,7 @@ namespace pipcore::esp32
         return true;
     }
 
-    bool St7789Spi::setRst(bool level)
+    bool StSpiTransport::setRst(bool level)
     {
         if (isPinValid(_pinRst))
         {
@@ -385,15 +359,15 @@ namespace pipcore::esp32
         return true;
     }
 
-    void St7789Spi::delayMs(uint32_t ms)
+    void StSpiTransport::delayMs(uint32_t ms)
     {
         vTaskDelay(pdMS_TO_TICKS(ms));
     }
 
-    bool IRAM_ATTR St7789Spi::writeCommand(uint8_t cmd)
+    bool IRAM_ATTR StSpiTransport::writeCommand(uint8_t cmd)
     {
         if (__builtin_expect(!_spiHandle, 0))
-            return fail(st7789::IoError::NotReady);
+            return fail(st::IoError::NotReady);
 
         if (_asyncInFlight > 0)
         {
@@ -408,15 +382,15 @@ namespace pipcore::esp32
         t.tx_data[0] = cmd;
 
         if (__builtin_expect(spi_device_polling_transmit(static_cast<spi_device_handle_t>(_spiHandle), &t) != ESP_OK, 0))
-            return fail(st7789::IoError::CommandTransmit);
+            return fail(st::IoError::CommandTransmit);
 
         return true;
     }
 
-    bool IRAM_ATTR St7789Spi::write(const void *data, size_t len)
+    bool IRAM_ATTR StSpiTransport::write(const void *data, size_t len)
     {
         if (__builtin_expect(!len || !_spiHandle, 0))
-            return fail(st7789::IoError::NotReady);
+            return fail(st::IoError::NotReady);
 
         if (_asyncInFlight > 0)
         {
@@ -439,36 +413,23 @@ namespace pipcore::esp32
         }
 
         if (__builtin_expect(spi_device_polling_transmit(static_cast<spi_device_handle_t>(_spiHandle), &t) != ESP_OK, 0))
-            return fail(st7789::IoError::DataTransmit);
+            return fail(st::IoError::DataTransmit);
 
         return true;
     }
 
-    bool IRAM_ATTR St7789Spi::acquireBus()
+    bool IRAM_ATTR StSpiTransport::acquireBus()
     {
-        if (__builtin_expect(!_spiHandle, 0))
-            return fail(st7789::IoError::NotReady);
-
-        if (_busAcquired)
-            return true;
-
-        if (__builtin_expect(spi_device_acquire_bus(static_cast<spi_device_handle_t>(_spiHandle), portMAX_DELAY) != ESP_OK, 0))
-            return fail(st7789::IoError::QueueTransmit);
-
         _busAcquired = true;
         return true;
     }
 
-    void IRAM_ATTR St7789Spi::releaseBus()
+    void StSpiTransport::releaseBus()
     {
-        if (!_spiHandle || !_busAcquired)
-            return;
-
-        spi_device_release_bus(static_cast<spi_device_handle_t>(_spiHandle));
         _busAcquired = false;
     }
 
-    bool IRAM_ATTR St7789Spi::waitOldest()
+    bool IRAM_ATTR StSpiTransport::waitOldest()
     {
         if (_asyncInFlight <= 0)
             return true;
@@ -481,14 +442,14 @@ namespace pipcore::esp32
         {
             _asyncNext = 0;
             _asyncInFlight = 0;
-            return fail(st7789::IoError::QueueResult);
+            return fail(st::IoError::QueueResult);
         }
 
         _asyncInFlight--;
         return true;
     }
 
-    bool IRAM_ATTR St7789Spi::drainQueue()
+    bool IRAM_ATTR StSpiTransport::drainQueue()
     {
         if (__builtin_expect(!_spiHandle, 0))
             return true;
@@ -513,7 +474,7 @@ namespace pipcore::esp32
         return success;
     }
 
-    bool IRAM_ATTR St7789Spi::writeAddrWindow(uint16_t xs, uint16_t xe, uint16_t ys, uint16_t ye)
+    bool IRAM_ATTR StSpiTransport::writeAddrWindow(uint16_t xs, uint16_t xe, uint16_t ys, uint16_t ye)
     {
         if (_asyncInFlight > 0)
         {
@@ -528,7 +489,7 @@ namespace pipcore::esp32
         {
             spi_device_handle_t handle = static_cast<spi_device_handle_t>(_spiHandle);
             if (__builtin_expect(spi_device_polling_transmit(handle, &_addrTrans[4]) != ESP_OK, 0))
-                return fail(st7789::IoError::CommandTransmit);
+                return fail(st::IoError::CommandTransmit);
 
             return true;
         }
@@ -551,23 +512,23 @@ namespace pipcore::esp32
         spi_device_handle_t handle = static_cast<spi_device_handle_t>(_spiHandle);
 
         if (__builtin_expect(spi_device_polling_transmit(handle, &_addrTrans[0]) != ESP_OK, 0))
-            return fail(st7789::IoError::CommandTransmit);
+            return fail(st::IoError::CommandTransmit);
         if (__builtin_expect(spi_device_polling_transmit(handle, &_addrTrans[1]) != ESP_OK, 0))
-            return fail(st7789::IoError::CommandTransmit);
+            return fail(st::IoError::CommandTransmit);
         if (__builtin_expect(spi_device_polling_transmit(handle, &_addrTrans[2]) != ESP_OK, 0))
-            return fail(st7789::IoError::CommandTransmit);
+            return fail(st::IoError::CommandTransmit);
         if (__builtin_expect(spi_device_polling_transmit(handle, &_addrTrans[3]) != ESP_OK, 0))
-            return fail(st7789::IoError::CommandTransmit);
+            return fail(st::IoError::CommandTransmit);
         if (__builtin_expect(spi_device_polling_transmit(handle, &_addrTrans[4]) != ESP_OK, 0))
-            return fail(st7789::IoError::CommandTransmit);
+            return fail(st::IoError::CommandTransmit);
 
         return true;
     }
 
-    bool IRAM_ATTR St7789Spi::writePixelsImpl(const void *data, size_t len, bool useDmaBufferIfNonCapable)
+    bool IRAM_ATTR StSpiTransport::writePixelsImpl(const void *data, size_t len, bool useDmaBufferIfNonCapable)
     {
         if (__builtin_expect(!len || !_spiHandle, 0))
-            return fail(st7789::IoError::NotReady);
+            return fail(st::IoError::NotReady);
 
         if (__builtin_expect(!acquireBus(), 0))
             return false;
@@ -576,7 +537,6 @@ namespace pipcore::esp32
         size_t remaining = len;
 
         const bool directDma = isDmaCapable(p) && ((reinterpret_cast<uintptr_t>(p) & 3U) == 0U);
-        const bool hasCs = (_pinCs >= 0);
 
         if (directDma || !useDmaBufferIfNonCapable)
         {
@@ -596,7 +556,7 @@ namespace pipcore::esp32
 
                 esp_err_t err = spi_device_queue_trans(static_cast<spi_device_handle_t>(_spiHandle), t, portMAX_DELAY);
                 if (__builtin_expect(err != ESP_OK, 0))
-                    return fail(st7789::IoError::QueueTransmit);
+                    return fail(st::IoError::QueueTransmit);
 
                 _asyncNext ^= 1;
                 _asyncInFlight++;
@@ -614,14 +574,14 @@ namespace pipcore::esp32
                 const size_t chunk = std::min(remaining, HardwareMaxDmaBytes);
                 spi_transaction_t *t = &_asyncTrans[_asyncNext];
 
-                t->flags = (remaining > chunk && hasCs) ? SPI_TRANS_CS_KEEP_ACTIVE : 0;
+                t->flags = 0;
                 t->length = static_cast<int>(chunk << 3);
                 t->rxlength = 0;
                 t->tx_buffer = p;
 
                 esp_err_t err = spi_device_queue_trans(static_cast<spi_device_handle_t>(_spiHandle), t, portMAX_DELAY);
                 if (__builtin_expect(err != ESP_OK, 0))
-                    return fail(st7789::IoError::QueueTransmit);
+                    return fail(st::IoError::QueueTransmit);
 
                 _asyncNext ^= 1;
                 _asyncInFlight++;
@@ -634,7 +594,7 @@ namespace pipcore::esp32
         else
         {
             if (__builtin_expect(!_dmaBuf[0] || !_dmaBuf[1], 0))
-                return fail(st7789::IoError::NotReady);
+                return fail(st::IoError::NotReady);
 
             if (__builtin_expect(remaining <= DmaBufferBytes, 1))
             {
@@ -654,7 +614,7 @@ namespace pipcore::esp32
 
                 esp_err_t err = spi_device_queue_trans(static_cast<spi_device_handle_t>(_spiHandle), t, portMAX_DELAY);
                 if (__builtin_expect(err != ESP_OK, 0))
-                    return fail(st7789::IoError::QueueTransmit);
+                    return fail(st::IoError::QueueTransmit);
 
                 _asyncNext ^= 1;
                 _asyncInFlight++;
@@ -673,14 +633,14 @@ namespace pipcore::esp32
                 std::memcpy(_dmaBuf[_asyncNext], p, chunk);
 
                 spi_transaction_t *t = &_asyncTrans[_asyncNext];
-                t->flags = (remaining > chunk && hasCs) ? SPI_TRANS_CS_KEEP_ACTIVE : 0;
+                t->flags = 0;
                 t->length = static_cast<int>(chunk << 3);
                 t->rxlength = 0;
                 t->tx_buffer = _dmaBuf[_asyncNext];
 
                 esp_err_t err = spi_device_queue_trans(static_cast<spi_device_handle_t>(_spiHandle), t, portMAX_DELAY);
                 if (__builtin_expect(err != ESP_OK, 0))
-                    return fail(st7789::IoError::QueueTransmit);
+                    return fail(st::IoError::QueueTransmit);
 
                 _asyncNext ^= 1;
                 _asyncInFlight++;
@@ -692,10 +652,10 @@ namespace pipcore::esp32
         }
     }
 
-    bool IRAM_ATTR St7789Spi::fillPixels(uint16_t color, size_t count)
+    bool IRAM_ATTR StSpiTransport::fillPixels(uint16_t color, size_t count)
     {
         if (__builtin_expect(!_spiHandle || !_dmaBuf[0] || !_dmaBuf[1], 0))
-            return fail(st7789::IoError::NotReady);
+            return fail(st::IoError::NotReady);
 
         if (__builtin_expect(!acquireBus(), 0))
             return false;
@@ -728,7 +688,7 @@ namespace pipcore::esp32
             const esp_err_t err = spi_device_queue_trans(static_cast<spi_device_handle_t>(_spiHandle), t, portMAX_DELAY);
             if (__builtin_expect(err != ESP_OK, 0))
             {
-                return fail(st7789::IoError::QueueTransmit);
+                return fail(st::IoError::QueueTransmit);
             }
 
             _asyncNext ^= 1;
@@ -744,7 +704,6 @@ namespace pipcore::esp32
         fastFill32(reinterpret_cast<uint32_t *>(buf0), bufSizePixels >> 1, color32);
         fastFill32(reinterpret_cast<uint32_t *>(buf1), bufSizePixels >> 1, color32);
 
-        const bool hasCs = (_pinCs >= 0);
         size_t remaining = count;
 
         while (remaining)
@@ -758,7 +717,7 @@ namespace pipcore::esp32
             const size_t n = std::min(remaining, bufSizePixels);
             spi_transaction_t *t = &_asyncTrans[_asyncNext];
 
-            t->flags = (remaining > n && hasCs) ? SPI_TRANS_CS_KEEP_ACTIVE : 0;
+            t->flags = 0;
             t->length = static_cast<int>(n << 4);
             t->rxlength = 0;
             t->tx_buffer = _dmaBuf[_asyncNext];
@@ -766,7 +725,7 @@ namespace pipcore::esp32
             const esp_err_t err = spi_device_queue_trans(static_cast<spi_device_handle_t>(_spiHandle), t, portMAX_DELAY);
             if (__builtin_expect(err != ESP_OK, 0))
             {
-                return fail(st7789::IoError::QueueTransmit);
+                return fail(st::IoError::QueueTransmit);
             }
 
             _asyncNext ^= 1;
@@ -778,7 +737,7 @@ namespace pipcore::esp32
         return true;
     }
 
-    bool IRAM_ATTR St7789Spi::waitComplete()
+    bool IRAM_ATTR StSpiTransport::waitComplete()
     {
         bool success = drainQueue();
         releaseBus();

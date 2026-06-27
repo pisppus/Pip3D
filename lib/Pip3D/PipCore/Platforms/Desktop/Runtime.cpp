@@ -1,6 +1,11 @@
 #if defined(PIPGUI_SIM_USE_WX)
 
 #include <PipCore/Platforms/Desktop/Runtime.hpp>
+#include <PipCore/Platforms/Select.hpp>
+
+#if PIPCORE_ENABLE_TOUCH
+#include <PipCore/Platforms/Desktop/Touch.hpp>
+#endif
 
 #undef INPUT
 #include <wx/wx.h>
@@ -286,6 +291,10 @@ namespace pipcore::desktop
         {
             SetBackgroundStyle(wxBG_STYLE_PAINT);
             Bind(wxEVT_PAINT, &WxSimCanvas::onPaint, this);
+
+            Bind(wxEVT_LEFT_DOWN, &WxSimCanvas::onMouseDown, this);
+            Bind(wxEVT_LEFT_UP, &WxSimCanvas::onMouseUp, this);
+            Bind(wxEVT_MOTION, &WxSimCanvas::onMouseMove, this);
         }
 
         void syncNativeSize()
@@ -297,6 +306,51 @@ namespace pipcore::desktop
         }
 
     private:
+        void mapMouseCoords(wxMouseEvent &event, int &outX, int &outY)
+        {
+            const wxSize client = GetClientSize();
+            const double sx = static_cast<double>(client.GetWidth()) / static_cast<double>(_runtime._width);
+            const double sy = static_cast<double>(client.GetHeight()) / static_cast<double>(_runtime._height);
+            const double nativeScale = static_cast<double>(_runtime._scale);
+            const double scale = std::max(1.0, std::min(nativeScale, std::min(sx, sy)));
+            const int outW = std::max(1, static_cast<int>(_runtime._width * scale));
+            const int outH = std::max(1, static_cast<int>(_runtime._height * scale));
+            const int startX = (client.GetWidth() - outW) / 2;
+            const int startY = (client.GetHeight() - outH) / 2;
+
+            outX = static_cast<int>((event.GetX() - startX) / scale);
+            outY = static_cast<int>((event.GetY() - startY) / scale);
+        }
+
+        void onMouseDown(wxMouseEvent &event)
+        {
+            _isDragging = true;
+            int x = 0, y = 0;
+            mapMouseCoords(event, x, y);
+            _runtime.injectTouch(true, x, y);
+            event.Skip();
+        }
+
+        void onMouseUp(wxMouseEvent &event)
+        {
+            _isDragging = false;
+            int x = 0, y = 0;
+            mapMouseCoords(event, x, y);
+            _runtime.injectTouch(false, x, y);
+            event.Skip();
+        }
+
+        void onMouseMove(wxMouseEvent &event)
+        {
+            if (_isDragging)
+            {
+                int x = 0, y = 0;
+                mapMouseCoords(event, x, y);
+                _runtime.injectTouch(true, x, y);
+            }
+            event.Skip();
+        }
+
         void onPaint(wxPaintEvent &)
         {
             wxAutoBufferedPaintDC dc(this);
@@ -332,6 +386,7 @@ namespace pipcore::desktop
 
     private:
         Runtime &_runtime;
+        bool _isDragging = false;
     };
 
     class WxMetricsPanel final : public wxPanel
@@ -1560,6 +1615,26 @@ namespace pipcore::desktop
         default:
             break;
         }
+    }
+
+    void Runtime::injectTouch(bool down, int x, int y) noexcept
+    {
+#if PIPCORE_ENABLE_TOUCH
+        if (pipcore::Platform *plat = pipcore::GetPlatform())
+        {
+            if (pipcore::Touch *touch = plat->touch())
+            {
+                auto *deskTouch = static_cast<pipcore::desktop::Touch *>(touch);
+                int cx = std::max(0, std::min(x, static_cast<int>(_width - 1)));
+                int cy = std::max(0, std::min(y, static_cast<int>(_height - 1)));
+                deskTouch->injectPointer(down, static_cast<uint16_t>(cx), static_cast<uint16_t>(cy));
+            }
+        }
+#else
+        (void)down;
+        (void)x;
+        (void)y;
+#endif
     }
 
     void Runtime::pushSerialChar(char ch) noexcept

@@ -1,4 +1,4 @@
-#include <PipCore/Config/Features.hpp>
+#include <PipCore/Features.hpp>
 
 #if PIPCORE_DISPLAY_ID(PIPCORE_DISPLAY) == PIPCORE_DISPLAY_TAG_ILI9488
 

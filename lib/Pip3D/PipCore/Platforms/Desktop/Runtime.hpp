@@ -1,6 +1,6 @@
 #pragma once
 
-#include <PipCore/Config/Features.hpp>
+#include <PipCore/Features.hpp>
 
 #if PIPCORE_TARGET_DESKTOP
 
@@ -42,6 +42,7 @@ namespace pipcore::desktop
         void pinModeInput(uint8_t pin, pipcore::InputMode mode) noexcept;
         [[nodiscard]] bool digitalRead(uint8_t pin) const noexcept;
         [[nodiscard]] int16_t analogRead(uint8_t pin) const noexcept;
+        void injectTouch(bool down, int x, int y) noexcept;
 
         [[nodiscard]] uint32_t nowMs() noexcept;
         [[nodiscard]] uint64_t nowMicros() noexcept;

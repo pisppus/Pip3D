@@ -1,87 +1,144 @@
-#include <PipCore/Config/Features.hpp>
+#pragma once
 
-#if PIPCORE_DISPLAY_ID(PIPCORE_DISPLAY) == PIPCORE_DISPLAY_TAG_ST7789
+#include <PipCore/Features.hpp>
+#include <PipCore/Display.hpp>
+#include <PipCore/Platform.hpp>
+#include <PipCore/Displays/ST7789/Driver.hpp>
+#include <algorithm>
+#include <cstring>
 
 #if PIPCORE_TARGET_ESP32
 #include <esp_attr.h>
 #include <esp_log.h>
-#define DISPLAY_HOT_FUNC IRAM_ATTR
+#define PIPCORE_ST_HOT IRAM_ATTR
 #else
 #include <cstdio>
-#define DISPLAY_HOT_FUNC
+#define PIPCORE_ST_HOT
 #endif
 
-#include <PipCore/Displays/ST7789/Display.hpp>
-#include <PipCore/Platform.hpp>
-#include <algorithm>
-#include <cstring>
-
-namespace pipcore::st7789
+namespace pipcore::detail
 {
-    Display::~Display()
-    {
-        freeLineBuf();
-    }
+    using pipcore::st::copySwap565;
 
-    void Display::freeLineBuf() noexcept
+    template <typename DriverType>
+    class StDisplay : public pipcore::Display
     {
-        if (_lineBuf && _platform)
+    public:
+        static inline constexpr size_t StageTargetPixels = 4096;
+
+        explicit StDisplay(const char *logTag) noexcept
+            : _logTag(logTag)
         {
-            _platform->free(_lineBuf);
         }
-        _lineBuf = nullptr;
-        _lineBufCapPixels = 0;
-    }
 
-    bool Display::configure(pipcore::Platform *platform,
-                            Transport *transport,
-                            uint16_t width,
-                            uint16_t height,
-                            uint8_t order,
-                            bool invert,
-                            bool swap,
-                            int16_t xOffset,
-                            int16_t yOffset)
-    {
-        if (!platform)
+        ~StDisplay() override
         {
             freeLineBuf();
-            return false;
         }
 
-        _platform = platform;
-        freeLineBuf();
+        StDisplay(const StDisplay &) = delete;
+        StDisplay &operator=(const StDisplay &) = delete;
+        StDisplay(StDisplay &&) = delete;
+        StDisplay &operator=(StDisplay &&) = delete;
 
-        constexpr size_t fixedCap = StageTargetPixels * 2;
-        _lineBuf = static_cast<uint16_t *>(_platform->alloc(fixedCap * sizeof(uint16_t), AllocCaps::PreferInternal));
+        [[nodiscard]] bool begin(uint8_t rotation) override { return _drv.begin(rotation); }
+        [[nodiscard]] bool setRotation(uint8_t rotation) override { return _drv.setRotation(rotation); }
+        [[nodiscard]] uint16_t width() const noexcept override { return _drv.width(); }
+        [[nodiscard]] uint16_t height() const noexcept override { return _drv.height(); }
+        void reset() noexcept { _drv.reset(); }
+        [[nodiscard]] auto lastError() const noexcept { return _drv.lastError(); }
+        [[nodiscard]] const char *lastErrorText() const noexcept { return _drv.lastErrorText(); }
+        [[nodiscard]] bool ioOk() const noexcept { return _drv.lastError() == DriverType::IoError::None; }
 
-        if (!_lineBuf)
+        void fillScreen565(uint16_t color565) override
         {
-#if PIPCORE_TARGET_ESP32
-            ESP_LOGW("ST7789", "OOM: Failed to allocate line buffer (%d bytes) in internal RAM! Falling back to slow stack-buffered mode.", (int)(fixedCap * sizeof(uint16_t)));
-#else
-            std::printf("[ST7789 Warning] Failed to allocate line buffer (%d bytes)! Falling back to slow stack-buffered mode.\n", (int)(fixedCap * sizeof(uint16_t)));
-#endif
+            (void)_drv.fillScreen565(color565, _drv.swapBytes());
+        }
 
+        void waitDMA() override { (void)_drv.waitComplete(); }
+
+        PIPCORE_ST_HOT void writeRect565(int16_t x,
+                                         int16_t y,
+                                         int16_t w,
+                                         int16_t h,
+                                         const uint16_t *pixels,
+                                         int32_t stridePixels) override;
+
+        PIPCORE_ST_HOT void writeRect565Async(int16_t x,
+                                              int16_t y,
+                                              int16_t w,
+                                              int16_t h,
+                                              const uint16_t *pixels,
+                                              int32_t stridePixels) override;
+
+    protected:
+        void freeLineBuf() noexcept
+        {
+            if (_lineBuf && _platform)
+            {
+                _platform->free(_lineBuf);
+            }
+            _lineBuf = nullptr;
             _lineBufCapPixels = 0;
         }
-        else
-        {
-            _lineBufCapPixels = fixedCap;
-        }
 
-        const bool success = _drv.configure(transport, width, height, order, invert, swap, xOffset, yOffset);
-        if (!success)
+        [[nodiscard]] bool configureBase(pipcore::Platform *platform,
+                                         typename DriverType::Transport *transport,
+                                         uint16_t width,
+                                         uint16_t height,
+                                         uint8_t order,
+                                         bool invert,
+                                         bool swap,
+                                         int16_t xOffset,
+                                         int16_t yOffset)
         {
+            if (!platform)
+            {
+                freeLineBuf();
+                return false;
+            }
+
+            _platform = platform;
             freeLineBuf();
-            return false;
+
+            constexpr size_t fixedCap = StageTargetPixels * 2;
+            _lineBuf = static_cast<uint16_t *>(_platform->alloc(fixedCap * sizeof(uint16_t), AllocCaps::PreferInternal));
+
+            if (!_lineBuf)
+            {
+#if PIPCORE_TARGET_ESP32
+                ESP_LOGW(_logTag, "OOM: Failed to allocate line buffer (%d bytes) in internal RAM! Falling back to slow stack-buffered mode.", (int)(fixedCap * sizeof(uint16_t)));
+#else
+                std::printf("[%s Warning] Failed to allocate line buffer (%d bytes)! Falling back to slow stack-buffered mode.\n", _logTag, (int)(fixedCap * sizeof(uint16_t)));
+#endif
+                _lineBufCapPixels = 0;
+            }
+            else
+            {
+                _lineBufCapPixels = fixedCap;
+            }
+
+            const bool success = _drv.configure(transport, width, height, order, invert, swap, xOffset, yOffset);
+            if (!success)
+            {
+                freeLineBuf();
+                return false;
+            }
+
+            return true;
         }
 
-        return true;
-    }
+    protected:
+        pipcore::Platform *_platform = nullptr;
+        DriverType _drv;
+        uint16_t *_lineBuf = nullptr;
+        size_t _lineBufCapPixels = 0;
+        const char *_logTag = nullptr;
+    };
 
-    DISPLAY_HOT_FUNC void Display::writeRect565(int16_t x, int16_t y, int16_t w, int16_t h,
-                                                const uint16_t *pixels, int32_t stridePixels)
+    template <typename DriverType>
+    PIPCORE_ST_HOT void StDisplay<DriverType>::writeRect565(int16_t x, int16_t y, int16_t w, int16_t h,
+                                                            const uint16_t *pixels, int32_t stridePixels)
     {
         if (!pixels || w <= 0 || h <= 0 || stridePixels < w)
             return;
@@ -170,6 +227,7 @@ namespace pipcore::st7789
                 remaining -= chunk;
                 bufIdx ^= 1;
             }
+            (void)_drv.waitComplete();
             return;
         }
 
@@ -228,6 +286,7 @@ namespace pipcore::st7789
                 yy = static_cast<int16_t>(yy + batchRows);
                 bufIdx ^= 1;
             }
+            (void)_drv.waitComplete();
             return;
         }
 
@@ -267,8 +326,9 @@ namespace pipcore::st7789
         (void)_drv.waitComplete();
     }
 
-    DISPLAY_HOT_FUNC void Display::writeRect565Async(int16_t x, int16_t y, int16_t w, int16_t h,
-                                                     const uint16_t *pixels, int32_t stridePixels)
+    template <typename DriverType>
+    PIPCORE_ST_HOT void StDisplay<DriverType>::writeRect565Async(int16_t x, int16_t y, int16_t w, int16_t h,
+                                                                 const uint16_t *pixels, int32_t stridePixels)
     {
         if (!pixels || w <= 0 || h <= 0 || stridePixels < w)
             return;
@@ -331,5 +391,3 @@ namespace pipcore::st7789
         }
     }
 }
-
-#endif
