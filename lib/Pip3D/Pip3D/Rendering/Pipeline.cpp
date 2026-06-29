@@ -458,7 +458,41 @@ namespace pip3D
                 lp1.y -= (float)bandTop;
                 lp2.y -= (float)bandTop;
 
-                Rasterizer::fillTriangleTextured(lp0.x, lp0.y, lp0.z, lp1.x, lp1.y, lp1.z, lp2.x, lp2.y, lp2.z, vert0.tu, vert0.tv, vert1.tu, vert1.tv, vert2.tu, vert2.tv, d0, d1, d2, *mesh->getTexture(), framebuffer.getBuffer(), zBuffer, framebufferConfig);
+                float lr0, lg0, lb0, lr1, lg1, lb1, lr2, lg2, lb2;
+                if (gouraudShading)
+                {
+                    Vector3 viewDir0 = camPos - v0;
+                    viewDir0.normalize();
+                    Vector3 n0 = worldTransform.transformNormal(vert0.normal.get());
+                    Shading::calculateLighting(v0, n0, viewDir0, activeLights, actualLightCount, baseR, baseG, baseB, lr0, lg0, lb0);
+
+                    Vector3 viewDir1 = camPos - v1;
+                    viewDir1.normalize();
+                    Vector3 n1 = worldTransform.transformNormal(vert1.normal.get());
+                    Shading::calculateLighting(v1, n1, viewDir1, activeLights, actualLightCount, baseR, baseG, baseB, lr1, lg1, lb1);
+
+                    Vector3 viewDir2 = camPos - v2;
+                    viewDir2.normalize();
+                    Vector3 n2 = worldTransform.transformNormal(vert2.normal.get());
+                    Shading::calculateLighting(v2, n2, viewDir2, activeLights, actualLightCount, baseR, baseG, baseB, lr2, lg2, lb2);
+                }
+                else
+                {
+                    Vector3 faceNormal = (v1 - v0).cross(v2 - v0);
+                    faceNormal.normalize();
+                    const Vector3 centroid = (v0 + v1 + v2) * (1.0f / 3.0f);
+                    Vector3 viewDir = camPos - centroid;
+                    viewDir.normalize();
+                    Shading::calculateLighting(centroid, faceNormal, viewDir, activeLights, actualLightCount, baseR, baseG, baseB, lr0, lg0, lb0);
+                    lr1 = lr0;
+                    lg1 = lg0;
+                    lb1 = lb0;
+                    lr2 = lr0;
+                    lg2 = lg0;
+                    lb2 = lb0;
+                }
+
+                Rasterizer::fillTriangleTextured(lp0.x, lp0.y, lp0.z, lp1.x, lp1.y, lp1.z, lp2.x, lp2.y, lp2.z, vert0.tu, vert0.tv, vert1.tu, vert1.tv, vert2.tu, vert2.tv, d0, d1, d2, lr0, lg0, lb0, lr1, lg1, lb1, lr2, lg2, lb2, *mesh->getTexture(), framebuffer.getBuffer(), zBuffer, framebufferConfig);
                 continue;
             }
 

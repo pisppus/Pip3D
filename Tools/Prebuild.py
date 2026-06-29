@@ -1,28 +1,27 @@
-import os
 import sys
+sys.dont_write_bytecode = True
+
+import os
 import json
 import hashlib
 import subprocess
-
-sys.dont_write_bytecode = True
 
 Import("env")
 
 try:
     from PIL import Image
 except ImportError:
-    print("\033[36m[Pip3D]\033[0m Pillow library not found. Installing via pip...")
-    python_exe = env.subst("$PYTHONEXE")
-    subprocess.check_call([python_exe, "-m", "pip", "install", "Pillow"])
+    print("\033[36m[Pip3D]\033[0m Pillow not found, installing...")
+    subprocess.check_call([env.subst("$PYTHONEXE"), "-m", "pip", "install", "Pillow"])
 
 project_dir = env.subst("$PROJECT_DIR")
 
-ANSI_GREEN = "\033[32m"
+ANSI_GREEN  = "\033[32m"
 ANSI_YELLOW = "\033[33m"
-ANSI_RESET = "\033[0m"
+ANSI_RESET  = "\033[0m"
 
 CACHE_VERSION = 2
-CACHE_PATH = os.path.join(project_dir, ".pio", "prebuild_cache.json")
+CACHE_PATH    = os.path.join(project_dir, ".pio", "prebuild_cache.json")
 
 
 def _tag(color, msg):
@@ -57,7 +56,7 @@ def load_cache():
 def save_cache(entries):
     os.makedirs(os.path.dirname(CACHE_PATH), exist_ok=True)
     payload = {"version": CACHE_VERSION, "entries": entries}
-    tmp = CACHE_PATH + ".tmp"
+    tmp     = CACHE_PATH + ".tmp"
     try:
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2)
@@ -95,8 +94,8 @@ def touch(path):
 
 
 def parse_asset_name(raw_name):
-    name = os.path.splitext(raw_name)[0]
-    parts = name.split('_')
+    name  = os.path.splitext(raw_name)[0]
+    parts = name.split("_")
     if len(parts) > 1:
         try:
             val = int(parts[-1])
@@ -108,19 +107,34 @@ def parse_asset_name(raw_name):
 
 
 def run_convert(script_path, args):
-    env_nobyte = dict(os.environ)
-    env_nobyte["PYTHONDONTWRITEBYTECODE"] = "1"
+    env_clean = dict(os.environ)
+    env_clean["PYTHONDONTWRITEBYTECODE"] = "1"
     subprocess.check_call(
         [env.subst("$PYTHONEXE"), script_path] + args,
-        env=env_nobyte,
+        env=env_clean,
     )
 
 
-CACHE = load_cache()
+def parse_screen_resolution():
+    width  = 480
+    height = 320
+    try:
+        flags_text = env.GetProjectOption("build_flags", "")
+        for token in flags_text.replace(",", "\n").split():
+            if token.startswith("-DPIP3D_SCREEN_WIDTH="):
+                width = int(token.split("=", 1)[1])
+            elif token.startswith("-DPIP3D_SCREEN_HEIGHT="):
+                height = int(token.split("=", 1)[1])
+    except Exception:
+        pass
+    return width, height
+
+
+CACHE         = load_cache()
 CACHE_CHANGED = False
 
-models_dir = os.path.join(project_dir, "Tools", "Models")
-obj_sources_dir = os.path.join(models_dir, "Sources")
+models_dir          = os.path.join(project_dir, "Tools", "Models")
+obj_sources_dir     = os.path.join(models_dir, "Sources")
 geometry_models_dir = os.path.join(project_dir, "lib", "Pip3D", "Pip3D", "Geometry", "Models")
 
 os.makedirs(geometry_models_dir, exist_ok=True)
@@ -130,9 +144,9 @@ expected_model_outputs = {}
 if os.path.isdir(obj_sources_dir):
     for file in os.listdir(obj_sources_dir):
         if file.lower().endswith(".obj"):
-            obj_path = os.path.join(obj_sources_dir, file)
+            obj_path   = os.path.join(obj_sources_dir, file)
             clean_name, _ = parse_asset_name(file)
-            hpp_path = os.path.join(geometry_models_dir, clean_name + ".hpp")
+            hpp_path   = os.path.join(geometry_models_dir, clean_name + ".hpp")
             expected_model_outputs[os.path.basename(hpp_path)] = True
 
             key = "model:" + clean_name
@@ -153,8 +167,8 @@ if os.path.isdir(geometry_models_dir):
             except OSError:
                 pass
 
-textures_dir = os.path.join(project_dir, "Tools", "Textures")
-tex_sources_dir = os.path.join(textures_dir, "Sources")
+textures_dir         = os.path.join(project_dir, "Tools", "Textures")
+tex_sources_dir      = os.path.join(textures_dir, "Sources")
 display_textures_dir = os.path.join(project_dir, "lib", "Pip3D", "Pip3D", "Rendering", "Display", "Textures")
 
 os.makedirs(display_textures_dir, exist_ok=True)
@@ -164,6 +178,8 @@ expected_tex_outputs = {}
 if os.path.isdir(tex_sources_dir):
     claims = {}
     for file in sorted(os.listdir(tex_sources_dir)):
+        if file.startswith("_"):
+            continue
         if file.lower().endswith((".png", ".jpg", ".jpeg")):
             clean_name, _ = parse_asset_name(file)
             claims.setdefault(clean_name, []).append(file)
@@ -173,17 +189,15 @@ if os.path.isdir(tex_sources_dir):
         expected_tex_outputs[os.path.basename(hpp_path)] = True
 
         if len(sources) > 1:
-            chosen = sorted(sources)[-1]
-            print(_tag(ANSI_YELLOW,
-                       f"Name collision for '{clean_name}': {sources} -> using '{chosen}'"))
+            chosen   = sorted(sources)[-1]
             img_path = os.path.join(tex_sources_dir, chosen)
+            print(_tag(ANSI_YELLOW, f"Name collision for '{clean_name}': {sources} -> using '{chosen}'"))
         else:
             img_path = os.path.join(tex_sources_dir, sources[0])
 
         key = "tex:" + clean_name
         if needs_rebuild(CACHE, key, img_path, hpp_path):
-            print(_tag(ANSI_GREEN,
-                       f"Building texture: {sources[-1]} -> {clean_name}.hpp"))
+            print(_tag(ANSI_GREEN, f"Building texture: {sources[-1]} -> {clean_name}.hpp"))
             run_convert(os.path.join(textures_dir, "Convert.py"), [img_path, hpp_path])
             mark_built(CACHE, key, img_path, hpp_path)
             touch(hpp_path)
@@ -198,6 +212,19 @@ if os.path.isdir(display_textures_dir):
                 print(_tag(ANSI_YELLOW, f"Removed orphaned texture header: {existing}"))
             except OSError:
                 pass
+
+skygen_path     = os.path.join(project_dir, "Tools", "Textures", "Skygen.py")
+clouds_hpp_path = os.path.join(project_dir, "lib", "Pip3D", "Pip3D", "Rendering", "Display", "Panorama.hpp")
+
+if os.path.isfile(skygen_path):
+    screen_w, screen_h = parse_screen_resolution()
+    sky_key = f"skygen:cloudspanorama:{screen_w}x{screen_h}"
+    if needs_rebuild(CACHE, sky_key, skygen_path, clouds_hpp_path):
+        print(_tag(ANSI_GREEN, f"Building sky: Skygen.py -> CloudsPanorama.hpp ({screen_w}x{screen_h})"))
+        run_convert(skygen_path, [clouds_hpp_path, "--screen-w", str(screen_w), "--screen-h", str(screen_h)])
+        mark_built(CACHE, sky_key, skygen_path, clouds_hpp_path)
+        touch(clouds_hpp_path)
+        CACHE_CHANGED = True
 
 if CACHE_CHANGED:
     save_cache(CACHE)

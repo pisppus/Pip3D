@@ -161,7 +161,9 @@ def convert_obj2mesh(obj_path, force_output_path=None):
     cz_ratio = cz_int / 32767.0
 
     raw_name = os.path.splitext(os.path.basename(obj_path))[0]
-    class_name = raw_name[0].upper() + raw_name[1:] if raw_name else "Mesh"
+    
+    sanitized_name = raw_name.replace('-', '_').replace(' ', '_')
+    class_name = sanitized_name[0].upper() + sanitized_name[1:] if sanitized_name else "Mesh"
     var_name = class_name.lower()
 
     if force_output_path:

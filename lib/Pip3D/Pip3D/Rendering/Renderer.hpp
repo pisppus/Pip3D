@@ -221,6 +221,14 @@ namespace pip3D
         bool isSkyboxEnabled() const { return framebuffer.isSkyboxEnabled(); }
         void invalidateSkyboxCache() { framebuffer.invalidateSkyboxCache(); }
 
+        void setCloudsEnabled(bool enabled) { framebuffer.setCloudsEnabled(enabled); }
+        bool areCloudsEnabled() const { return framebuffer.areCloudsEnabled(); }
+        void setCloudColor(Color color) { framebuffer.setCloudColor(color); }
+        void generateClouds(uint32_t seed = 0xC10Du, float coverage = 0.45f)
+        {
+            framebuffer.generateClouds(seed, coverage);
+        }
+
         void setShadowOpacity(float opacity)
         {
             shadowSettings.shadowOpacity = clamp(opacity, 0.0f, 1.0f);

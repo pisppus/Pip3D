@@ -3,6 +3,18 @@
 #include "Debug/Gizmos.hpp"
 #include <cstring>
 
+#ifndef PIP3D_DISPLAY_ORDER
+#define PIP3D_DISPLAY_ORDER 0
+#endif
+
+#ifndef PIP3D_DISPLAY_INVERT
+#define PIP3D_DISPLAY_INVERT true
+#endif
+
+#ifndef PIP3D_DISPLAY_SWAP
+#define PIP3D_DISPLAY_SWAP true
+#endif
+
 namespace pip3D
 {
     Renderer::Renderer() : zBuffer(nullptr),
@@ -95,11 +107,9 @@ namespace pip3D
         displayCfg.width = cfg.height;
         displayCfg.height = cfg.width;
         displayCfg.hz = cfg.spi_freq;
-        displayCfg.order = 0;
-        displayCfg.invert = true;
-        displayCfg.swap = true;
-        displayCfg.xOffset = 0;
-        displayCfg.yOffset = 0;
+        displayCfg.order = PIP3D_DISPLAY_ORDER;
+        displayCfg.invert = PIP3D_DISPLAY_INVERT;
+        displayCfg.swap = PIP3D_DISPLAY_SWAP;
 
         if (!platform->configDisplay(displayCfg) || !platform->beginDisplay(cfg.rotation))
         {
@@ -408,6 +418,18 @@ namespace pip3D
     void Renderer::drawSkyboxBackground()
     {
         framebuffer.fillBackground<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>();
+
+        if (framebuffer.getClouds().isReady())
+        {
+            const Vector3 &fwd = cameras[activeCameraIndex].forward();
+            const float yaw = atan2f(fwd.x, fwd.z);
+            const float pitch = asinf(clamp(fwd.y, -1.0f, 1.0f));
+            const float aspect = static_cast<float>(viewport.width) /
+                                 static_cast<float>(viewport.height);
+            const float hfov = 2.0f * atanf(
+                                          tanf(cameras[activeCameraIndex].fov * 0.5f * kDegToRad) * aspect);
+            framebuffer.drawClouds<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>(yaw, pitch, hfov);
+        }
     }
 
     Vector3 Renderer::project(const Vector3 &v)
