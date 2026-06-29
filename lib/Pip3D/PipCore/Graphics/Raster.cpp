@@ -49,41 +49,6 @@ namespace pipcore
             if ((pixels & 1U) != 0U)
                 *reinterpret_cast<uint16_t *>(dst32) = v;
         }
-
-        inline void copySwap565(uint16_t *dst, const uint16_t *src, size_t pixels) noexcept
-        {
-            if (pixels == 0)
-                return;
-
-            const bool canUse32 = (((reinterpret_cast<uintptr_t>(src) | reinterpret_cast<uintptr_t>(dst)) & 1U) == 0U) &&
-                                  ((reinterpret_cast<uintptr_t>(src) & 2U) == (reinterpret_cast<uintptr_t>(dst) & 2U));
-
-            if (canUse32)
-            {
-                if ((reinterpret_cast<uintptr_t>(src) & 2U) != 0U)
-                {
-                    *dst++ = Sprite::swap16(*src++);
-                    --pixels;
-                }
-
-                auto *dst32 = reinterpret_cast<uint32_t *>(dst);
-                auto *src32 = reinterpret_cast<const uint32_t *>(src);
-                size_t pairs = pixels >> 1;
-
-                while (pairs--)
-                {
-                    const uint32_t p = __builtin_bswap32(*src32++);
-                    *dst32++ = (p >> 16) | (p << 16);
-                }
-
-                src = reinterpret_cast<const uint16_t *>(src32);
-                dst = reinterpret_cast<uint16_t *>(dst32);
-                pixels &= 1U;
-            }
-
-            while (pixels--)
-                *dst++ = Sprite::swap16(*src++);
-        }
     }
 
     void Sprite::fillScreen(uint16_t color565)
@@ -112,28 +77,23 @@ namespace pipcore
         if (!_buf)
             return;
 
-        int16_t rx1 = x > _clipX ? x : _clipX;
-        int16_t ry1 = y > _clipY ? y : _clipY;
-        int16_t rx2 = (x + w) < (_clipX + _clipW) ? (x + w) : (_clipX + _clipW);
-        int16_t ry2 = (y + h) < (_clipY + _clipH) ? (y + h) : (_clipY + _clipH);
-
-        w = rx2 - rx1;
-        h = ry2 - ry1;
-        if (w <= 0 || h <= 0)
+        const auto clip = clipRegion(x, y, w, h);
+        if (!clip.visible)
             return;
 
         uint16_t v = swap16(color565);
-        uint16_t *ptr = _buf + ry1 * _w + rx1;
+        uint16_t *ptr = _buf + clip.ry1 * _w + clip.rx1;
 
-        if (w == _w)
+        if (clip.cw == _w)
         {
-            fillSwapped565(ptr, static_cast<size_t>(w) * static_cast<size_t>(h), v);
+            fillSwapped565(ptr, static_cast<size_t>(clip.cw) * static_cast<size_t>(clip.ch), v);
             return;
         }
 
-        while (h--)
+        int16_t lines = clip.ch;
+        while (lines--)
         {
-            fillRow(ptr, w, v);
+            fillRow(ptr, clip.cw, v);
             ptr += _w;
         }
     }
@@ -143,29 +103,25 @@ namespace pipcore
         if (!_buf || !pixels565 || _clipW <= 0 || _clipH <= 0)
             return;
 
-        int16_t rx1 = x > _clipX ? x : _clipX;
-        int16_t ry1 = y > _clipY ? y : _clipY;
-        int16_t rx2 = (x + w) < (_clipX + _clipW) ? (x + w) : (_clipX + _clipW);
-        int16_t ry2 = (y + h) < (_clipY + _clipH) ? (y + h) : (_clipY + _clipH);
-
-        int16_t cw = rx2 - rx1, ch = ry2 - ry1;
-        if (cw <= 0 || ch <= 0)
+        const auto clip = clipRegion(x, y, w, h);
+        if (!clip.visible)
             return;
 
-        if (cw == w && rx1 == 0 && _w == w)
+        if (clip.cw == w && clip.rx1 == 0 && _w == w)
         {
-            copySwap565(_buf + static_cast<size_t>(ry1) * _w,
-                        pixels565 + static_cast<size_t>(ry1 - y) * w,
-                        static_cast<size_t>(cw) * static_cast<size_t>(ch));
+            pipcore::util::copySwap565(_buf + static_cast<size_t>(clip.ry1) * _w,
+                                       pixels565 + static_cast<size_t>(clip.ry1 - y) * w,
+                                       static_cast<size_t>(clip.cw) * static_cast<size_t>(clip.ch));
             return;
         }
 
-        const uint16_t *srcLine = pixels565 + (size_t)(ry1 - y) * w + (rx1 - x);
-        uint16_t *dstLine = _buf + (size_t)ry1 * _w + rx1;
+        const uint16_t *srcLine = pixels565 + (size_t)(clip.ry1 - y) * w + (clip.rx1 - x);
+        uint16_t *dstLine = _buf + (size_t)clip.ry1 * _w + clip.rx1;
 
-        while (ch--)
+        int16_t lines = clip.ch;
+        while (lines--)
         {
-            copySwap565(dstLine, srcLine, static_cast<size_t>(cw));
+            pipcore::util::copySwap565(dstLine, srcLine, static_cast<size_t>(clip.cw));
             srcLine += w;
             dstLine += _w;
         }

@@ -24,18 +24,18 @@ namespace pipcore::esp32::services
         constexpr uint8_t RegP2 = 0x09;
         constexpr uint8_t RegGMode = 0xA4;
 
-        Touch *g_instance = nullptr;
-
-        void IRAM_ATTR touchIsrHandler(void *)
+        void IRAM_ATTR touchIsrHandler(void *arg)
         {
-            Touch::markTouched(g_instance);
+            if (arg)
+            {
+                static_cast<Touch *>(arg)->markTouched();
+            }
         }
     }
 
-    void IRAM_ATTR Touch::markTouched(Touch *self) noexcept
+    void IRAM_ATTR Touch::markTouched() noexcept
     {
-        if (self)
-            self->_touchedFlag = true;
+        _touchedFlag = true;
     }
 
     Touch::~Touch()
@@ -156,11 +156,9 @@ namespace pipcore::esp32::services
             }
         }
 
-        g_instance = this;
-        if (gpio_isr_handler_add(intPin, touchIsrHandler, nullptr) != ESP_OK)
+        if (gpio_isr_handler_add(intPin, touchIsrHandler, this) != ESP_OK)
         {
             ESP_LOGE(kTag, "gpio_isr_handler_add failed for pin %d", _intr);
-            g_instance = nullptr;
             return false;
         }
         _isrAttached = true;
@@ -178,8 +176,6 @@ namespace pipcore::esp32::services
             gpio_isr_handler_remove(static_cast<gpio_num_t>(_intr));
             _isrAttached = false;
         }
-        if (g_instance == this)
-            g_instance = nullptr;
 
         if (_ready)
         {

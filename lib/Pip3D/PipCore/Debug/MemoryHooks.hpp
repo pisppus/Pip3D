@@ -22,13 +22,21 @@ namespace pipcore::debug
                                         size_t bytes,
                                         uint32_t caps) noexcept;
 
+    extern MemoryEventHandler g_memoryEventHandler;
+
     void setMemoryEventHandler(MemoryEventHandler handler) noexcept;
     [[nodiscard]] MemoryEventHandler memoryEventHandler() noexcept;
 
-    void memoryEvent(MemoryEvent event,
-                     const char *tag,
-                     void *ptr,
-                     void *oldPtr,
-                     size_t bytes,
-                     uint32_t caps) noexcept;
+    inline void memoryEvent(MemoryEvent event,
+                            const char *tag,
+                            void *ptr,
+                            void *oldPtr,
+                            size_t bytes,
+                            uint32_t caps) noexcept
+    {
+        if (g_memoryEventHandler != nullptr)
+        {
+            g_memoryEventHandler(event, tag, ptr, oldPtr, bytes, caps);
+        }
+    }
 }

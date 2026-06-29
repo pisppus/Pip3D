@@ -42,7 +42,7 @@ namespace pipcore::desktop
 
     int16_t Platform::analogRead(uint8_t pin) noexcept
     {
-        return _gpio.analogRead(pin);
+        return Runtime::instance().analogRead(pin);
     }
 
     uint8_t Platform::loadMaxBrightnessPercent() noexcept

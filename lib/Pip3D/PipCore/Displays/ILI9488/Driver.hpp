@@ -91,6 +91,7 @@ namespace pipcore::ili9488
         [[nodiscard]] bool sendPixels(const void *data, size_t len);
         [[nodiscard]] bool flushTransport();
         [[nodiscard]] bool failFromTransport(IoError fallback);
+        [[nodiscard]] bool writeReg(uint8_t cmd, const uint8_t *data = nullptr, size_t len = 0);
 
     private:
         Transport *_transport = nullptr;

@@ -251,6 +251,137 @@ namespace pipcore::ili9488
 
         _drv.endWrite();
     }
+
+    void Display::writeRect565Async(int16_t x, int16_t y, int16_t w, int16_t h, const uint16_t *pixels, int32_t stridePixels)
+    {
+        if (!pixels || w <= 0 || h <= 0 || stridePixels < w)
+            return;
+
+        const int32_t dispW = _drv.width();
+        const int32_t dispH = _drv.height();
+        if (dispW <= 0 || dispH <= 0)
+            return;
+
+        int32_t x0 = x;
+        int32_t y0 = y;
+        int32_t x1 = static_cast<int32_t>(x) + w - 1;
+        int32_t y1 = static_cast<int32_t>(y) + h - 1;
+        if (x1 < 0 || y1 < 0 || x0 >= dispW || y0 >= dispH)
+            return;
+
+        x0 = std::max<int32_t>(x0, 0);
+        y0 = std::max<int32_t>(y0, 0);
+        x1 = std::min<int32_t>(x1, dispW - 1);
+        y1 = std::min<int32_t>(y1, dispH - 1);
+
+        const int16_t cW = static_cast<int16_t>(x1 - x0 + 1);
+        const int16_t cH = static_cast<int16_t>(y1 - y0 + 1);
+
+        pixels += static_cast<size_t>(y0 - y) * static_cast<size_t>(stridePixels) + static_cast<size_t>(x0 - x);
+
+        const size_t chunkBytes = _drv.preferredChunkBytes();
+        if (chunkBytes < 3U)
+            return;
+
+        const size_t chunkPixels = chunkBytes / 3U;
+        if (!_drv.beginWriteWindow(static_cast<uint16_t>(x0), static_cast<uint16_t>(y0), static_cast<uint16_t>(x1), static_cast<uint16_t>(y1)))
+            return;
+
+        if (_drv.supportsDirectPixels())
+        {
+            if (cH == 1 || stridePixels == cW)
+            {
+                const size_t totalPixels = static_cast<size_t>(cW) * static_cast<size_t>(cH);
+                size_t offset = 0;
+                while (offset < totalPixels)
+                {
+                    size_t directCap = 0;
+                    uint8_t *directBuf = _drv.directPixelsBuffer(directCap);
+                    if (!directBuf || directCap < 3U)
+                        return;
+
+                    const size_t pixelsNow = std::min(totalPixels - offset, directCap / 3U);
+                    convert565To666(pixels + offset, directBuf, pixelsNow);
+                    if (!_drv.submitDirectPixels(pixelsNow * 3U))
+                        return;
+                    offset += pixelsNow;
+                }
+                return;
+            }
+
+            int16_t yy = 0;
+            while (yy < cH)
+            {
+                size_t directCap = 0;
+                uint8_t *directBuf = _drv.directPixelsBuffer(directCap);
+                if (!directBuf || directCap < 3U)
+                    return;
+
+                const size_t directPixels = directCap / 3U;
+                const size_t rowsPerBatch = std::max<size_t>(1U, directPixels / static_cast<size_t>(cW));
+                const int16_t batchRows = static_cast<int16_t>(std::min<size_t>(rowsPerBatch, static_cast<size_t>(cH - yy)));
+                uint8_t *dst = directBuf;
+                size_t pixelCount = 0;
+
+                for (int16_t row = 0; row < batchRows; ++row)
+                {
+                    const uint16_t *rowPtr = pixels + static_cast<size_t>(yy + row) * static_cast<size_t>(stridePixels);
+                    convert565To666(rowPtr, dst, static_cast<size_t>(cW));
+                    dst += static_cast<size_t>(cW) * 3U;
+                    pixelCount += static_cast<size_t>(cW);
+                }
+
+                if (!_drv.submitDirectPixels(pixelCount * 3U))
+                    return;
+                yy = static_cast<int16_t>(yy + batchRows);
+            }
+            return;
+        }
+
+        if (!ensureStageBuffer(chunkBytes))
+            return;
+
+        if (cH == 1 || stridePixels == cW)
+        {
+            const size_t totalPixels = static_cast<size_t>(cW) * static_cast<size_t>(cH);
+            size_t offset = 0;
+            while (offset < totalPixels)
+            {
+                const size_t pixelsNow = std::min(chunkPixels, totalPixels - offset);
+                convert565To666(pixels + offset, _stageBuf, pixelsNow);
+                if (!_drv.writePixels666(_stageBuf, pixelsNow * 3U))
+                    return;
+                offset += pixelsNow;
+            }
+            return;
+        }
+
+        const size_t rowsPerBatch = std::max<size_t>(1U, chunkPixels / static_cast<size_t>(cW));
+        int16_t yy = 0;
+        while (yy < cH)
+        {
+            const int16_t batchRows = static_cast<int16_t>(std::min<size_t>(rowsPerBatch, static_cast<size_t>(cH - yy)));
+            uint8_t *dst = _stageBuf;
+            size_t pixelCount = 0;
+
+            for (int16_t row = 0; row < batchRows; ++row)
+            {
+                const uint16_t *rowPtr = pixels + static_cast<size_t>(yy + row) * static_cast<size_t>(stridePixels);
+                convert565To666(rowPtr, dst, static_cast<size_t>(cW));
+                dst += static_cast<size_t>(cW) * 3U;
+                pixelCount += static_cast<size_t>(cW);
+            }
+
+            if (!_drv.writePixels666(_stageBuf, pixelCount * 3U))
+                return;
+            yy = static_cast<int16_t>(yy + batchRows);
+        }
+    }
+
+    void Display::waitDMA()
+    {
+        _drv.endWrite();
+    }
 }
 
 #endif

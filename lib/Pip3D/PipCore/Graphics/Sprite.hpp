@@ -9,6 +9,13 @@ namespace pipcore
     class Display;
     class Platform;
 
+    struct SpriteClip
+    {
+        int16_t rx1 = 0, ry1 = 0;
+        int16_t cw = 0, ch = 0;
+        bool visible = false;
+    };
+
     class Sprite
     {
     public:
@@ -21,6 +28,8 @@ namespace pipcore
 
         Sprite(const Sprite &) = delete;
         Sprite &operator=(const Sprite &) = delete;
+
+        void swap(Sprite &other) noexcept;
 
         [[nodiscard]] bool createSprite(int16_t w, int16_t h);
         void deleteSprite();
@@ -65,22 +74,40 @@ namespace pipcore
 
         [[nodiscard]] static constexpr uint16_t blend565(uint16_t bg, uint16_t fg, uint8_t alpha) noexcept
         {
-            uint32_t a = alpha + (alpha >> 7);
+            if (alpha == 0)
+                return bg;
+            if (alpha == 255)
+                return fg;
 
-            uint32_t bg_g = bg & 0x07E0;
-            uint32_t fg_g = fg & 0x07E0;
-            uint32_t g = bg_g + (((fg_g - bg_g) * a) >> 8);
-            g &= 0x07E0;
+            const uint32_t a = alpha;
+            const uint32_t inv_a = 256U - a;
 
-            uint32_t bg_r = bg >> 11;
-            uint32_t fg_r = fg >> 11;
-            uint32_t r = bg_r + (((fg_r - bg_r) * a) >> 8);
+            const uint32_t r_bg = (bg >> 11) & 0x1FU;
+            const uint32_t g_bg = (bg >> 5) & 0x3FU;
+            const uint32_t b_bg = bg & 0x1FU;
 
-            uint32_t bg_b = bg & 0x1F;
-            uint32_t fg_b = fg & 0x1F;
-            uint32_t b = bg_b + (((fg_b - bg_b) * a) >> 8);
+            const uint32_t r_fg = (fg >> 11) & 0x1FU;
+            const uint32_t g_fg = (fg >> 5) & 0x3FU;
+            const uint32_t b_fg = fg & 0x1FU;
 
-            return (uint16_t)((r << 11) | g | b);
+            const uint32_t r = (r_fg * a + r_bg * inv_a) >> 8U;
+            const uint32_t g = (g_fg * a + g_bg * inv_a) >> 8U;
+            const uint32_t b = (b_fg * a + b_bg * inv_a) >> 8U;
+
+            return (uint16_t)((r << 11) | (g << 5) | b);
+        }
+
+        [[nodiscard]] inline SpriteClip clipRegion(int16_t x, int16_t y, int16_t w, int16_t h) const noexcept
+        {
+            SpriteClip res{};
+            res.rx1 = x > _clipX ? x : _clipX;
+            res.ry1 = y > _clipY ? y : _clipY;
+            const int16_t rx2 = (x + w) < (_clipX + _clipW) ? (x + w) : (_clipX + _clipW);
+            const int16_t ry2 = (y + h) < (_clipY + _clipH) ? (y + h) : (_clipY + _clipH);
+            res.cw = static_cast<int16_t>(rx2 - res.rx1);
+            res.ch = static_cast<int16_t>(ry2 - res.ry1);
+            res.visible = (res.cw > 0 && res.ch > 0);
+            return res;
         }
 
     private:

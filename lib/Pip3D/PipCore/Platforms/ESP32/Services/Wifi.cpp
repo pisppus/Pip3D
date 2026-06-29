@@ -18,12 +18,33 @@ namespace pipcore::esp32::services
                    (static_cast<uint32_t>(ip[2]) << 8) |
                    static_cast<uint32_t>(ip[3]);
         }
+
+        [[nodiscard]] inline IPAddress u32ToIp(uint32_t addr) noexcept
+        { 
+            return IPAddress((addr >> 24) & 0xFF, (addr >> 16) & 0xFF, (addr >> 8) & 0xFF, addr & 0xFF);
+        }
+    }
+
+    Wifi::~Wifi()
+    {
+        if (_eventId != 0)
+        {
+            WiFi.removeEvent(_eventId);
+            _eventId = 0;
+        }
     }
 
     void Wifi::configure(const pipcore::net::WifiConfig &cfg) noexcept
     {
         _cfg = cfg;
         _configured = true;
+
+        if (_eventId == 0)
+        {
+            _eventId = WiFi.onEvent([this](WiFiEvent_t event, WiFiEventInfo_t info) {
+                this->handleWiFiEvent(event, info);
+            });
+        }
     }
 
     void Wifi::request(bool enabled) noexcept
@@ -53,7 +74,7 @@ namespace pipcore::esp32::services
 
         WiFi.persistent(false);
         WiFi.setAutoReconnect(false);
-        WiFi.disconnect(true, true);
+        WiFi.disconnect(false); 
         WiFi.mode(WIFI_OFF);
     }
 
@@ -69,14 +90,45 @@ namespace pipcore::esp32::services
 
         WiFi.setSleep(!_cfg.disableSleep);
 
-        if (_cfg.fullScan)
+        if (_cfg.staticIp != 0 && _cfg.subnet != 0 && _cfg.gateway != 0)
         {
-            WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
-            WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
+            IPAddress ip = u32ToIp(_cfg.staticIp);
+            IPAddress gateway = u32ToIp(_cfg.gateway);
+            IPAddress subnet = u32ToIp(_cfg.subnet);
+            IPAddress dns1 = u32ToIp(_cfg.dns1);
+            IPAddress dns2 = u32ToIp(_cfg.dns2);
+
+            WiFi.config(ip, gateway, subnet, dns1, dns2);
         }
 
         WiFi.begin(_cfg.ssid ? _cfg.ssid : "", _cfg.password ? _cfg.password : "");
         setState(pipcore::net::WifiState::Connecting);
+    }
+
+    void Wifi::handleWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) noexcept
+    {
+        switch (event)
+        {
+        case ARDUINO_EVENT_WIFI_STA_CONNECTED:
+            break;
+
+        case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+            _ipV4 = ipToV4(WiFi.localIP());
+            setState(pipcore::net::WifiState::Connected);
+            break;
+
+        case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+            _ipV4 = 0;
+            if (_state == pipcore::net::WifiState::Connected || _state == pipcore::net::WifiState::Connecting)
+            {
+                setState(pipcore::net::WifiState::Failed);
+                _nextRetryMs = static_cast<uint32_t>(millis()) + _cfg.retryDelayMs;
+            }
+            break;
+
+        default:
+            break;
+        }
     }
 
     void Wifi::service(uint32_t nowMs) noexcept
@@ -116,51 +168,18 @@ namespace pipcore::esp32::services
 
         if (_state == pipcore::net::WifiState::Connecting)
         {
-            const wl_status_t st = WiFi.status();
-
-            if (st == WL_CONNECTED)
-            {
-                _ipV4 = ipToV4(WiFi.localIP());
-                setState(pipcore::net::WifiState::Connected);
-                return;
-            }
-
             const uint32_t el = nowMs - _attemptStartMs;
-            const auto fail = [&]()
-            {
-                WiFi.disconnect(true, true);
-                setState(pipcore::net::WifiState::Failed);
-                _nextRetryMs = nowMs + _cfg.retryDelayMs;
-            };
-
-            if (st == WL_CONNECT_FAILED)
-            {
-                fail();
-                return;
-            }
-
-            if (st == WL_NO_SSID_AVAIL && el >= _cfg.noSsidGraceMs)
-            {
-                fail();
-                return;
-            }
-
             if (el >= _cfg.connectTimeoutMs)
             {
-                fail();
+                WiFi.disconnect(false);
+                setState(pipcore::net::WifiState::Failed);
+                _nextRetryMs = nowMs + _cfg.retryDelayMs;
             }
             return;
         }
 
         if (_state == pipcore::net::WifiState::Connected)
         {
-            if (WiFi.status() != WL_CONNECTED)
-            {
-                _ipV4 = 0;
-                WiFi.disconnect(true, true);
-                setState(pipcore::net::WifiState::Failed);
-                _nextRetryMs = nowMs + _cfg.retryDelayMs;
-            }
             return;
         }
     }

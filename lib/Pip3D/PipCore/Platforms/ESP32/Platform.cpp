@@ -17,9 +17,9 @@ namespace pipcore::esp32
         return _gpio.analogRead(pin);
     }
 
-    void Platform::configureBacklightPin(uint8_t pin, uint8_t channel, uint32_t freqHz, uint8_t resolutionBits) noexcept
+    void Platform::configureBacklightPin(uint8_t pin, uint8_t channel, uint32_t freqHz, uint8_t resolutionBits, bool activeLow) noexcept
     {
-        _backlight.configurePin(pin, channel, freqHz, resolutionBits);
+        _backlight.configurePin(pin, channel, freqHz, resolutionBits, activeLow);
     }
 
     uint32_t Platform::nowMs() noexcept

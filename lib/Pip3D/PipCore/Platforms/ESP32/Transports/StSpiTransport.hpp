@@ -66,7 +66,7 @@ namespace pipcore::esp32
         st::IoError _lastError = st::IoError::None;
 
         static constexpr size_t HardwareMaxDmaBytes = 32768U;
-        static constexpr size_t DmaBufferBytes = 16384U;
+        static constexpr size_t DmaBufferBytes = 8192U;
         static constexpr int MaxAsyncTrans = 2;
         static constexpr int MaxDmaBufs = 2;
 

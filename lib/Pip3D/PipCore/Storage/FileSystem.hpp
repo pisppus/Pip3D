@@ -35,17 +35,17 @@ namespace pipcore::storage
             if (mode == OpenMode::Read)
             {
                 iosMode |= std::ios::in;
-                _stream = std::make_unique<std::fstream>(_path, iosMode);
+                _stream = std::make_shared<std::fstream>(_path, iosMode);
             }
             else if (mode == OpenMode::Write)
             {
                 iosMode |= std::ios::out | std::ios::trunc;
-                _stream = std::make_unique<std::fstream>(_path, iosMode);
+                _stream = std::make_shared<std::fstream>(_path, iosMode);
             }
             else if (mode == OpenMode::Append)
             {
                 iosMode |= std::ios::out | std::ios::app;
-                _stream = std::make_unique<std::fstream>(_path, iosMode);
+                _stream = std::make_shared<std::fstream>(_path, iosMode);
             }
         }
 
@@ -76,25 +76,26 @@ namespace pipcore::storage
         {
             if (!_isDir)
                 return {};
-            if (!_dirIterStarted)
+
+            try
             {
-                try
+                if (!_dirIterStarted)
                 {
                     _dirIter = std::filesystem::directory_iterator(_path);
+                    _dirIterStarted = true;
                 }
-                catch (...)
+                if (_dirIter == std::filesystem::directory_iterator{})
                 {
                     return {};
                 }
-                _dirIterStarted = true;
+                auto entry = *_dirIter;
+                ++_dirIter;
+                return File(entry.path().string(), OpenMode::Read, entry.is_directory());
             }
-            if (_dirIter == std::filesystem::directory_iterator{})
+            catch (...)
             {
                 return {};
             }
-            auto entry = *_dirIter;
-            ++_dirIter;
-            return File(entry.path().string(), OpenMode::Read, entry.is_directory());
         }
 
         [[nodiscard]] int read(uint8_t *buf, size_t size) noexcept
@@ -151,7 +152,7 @@ namespace pipcore::storage
     private:
         std::string _path;
         bool _isDir = false;
-        std::unique_ptr<std::fstream> _stream;
+        std::shared_ptr<std::fstream> _stream;
         mutable std::string _fileNameCache;
 
         bool _dirIterStarted = false;
@@ -173,35 +174,35 @@ namespace pipcore::storage
 
     [[nodiscard]] inline File open(const char *path) noexcept
     {
-        std::string realPath = "sim_fs" + std::string(path);
+        std::filesystem::path realPath = std::filesystem::path("sim_fs") / path;
         if (std::filesystem::is_directory(realPath))
         {
-            return File(realPath, OpenMode::Read, true);
+            return File(realPath.string(), OpenMode::Read, true);
         }
-        return File(realPath, OpenMode::Read, false);
+        return File(realPath.string(), OpenMode::Read, false);
     }
 
     [[nodiscard]] inline File open(const char *path, OpenMode mode) noexcept
     {
-        std::string realPath = "sim_fs" + std::string(path);
+        std::filesystem::path realPath = std::filesystem::path("sim_fs") / path;
         if (mode == OpenMode::Write || mode == OpenMode::Append)
         {
             try
             {
-                std::filesystem::create_directories(std::filesystem::path(realPath).parent_path());
+                std::filesystem::create_directories(realPath.parent_path());
             }
             catch (...)
             {
             }
         }
-        return File(realPath, mode, false);
+        return File(realPath.string(), mode, false);
     }
 
     [[nodiscard]] inline bool remove(const char *path) noexcept
     {
         try
         {
-            return std::filesystem::remove("sim_fs" + std::string(path));
+            return std::filesystem::remove(std::filesystem::path("sim_fs") / path);
         }
         catch (...)
         {
@@ -213,7 +214,7 @@ namespace pipcore::storage
     {
         try
         {
-            std::filesystem::rename("sim_fs" + std::string(from), "sim_fs" + std::string(to));
+            std::filesystem::rename(std::filesystem::path("sim_fs") / from, std::filesystem::path("sim_fs") / to);
             return true;
         }
         catch (...)
@@ -226,7 +227,7 @@ namespace pipcore::storage
     {
         try
         {
-            return std::filesystem::create_directories("sim_fs" + std::string(path));
+            return std::filesystem::create_directories(std::filesystem::path("sim_fs") / path);
         }
         catch (...)
         {

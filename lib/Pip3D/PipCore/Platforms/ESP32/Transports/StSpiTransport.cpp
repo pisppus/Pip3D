@@ -33,9 +33,6 @@ namespace pipcore::esp32
     namespace
     {
         [[nodiscard]] inline constexpr bool isPinValid(int8_t pin) noexcept { return pin >= 0; }
-        constexpr size_t DmaBufSize = 16384U;
-
-        static DMA_ATTR uint8_t g_dmaBuf[2][DmaBufSize];
 
         inline void IRAM_ATTR fastFill32(uint32_t *dest, size_t words, uint32_t value) noexcept
         {
@@ -204,7 +201,10 @@ namespace pipcore::esp32
         _lastYe = 0xFFFF;
     }
 
-    StSpiTransport::~StSpiTransport() { StSpiTransport::deinit(); }
+    StSpiTransport::~StSpiTransport()
+    {
+        StSpiTransport::deinit();
+    }
 
     bool StSpiTransport::fail(st::IoError error)
     {
@@ -254,8 +254,16 @@ namespace pipcore::esp32
             _spiHandle = nullptr;
         }
 
-        _dmaBuf[0] = nullptr;
-        _dmaBuf[1] = nullptr;
+        for (int i = 0; i < 2; ++i)
+        {
+            if (_dmaBuf[i])
+            {
+                void *freed = _dmaBuf[i];
+                heap_caps_free(_dmaBuf[i]);
+                _dmaBuf[i] = nullptr;
+                pipcore::debug::memoryEvent(pipcore::debug::MemoryEvent::Free, "st.dma.free", freed, nullptr, DmaBufferBytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+            }
+        }
 
         _busAcquired = false;
         _initialized = false;
@@ -301,8 +309,17 @@ namespace pipcore::esp32
         }
         _spiHandle = h;
 
-        _dmaBuf[0] = g_dmaBuf[0];
-        _dmaBuf[1] = g_dmaBuf[1];
+        for (int i = 0; i < 2; ++i)
+        {
+            _dmaBuf[i] = static_cast<uint8_t *>(heap_caps_aligned_alloc(16, DmaBufferBytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL));
+            pipcore::debug::memoryEvent(_dmaBuf[i] ? pipcore::debug::MemoryEvent::Alloc : pipcore::debug::MemoryEvent::AllocFail,
+                                        "st.dma.alloc", _dmaBuf[i], nullptr, DmaBufferBytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+            if (!_dmaBuf[i])
+            {
+                deinit();
+                return fail(st::IoError::DmaBufferAlloc);
+            }
+        }
 
         std::memset(_asyncTrans, 0, sizeof(_asyncTrans));
 
@@ -662,15 +679,29 @@ namespace pipcore::esp32
 
         constexpr size_t bufSizePixels = DmaBufferBytes / sizeof(uint16_t);
 
+        uint16_t *buf0 = reinterpret_cast<uint16_t *>(_dmaBuf[0]);
+        uint16_t *buf1 = reinterpret_cast<uint16_t *>(_dmaBuf[1]);
+
+        const uint8_t color_high = static_cast<uint8_t>(color >> 8);
+        const uint8_t color_low = static_cast<uint8_t>(color & 0xFF);
+        const bool canUseMemset = (color_high == color_low);
+
         if (__builtin_expect(count <= bufSizePixels, 1))
         {
             uint16_t *buf = reinterpret_cast<uint16_t *>(_dmaBuf[_asyncNext]);
-            const uint32_t color32 = (static_cast<uint32_t>(color) << 16) | color;
 
-            fastFill32(reinterpret_cast<uint32_t *>(buf), count >> 1, color32);
-            if (count & 1U)
+            if (canUseMemset)
             {
-                buf[count - 1] = color;
+                std::memset(buf, color_low, count * sizeof(uint16_t));
+            }
+            else
+            {
+                const uint32_t color32 = (static_cast<uint32_t>(color) << 16) | color;
+                fastFill32(reinterpret_cast<uint32_t *>(buf), count >> 1, color32);
+                if (count & 1U)
+                {
+                    buf[count - 1] = color;
+                }
             }
 
             while (_asyncInFlight >= MaxDmaBufs)
@@ -696,13 +727,17 @@ namespace pipcore::esp32
             return true;
         }
 
-        uint16_t *buf0 = reinterpret_cast<uint16_t *>(_dmaBuf[0]);
-        uint16_t *buf1 = reinterpret_cast<uint16_t *>(_dmaBuf[1]);
-
-        const uint32_t color32 = (static_cast<uint32_t>(color) << 16) | color;
-
-        fastFill32(reinterpret_cast<uint32_t *>(buf0), bufSizePixels >> 1, color32);
-        fastFill32(reinterpret_cast<uint32_t *>(buf1), bufSizePixels >> 1, color32);
+        if (canUseMemset)
+        {
+            std::memset(buf0, color_low, DmaBufferBytes);
+            std::memset(buf1, color_low, DmaBufferBytes);
+        }
+        else
+        {
+            const uint32_t color32 = (static_cast<uint32_t>(color) << 16) | color;
+            fastFill32(reinterpret_cast<uint32_t *>(buf0), bufSizePixels >> 1, color32);
+            fastFill32(reinterpret_cast<uint32_t *>(buf1), bufSizePixels >> 1, color32);
+        }
 
         size_t remaining = count;
 

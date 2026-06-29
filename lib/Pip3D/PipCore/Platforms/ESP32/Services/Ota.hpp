@@ -105,7 +105,7 @@ namespace pipcore::esp32::services
         bool _pubkeyOk = false;
 
         static constexpr size_t kMaxManifestBuf = 4096;
-        uint8_t _manifestBuf[kMaxManifestBuf + 1] = {};
+        uint8_t *_manifestBuf = nullptr;
         size_t _manifestLen = 0;
         size_t _manifestLimit = 0;
 

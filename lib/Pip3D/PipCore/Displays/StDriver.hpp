@@ -66,9 +66,9 @@ namespace pipcore::st
         }
     }
 
-    [[nodiscard]] inline constexpr uint16_t bswap16(uint16_t v) noexcept 
-    { 
-        return __builtin_bswap16(v); 
+    [[nodiscard]] inline constexpr uint16_t bswap16(uint16_t v) noexcept
+    {
+        return __builtin_bswap16(v);
     }
 
     inline void IRAM_ATTR __attribute__((always_inline)) copySwap565(uint16_t *dst, const uint16_t *src, size_t pixels) noexcept
@@ -230,6 +230,45 @@ namespace pipcore::detail
 
             if constexpr (Type == StDisplayType::ST7789)
             {
+                // ST7789
+                const uint8_t b6_data[] = {0x0A, 0x82};
+                const uint8_t b2_data[] = {0x0C, 0x0C, 0x00, 0x33, 0x33};
+                const uint8_t b7_data[] = {0x35};
+                const uint8_t bb_data[] = {0x28};
+                const uint8_t c0_data[] = {0x0C};
+                const uint8_t c2_data[] = {0x01, 0xFF};
+                const uint8_t c3_data[] = {0x10};
+                const uint8_t c4_data[] = {0x20};
+                const uint8_t c6_data[] = {0x0F};
+                const uint8_t d0_data[] = {0xA4, 0xA1};
+                const uint8_t e0_data[] = {0xD0, 0x00, 0x02, 0x07, 0x0A, 0x28, 0x32, 0x44, 0x42, 0x06, 0x0E, 0x12, 0x14, 0x17};
+                const uint8_t e1_data[] = {0xD0, 0x00, 0x02, 0x07, 0x0A, 0x28, 0x31, 0x54, 0x47, 0x0E, 0x1C, 0x17, 0x1B, 0x1E};
+
+                if (__builtin_expect(!writeReg(0xB6, b6_data, sizeof(b6_data)), 0))
+                    return false;
+                if (__builtin_expect(!writeReg(0xB2, b2_data, sizeof(b2_data)), 0))
+                    return false;
+                if (__builtin_expect(!writeReg(0xB7, b7_data, sizeof(b7_data)), 0))
+                    return false;
+                if (__builtin_expect(!writeReg(0xBB, bb_data, sizeof(bb_data)), 0))
+                    return false;
+                if (__builtin_expect(!writeReg(0xC0, c0_data, sizeof(c0_data)), 0))
+                    return false;
+                if (__builtin_expect(!writeReg(0xC2, c2_data, sizeof(c2_data)), 0))
+                    return false;
+                if (__builtin_expect(!writeReg(0xC3, c3_data, sizeof(c3_data)), 0))
+                    return false;
+                if (__builtin_expect(!writeReg(0xC4, c4_data, sizeof(c4_data)), 0))
+                    return false;
+                if (__builtin_expect(!writeReg(0xC6, c6_data, sizeof(c6_data)), 0))
+                    return false;
+                if (__builtin_expect(!writeReg(0xD0, d0_data, sizeof(d0_data)), 0))
+                    return false;
+                if (__builtin_expect(!writeReg(0xE0, e0_data, sizeof(e0_data)), 0))
+                    return false;
+                if (__builtin_expect(!writeReg(0xE1, e1_data, sizeof(e1_data)), 0))
+                    return false;
+
                 if (__builtin_expect(!sendCommand(_invert ? CmdINVON : CmdINVOFF), 0))
                     return false;
 
@@ -241,6 +280,44 @@ namespace pipcore::detail
             }
             else // ST7796
             {
+                const uint8_t f0_unlock1[] = {0xC3};
+                const uint8_t f0_unlock2[] = {0x96};
+                const uint8_t b4_data[] = {0x01};
+                const uint8_t b6_data[] = {0x80, 0x02, 0x3B};
+                const uint8_t e8_data[] = {0x40, 0x8A, 0x00, 0x00, 0x29, 0x19, 0xA5, 0x33};
+                const uint8_t c1_data[] = {0x06};
+                const uint8_t c2_data[] = {0xA7};
+                const uint8_t c5_data[] = {0x18};
+                const uint8_t e0_data[] = {0xF0, 0x09, 0x0B, 0x06, 0x04, 0x15, 0x2F, 0x54, 0x42, 0x3C, 0x17, 0x14, 0x18, 0x1B};
+                const uint8_t e1_data[] = {0xE0, 0x09, 0x0B, 0x06, 0x04, 0x03, 0x2B, 0x43, 0x42, 0x3B, 0x16, 0x14, 0x17, 0x1B};
+                const uint8_t f0_lock1[] = {0x3C};
+                const uint8_t f0_lock2[] = {0x69};
+
+                if (__builtin_expect(!writeReg(0xF0, f0_unlock1, sizeof(f0_unlock1)), 0))
+                    return false;
+                if (__builtin_expect(!writeReg(0xF0, f0_unlock2, sizeof(f0_unlock2)), 0))
+                    return false;
+                if (__builtin_expect(!writeReg(0xB4, b4_data, sizeof(b4_data)), 0))
+                    return false;
+                if (__builtin_expect(!writeReg(0xB6, b6_data, sizeof(b6_data)), 0))
+                    return false;
+                if (__builtin_expect(!writeReg(0xE8, e8_data, sizeof(e8_data)), 0))
+                    return false;
+                if (__builtin_expect(!writeReg(0xC1, c1_data, sizeof(c1_data)), 0))
+                    return false;
+                if (__builtin_expect(!writeReg(0xC2, c2_data, sizeof(c2_data)), 0))
+                    return false;
+                if (__builtin_expect(!writeReg(0xC5, c5_data, sizeof(c5_data)), 0))
+                    return false;
+                if (__builtin_expect(!writeReg(0xE0, e0_data, sizeof(e0_data)), 0))
+                    return false;
+                if (__builtin_expect(!writeReg(0xE1, e1_data, sizeof(e1_data)), 0))
+                    return false;
+                if (__builtin_expect(!writeReg(0xF0, f0_lock1, sizeof(f0_lock1)), 0))
+                    return false;
+                if (__builtin_expect(!writeReg(0xF0, f0_lock2, sizeof(f0_lock2)), 0))
+                    return false;
+
                 if (__builtin_expect(!setRotationInternal(rotation), 0))
                     return false;
 
@@ -500,6 +577,18 @@ namespace pipcore::detail
             if (_transport->writePixels(data, len))
                 return true;
             return failFromTransport(IoError::DataTransmit);
+        }
+
+        [[nodiscard]] inline bool writeReg(uint8_t cmd, const uint8_t *data = nullptr, size_t len = 0)
+        {
+            if (__builtin_expect(!sendCommand(cmd), 0))
+                return false;
+            if (len > 0 && data)
+            {
+                if (__builtin_expect(!sendBytes(data, len), 0))
+                    return false;
+            }
+            return true;
         }
 
     private:
