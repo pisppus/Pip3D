@@ -286,69 +286,21 @@ namespace pip3D
 
                 if (backfaceCullingEnabled)
                 {
-                    if (partiallyClipped)
+                    const float area = (p1.x - p0.x) * (p2.y - p0.y) -
+                                       (p2.x - p0.x) * (p1.y - p0.y);
+
+                    if (fabsf(area) > 1.0f && area >= 0.0f)
                     {
-                        const float bx = v1.x - v0.x;
-                        const float by = v1.y - v0.y;
-                        const float bz = v1.z - v0.z;
-                        const float cx = v2.x - v0.x;
-                        const float cy = v2.y - v0.y;
-                        const float cz = v2.z - v0.z;
-
-                        const float nx = by * cz - bz * cy;
-                        const float ny = bz * cx - bx * cz;
-                        const float nz = bx * cy - by * cx;
-
-                        const float normalLenSq = nx * nx + ny * ny + nz * nz;
-                        if (normalLenSq <= 1e-10f)
-                        {
-                            statsTrianglesBackfaceCulled++;
-                            continue;
-                        }
-
-                        float facing;
-                        if (usePerspectiveFacing)
-                        {
-                            facing = nx * (camPos.x - v0.x) +
-                                     ny * (camPos.y - v0.y) +
-                                     nz * (camPos.z - v0.z);
-                        }
-                        else
-                        {
-                            facing = nx * cameraBackward.x +
-                                     ny * cameraBackward.y +
-                                     nz * cameraBackward.z;
-                        }
-
-                        if (facing <= 0.0f)
-                        {
-                            statsTrianglesBackfaceCulled++;
-                            continue;
-                        }
-                    }
-                    else
-                    {
-                        const float area = (p1.x - p0.x) * (p2.y - p0.y) - (p2.x - p0.x) * (p1.y - p0.y);
-                        if (area >= 0.0f)
-                        {
-                            statsTrianglesBackfaceCulled++;
-                            continue;
-                        }
+                        statsTrianglesBackfaceCulled++;
+                        continue;
                     }
                 }
 
-                if (mesh->isTextured() && !partiallyClipped)
+                if (mesh->isTextured())
                 {
                     const Vertex &vert0 = mesh->vert(i0);
                     const Vertex &vert1 = mesh->vert(i1);
                     const Vertex &vert2 = mesh->vert(i2);
-
-                    Vector3 lp0 = p0;
-                    Vector3 lp1 = p1;
-                    Vector3 lp2 = p2;
-                    lp0.y -= (float)bandTop;
-                    lp1.y -= (float)bandTop;
-                    lp2.y -= (float)bandTop;
 
                     float lr0, lg0, lb0, lr1, lg1, lb1, lr2, lg2, lb2;
                     if (shadingMode == SHADING_GOURAUD && !useUniformColor)
@@ -384,21 +336,42 @@ namespace pip3D
                         lb2 = lb0;
                     }
 
-                    Rasterizer::fillTriangleTextured(
-                        lp0.x, lp0.y, lp0.z,
-                        lp1.x, lp1.y, lp1.z,
-                        lp2.x, lp2.y, lp2.z,
-                        vert0.tu, vert0.tv,
-                        vert1.tu, vert1.tv,
-                        vert2.tu, vert2.tv,
-                        d0, d1, d2,
-                        lr0, lg0, lb0,
-                        lr1, lg1, lb1,
-                        lr2, lg2, lb2,
-                        *mesh->getTexture(),
-                        framebuffer.getBuffer(),
-                        zBuffer,
-                        framebufferConfig);
+                    if (!partiallyClipped)
+                    {
+                        Vector3 lp0 = p0;
+                        Vector3 lp1 = p1;
+                        Vector3 lp2 = p2;
+                        lp0.y -= (float)bandTop;
+                        lp1.y -= (float)bandTop;
+                        lp2.y -= (float)bandTop;
+
+                        Rasterizer::fillTriangleTextured(
+                            lp0.x, lp0.y, lp0.z,
+                            lp1.x, lp1.y, lp1.z,
+                            lp2.x, lp2.y, lp2.z,
+                            vert0.tu, vert0.tv,
+                            vert1.tu, vert1.tv,
+                            vert2.tu, vert2.tv,
+                            d0, d1, d2,
+                            lr0, lg0, lb0,
+                            lr1, lg1, lb1,
+                            lr2, lg2, lb2,
+                            *mesh->getTexture(),
+                            framebuffer.getBuffer(),
+                            zBuffer,
+                            framebufferConfig);
+                    }
+                    else
+                    {
+                        ClipVert cv[3] = {
+                            {v0, vert0.tu, vert0.tv, d0, lr0, lg0, lb0},
+                            {v1, vert1.tu, vert1.tv, d1, lr1, lg1, lb1},
+                            {v2, vert2.tu, vert2.tv, d2, lr2, lg2, lb2}};
+                        clipAndDrawNearTextured(cv, nearPlane,
+                                                camera, viewport, viewProjMatrix,
+                                                framebuffer, zBuffer,
+                                                *mesh->getTexture());
+                    }
                     continue;
                 }
 
@@ -657,6 +630,138 @@ namespace pip3D
                                      frameBuffer,
                                      zBuffer,
                                      framebufferConfig);
+        }
+
+        struct ClipVert
+        {
+            Vector3 pos;
+            float u, v;
+            float d;
+            float lr, lg, lb;
+        };
+
+        static inline ClipVert lerpClipVert(const ClipVert &a,
+                                            const ClipVert &b,
+                                            float t)
+        {
+            ClipVert r;
+            r.pos = a.pos + (b.pos - a.pos) * t;
+            r.u = a.u + (b.u - a.u) * t;
+            r.v = a.v + (b.v - a.v) * t;
+            r.d = a.d + (b.d - a.d) * t;
+            r.lr = a.lr + (b.lr - a.lr) * t;
+            r.lg = a.lg + (b.lg - a.lg) * t;
+            r.lb = a.lb + (b.lb - a.lb) * t;
+            return r;
+        }
+
+        static void clipAndDrawNearTextured(const ClipVert inVerts[3],
+                                            float nearD,
+                                            const Camera &camera,
+                                            const Viewport &viewport,
+                                            const Matrix4x4 &viewProjMatrix,
+                                            FrameBuffer &framebuffer,
+                                            ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+                                            const Texture &tex)
+        {
+            ClipVert clipped[4];
+            int outCount = 0;
+
+            for (int i = 0; i < 3; ++i)
+            {
+                int j = (i + 1) % 3;
+                const ClipVert &P0 = inVerts[i];
+                const ClipVert &P1 = inVerts[j];
+                const float d0 = P0.d;
+                const float d1 = P1.d;
+                const bool in0 = d0 >= nearD;
+                const bool in1 = d1 >= nearD;
+
+                if (in0 && in1)
+                {
+                    clipped[outCount++] = P1;
+                }
+                else if (in0 != in1)
+                {
+                    float denom = d1 - d0;
+                    float t = (fabsf(denom) < 1e-6f) ? 0.0f : (nearD - d0) / denom;
+                    if (t < 0.0f)
+                        t = 0.0f;
+                    if (t > 1.0f)
+                        t = 1.0f;
+
+                    ClipVert ip = lerpClipVert(P0, P1, t);
+
+                    if (in0)
+                    {
+                        clipped[outCount++] = ip;
+                    }
+                    else
+                    {
+                        clipped[outCount++] = ip;
+                        clipped[outCount++] = P1;
+                    }
+                }
+            }
+
+            if (outCount < 3)
+                return;
+
+            const float viewportHalfWidth = static_cast<float>(viewport.width) * 0.5f;
+            const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
+            const int16_t bandTop = currentBandOffsetY();
+            const int16_t bandBottom = static_cast<int16_t>(bandTop + currentBandHeight());
+            const DisplayConfig &framebufferConfig = framebuffer.getConfig();
+            const float viewportWidth = static_cast<float>(viewport.width);
+
+            auto projectAndDraw = [&](const ClipVert &cv0,
+                                      const ClipVert &cv1,
+                                      const ClipVert &cv2)
+            {
+                Vector3 p0 = CameraController::project(cv0.pos, viewProjMatrix,
+                                                       viewportHalfWidth, viewportHalfHeight,
+                                                       viewport.x, viewport.y);
+                Vector3 p1 = CameraController::project(cv1.pos, viewProjMatrix,
+                                                       viewportHalfWidth, viewportHalfHeight,
+                                                       viewport.x, viewport.y);
+                Vector3 p2 = CameraController::project(cv2.pos, viewProjMatrix,
+                                                       viewportHalfWidth, viewportHalfHeight,
+                                                       viewport.x, viewport.y);
+
+                float minY = fminf(p0.y, fminf(p1.y, p2.y));
+                float maxY = fmaxf(p0.y, fmaxf(p1.y, p2.y));
+                if (maxY < bandTop || minY >= bandBottom)
+                    return;
+
+                float minX = fminf(p0.x, fminf(p1.x, p2.x));
+                float maxX = fmaxf(p0.x, fmaxf(p1.x, p2.x));
+                if (maxX < 0.0f || minX >= viewportWidth)
+                    return;
+
+                p0.y -= (float)bandTop;
+                p1.y -= (float)bandTop;
+                p2.y -= (float)bandTop;
+
+                Rasterizer::fillTriangleTextured(
+                    p0.x, p0.y, p0.z,
+                    p1.x, p1.y, p1.z,
+                    p2.x, p2.y, p2.z,
+                    cv0.u, cv0.v,
+                    cv1.u, cv1.v,
+                    cv2.u, cv2.v,
+                    cv0.d, cv1.d, cv2.d,
+                    cv0.lr, cv0.lg, cv0.lb,
+                    cv1.lr, cv1.lg, cv1.lb,
+                    cv2.lr, cv2.lg, cv2.lb,
+                    tex,
+                    framebuffer.getBuffer(),
+                    zBuffer,
+                    framebufferConfig);
+            };
+
+            projectAndDraw(clipped[0], clipped[1], clipped[2]);
+            if (outCount == 4)
+                projectAndDraw(clipped[0], clipped[2], clipped[3]);
         }
 
         static void clipAndDrawNear(const Vector3 inVerts[3],

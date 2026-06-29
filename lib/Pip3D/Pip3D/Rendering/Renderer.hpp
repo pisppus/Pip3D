@@ -15,6 +15,7 @@
 #include "Geometry/Mesh.hpp"
 #include "Rendering/UI/Font.hpp"
 #include "Rendering/Display/ZBuffer.hpp"
+#include "Rendering/Pipeline/Telemetry.hpp"
 #include "Lighting/Lighting.hpp"
 #include "Lighting/Shadow.hpp"
 #include "Pipeline/Rasterizer.hpp"
@@ -102,6 +103,9 @@ namespace pip3D
         Matrix4x4 viewProjMatrix;
         bool viewProjMatrixDirty;
 
+        float cachedHfovRad_ = 0.0f;
+        bool hfovCacheValid_ = false;
+
         Viewport viewport;
         Frustum frustum;
 
@@ -134,6 +138,20 @@ namespace pip3D
         bool shouldRenderShadowForBounds(const Vector3 &center, float radius) const;
         void drawSunDiscAtScreen(int16_t cx, int16_t cyFull, const Color &color, float glow, float sizeScale);
         void drawWaterTriangleInternal(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2, const Color &waterColor, uint8_t alphaByte, const DisplayConfig &cfg, uint16_t *frameBufferPtr);
+
+        __attribute__((always_inline)) inline float ensureHfovCached()
+        {
+            if (likely(hfovCacheValid_))
+                return cachedHfovRad_;
+
+            const Camera &cam = cameras[activeCameraIndex];
+            const float aspect = static_cast<float>(viewport.width) /
+                                 static_cast<float>(viewport.height);
+            cachedHfovRad_ = 2.0f * atanf(
+                                        tanf(cam.fov * 0.5f * kDegToRad) * aspect);
+            hfovCacheValid_ = true;
+            return cachedHfovRad_;
+        }
 
         static void flushJobFunc(void *userData);
         static constexpr int FLUSH_JOB_SLOTS = 2;
@@ -223,7 +241,6 @@ namespace pip3D
 
         void setCloudsEnabled(bool enabled) { framebuffer.setCloudsEnabled(enabled); }
         bool areCloudsEnabled() const { return framebuffer.areCloudsEnabled(); }
-        void setCloudColor(Color color) { framebuffer.setCloudColor(color); }
         void generateClouds(uint32_t seed = 0xC10Du, float coverage = 0.45f)
         {
             framebuffer.generateClouds(seed, coverage);
@@ -275,6 +292,19 @@ namespace pip3D
         void draw(Mesh *mesh);
         void flushQueue();
         void drawMeshInstanceInternal(MeshInstance *instance, bool performFrustumCull);
+
+        bool clipAndDrawNearTextured(const DrawTelemetryClipVert inVerts[3],
+                                     float nearD,
+                                     const Camera &camera,
+                                     const Viewport &viewport,
+                                     const Matrix4x4 &viewProjMatrix,
+                                     FrameBuffer &framebuffer,
+                                     ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+                                     const Texture &tex,
+                                     const Mesh *meshForTelemetry,
+                                     uint16_t faceIdxForTelemetry,
+                                     uint32_t frameForTelemetry);
+
         void drawMeshInstance(MeshInstance *instance);
         void drawMeshInstance(MeshInstance *instance, ShadingMode mode);
         void drawMeshInstanceStatic(MeshInstance *instance);

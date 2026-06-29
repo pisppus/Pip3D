@@ -246,8 +246,6 @@ namespace pip3D
 
         __attribute__((always_inline)) inline void setCloudsEnabled(bool e) { clouds.enabled = e; }
 
-        __attribute__((always_inline)) inline void setCloudColor(Color c) { clouds.color = c; }
-
         __attribute__((always_inline)) inline void generateClouds(uint32_t seed, float coverage)
         {
             clouds.generatePanorama(seed, coverage, SCREEN_HEIGHT, skybox);
@@ -387,11 +385,30 @@ namespace pip3D
                 uint32_t *__restrict__ row32 =
                     reinterpret_cast<uint32_t *>(buf + static_cast<size_t>(y) * WIDTH);
 
+                constexpr uint16_t widthHalf = WIDTH >> 1;
                 uint16_t x = 0;
+
+                constexpr uint16_t UNROLL = 4;
+                for (; x + UNROLL <= widthHalf; x += UNROLL)
+                {
+                    row32[x + 0] = lutEven;
+                    row32[x + 1] = lutOdd;
+                    row32[x + 2] = lutEven;
+                    row32[x + 3] = lutOdd;
+                }
                 for (; x < widthHalf; ++x)
                 {
-                    PIP3D_PREFETCH_W(&row32[x + 8]);
                     row32[x] = (x & 1u) ? lutOdd : lutEven;
+                }
+
+                if constexpr (WIDTH & 1u)
+                {
+                    const uint8_t tLast = bayer4x4[(static_cast<uint8_t>(globalY) & 3u) * 4 +
+                                                   ((WIDTH - 1) & 3u)];
+                    const uint16_t lastColor = skyActive ? ditherRGB565(
+                                                               skyboxColorCache[static_cast<size_t>(globalY)], tLast)
+                                                         : baseClear;
+                    buf[static_cast<size_t>(y) * WIDTH + WIDTH - 1] = lastColor;
                 }
 
                 if (WIDTH & 1u)

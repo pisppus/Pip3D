@@ -2,6 +2,7 @@
 #include "Debug/Logging.hpp"
 #include "Debug/Gizmos.hpp"
 #include <cstring>
+#include "Rendering/Pipeline/Telemetry.hpp"
 
 #ifndef PIP3D_DISPLAY_ORDER
 #define PIP3D_DISPLAY_ORDER 0
@@ -210,6 +211,9 @@ namespace pip3D
         if (!isInitialized())
             return;
 
+        if (bandIndex == 0)
+            g_drawTelemetry.resetFrame();
+
         shadowQueueCount = 0;
         opaqueQueueCount = 0;
         meshShadowQueueCount = 0;
@@ -236,6 +240,7 @@ namespace pip3D
                 lights[i].warmCache();
             }
 
+            const bool vpWasDirty = viewProjMatrixDirty;
             CameraController::updateViewProjectionIfNeeded(cameras[activeCameraIndex],
                                                            viewport,
                                                            viewMatrix,
@@ -243,6 +248,8 @@ namespace pip3D
                                                            viewProjMatrix,
                                                            frustum,
                                                            viewProjMatrixDirty);
+            if (vpWasDirty)
+                hfovCacheValid_ = false;
 
             statsTrianglesTotal = 0;
             statsTrianglesBackfaceCulled = 0;
@@ -424,10 +431,7 @@ namespace pip3D
             const Vector3 &fwd = cameras[activeCameraIndex].forward();
             const float yaw = atan2f(fwd.x, fwd.z);
             const float pitch = asinf(clamp(fwd.y, -1.0f, 1.0f));
-            const float aspect = static_cast<float>(viewport.width) /
-                                 static_cast<float>(viewport.height);
-            const float hfov = 2.0f * atanf(
-                                          tanf(cameras[activeCameraIndex].fov * 0.5f * kDegToRad) * aspect);
+            const float hfov = ensureHfovCached();
             framebuffer.drawClouds<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>(yaw, pitch, hfov);
         }
     }

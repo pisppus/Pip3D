@@ -416,7 +416,9 @@ namespace pip3D
 
         PIP3D_FORCE_INLINE void setPerspective(float fov, float aspect, float nearPlane, float farPlane)
         {
-            float f = FastMath::fastReciprocal(tanf(fov * 0.5f * kDegToRad));
+            float halfFovSin, halfFovCos;
+            FastMath::fastSinCos(fov * 0.5f * kDegToRad, halfFovSin, halfFovCos);
+            float f = halfFovCos * FastMath::fastReciprocal(halfFovSin);
             float rangeInv = FastMath::fastReciprocal(nearPlane - farPlane);
             float invAspect = FastMath::fastReciprocal(aspect);
 

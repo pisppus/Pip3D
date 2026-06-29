@@ -333,7 +333,7 @@ namespace pip3D
       if (cache.flags.vectorsDirty)
       {
         cache.cachedForward = target - position;
-        if (cache.cachedForward.length() < 1e-6f)
+        if (cache.cachedForward.lengthSquared() < 1e-12f)
         {
           cache.cachedForward = Vector3(0, 0, 1);
         }
@@ -343,7 +343,7 @@ namespace pip3D
         }
 
         cache.cachedRight = cache.cachedForward.cross(up);
-        if (cache.cachedRight.length() < 1e-6f)
+        if (cache.cachedRight.lengthSquared() < 1e-12f)
         {
           const Vector3 altUp = (fabsf(cache.cachedForward.y) < 0.999f)
                                     ? Vector3(0, 1, 0)
@@ -455,11 +455,15 @@ namespace pip3D
     {
       const float az = degrees ? azimuth * kDegToRad : azimuth;
       const float el = degrees ? elevation * kDegToRad : elevation;
-      const float cosEl = cosf(el);
 
-      position = Vector3(center.x + radius * cosEl * cosf(az),
-                         center.y + radius * sinf(el),
-                         center.z + radius * cosEl * sinf(az));
+      float sinEl, cosEl;
+      float sinAz, cosAz;
+      FastMath::fastSinCos(el, sinEl, cosEl);
+      FastMath::fastSinCos(az, sinAz, cosAz);
+
+      position = Vector3(center.x + radius * cosEl * cosAz,
+                         center.y + radius * sinEl,
+                         center.z + radius * cosEl * sinAz);
       target = center;
       invalidateView();
     }

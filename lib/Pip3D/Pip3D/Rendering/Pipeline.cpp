@@ -1,7 +1,8 @@
 #include "Renderer.hpp"
 #include "Pipeline/Culling.hpp"
-#include "Rendering/Pipeline/MeshDraw.hpp"
+#include "Rendering/Pipeline/Telemetry.hpp"
 #include "Debug/Logging.hpp"
+#include "Rendering/Pipeline/MeshDraw.hpp"
 #include <vector>
 
 namespace pip3D
@@ -167,6 +168,161 @@ namespace pip3D
         {
             drawMesh(meshOpaqueQueue[i]);
         }
+    }
+
+    bool Renderer::clipAndDrawNearTextured(const DrawTelemetryClipVert inVerts[3],
+                                           float nearD,
+                                           const Camera &camera,
+                                           const Viewport &viewport,
+                                           const Matrix4x4 &viewProjMatrix,
+                                           FrameBuffer &framebuffer,
+                                           ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+                                           const Texture &tex,
+                                           const Mesh *meshForTelemetry,
+                                           uint16_t faceIdxForTelemetry,
+                                           uint32_t frameForTelemetry)
+    {
+        DrawTelemetryClipVert clipped[4];
+        int outCount = 0;
+
+        for (int i = 0; i < 3; ++i)
+        {
+            int j = (i + 1) % 3;
+            const DrawTelemetryClipVert &P0 = inVerts[i];
+            const DrawTelemetryClipVert &P1 = inVerts[j];
+            const float d0 = P0.d;
+            const float d1 = P1.d;
+            const bool in0 = d0 >= nearD;
+            const bool in1 = d1 >= nearD;
+
+            if (in0 && in1)
+            {
+                clipped[outCount++] = P1;
+            }
+            else if (in0 != in1)
+            {
+                float denom = d1 - d0;
+                float t = (fabsf(denom) < 1e-6f) ? 0.0f : (nearD - d0) / denom;
+                if (t < 0.0f)
+                    t = 0.0f;
+                if (t > 1.0f)
+                    t = 1.0f;
+
+                DrawTelemetryClipVert ip = lerpClipVert(P0, P1, t);
+
+                if (in0)
+                {
+                    clipped[outCount++] = ip;
+                }
+                else
+                {
+                    clipped[outCount++] = ip;
+                    clipped[outCount++] = P1;
+                }
+            }
+        }
+
+        if (outCount < 3)
+            return false;
+
+        const float viewportHalfWidth = static_cast<float>(viewport.width) * 0.5f;
+        const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
+        const int16_t bandTop = currentBandOffsetY();
+        const int16_t bandBottom = static_cast<int16_t>(bandTop + currentBandHeight());
+        const DisplayConfig &framebufferConfig = framebuffer.getConfig();
+        const float viewportWidth = static_cast<float>(viewport.width);
+
+        auto projectAndDraw = [&](const DrawTelemetryClipVert &cv0,
+                                  const DrawTelemetryClipVert &cv1,
+                                  const DrawTelemetryClipVert &cv2) -> bool
+        {
+            Vector3 p0 = CameraController::project(cv0.pos, viewProjMatrix,
+                                                   viewportHalfWidth, viewportHalfHeight,
+                                                   viewport.x, viewport.y);
+            Vector3 p1 = CameraController::project(cv1.pos, viewProjMatrix,
+                                                   viewportHalfWidth, viewportHalfHeight,
+                                                   viewport.x, viewport.y);
+            Vector3 p2 = CameraController::project(cv2.pos, viewProjMatrix,
+                                                   viewportHalfWidth, viewportHalfHeight,
+                                                   viewport.x, viewport.y);
+
+            if (!isfinite(p0.x) || !isfinite(p0.y) || !isfinite(p0.z) ||
+                !isfinite(p1.x) || !isfinite(p1.y) || !isfinite(p1.z) ||
+                !isfinite(p2.x) || !isfinite(p2.y) || !isfinite(p2.z))
+            {
+                g_drawTelemetry.recordSkip(
+                    SkipReason::NAN_PROJECT, frameForTelemetry, faceIdxForTelemetry,
+                    meshForTelemetry,
+                    cv0.d, cv1.d, cv2.d, 0.0f,
+                    p0.x, p0.y, p0.z, p1.x, p1.y, p2.x, p2.y,
+                    cv0.pos.x, cv0.pos.y, cv0.pos.z,
+                    camera.position.x, camera.position.y, camera.position.z,
+                    camera.forward().x, camera.forward().y, camera.forward().z,
+                    nearD, bandTop, bandBottom,
+                    true, true);
+                return false;
+            }
+
+            float minY = fminf(p0.y, fminf(p1.y, p2.y));
+            float maxY = fmaxf(p0.y, fmaxf(p1.y, p2.y));
+            if (maxY < bandTop || minY >= bandBottom)
+            {
+                g_drawTelemetry.recordSkip(
+                    SkipReason::BAND_Y, frameForTelemetry, faceIdxForTelemetry,
+                    meshForTelemetry,
+                    cv0.d, cv1.d, cv2.d, 0.0f,
+                    p0.x, p0.y, p0.z, p1.x, p1.y, p2.x, p2.y,
+                    cv0.pos.x, cv0.pos.y, cv0.pos.z,
+                    camera.position.x, camera.position.y, camera.position.z,
+                    camera.forward().x, camera.forward().y, camera.forward().z,
+                    nearD, bandTop, bandBottom,
+                    true, true);
+                return false;
+            }
+
+            float minX = fminf(p0.x, fminf(p1.x, p2.x));
+            float maxX = fmaxf(p0.x, fmaxf(p1.x, p2.x));
+            if (maxX < 0.0f || minX >= viewportWidth)
+            {
+                g_drawTelemetry.recordSkip(
+                    SkipReason::FRUSTUM_X, frameForTelemetry, faceIdxForTelemetry,
+                    meshForTelemetry,
+                    cv0.d, cv1.d, cv2.d, 0.0f,
+                    p0.x, p0.y, p0.z, p1.x, p1.y, p2.x, p2.y,
+                    cv0.pos.x, cv0.pos.y, cv0.pos.z,
+                    camera.position.x, camera.position.y, camera.position.z,
+                    camera.forward().x, camera.forward().y, camera.forward().z,
+                    nearD, bandTop, bandBottom,
+                    true, true);
+                return false;
+            }
+
+            p0.y -= (float)bandTop;
+            p1.y -= (float)bandTop;
+            p2.y -= (float)bandTop;
+
+            Rasterizer::fillTriangleTextured(
+                p0.x, p0.y, p0.z,
+                p1.x, p1.y, p1.z,
+                p2.x, p2.y, p2.z,
+                cv0.u, cv0.v,
+                cv1.u, cv1.v,
+                cv2.u, cv2.v,
+                cv0.d, cv1.d, cv2.d,
+                cv0.lr, cv0.lg, cv0.lb,
+                cv1.lr, cv1.lg, cv1.lb,
+                cv2.lr, cv2.lg, cv2.lb,
+                tex,
+                framebuffer.getBuffer(),
+                zBuffer,
+                framebufferConfig);
+            return true;
+        };
+
+        bool drew = projectAndDraw(clipped[0], clipped[1], clipped[2]);
+        if (outCount == 4)
+            drew |= projectAndDraw(clipped[0], clipped[2], clipped[3]);
+        return drew;
     }
 
     void Renderer::drawMeshInstanceInternal(MeshInstance *instance, bool performFrustumCull)
@@ -362,10 +518,15 @@ namespace pip3D
         const bool isTextured = mesh->isTextured();
         const bool doBackfaceCull = backfaceCullingEnabled;
         const bool gouraudShading = (shadingMode == SHADING_GOURAUD) && !useUniformColor;
+        const uint32_t currentFrame = currentFrameStamp();
+
+        constexpr float kNearClipEps = 1e-4f;
+        const float nearClip = nearPlane + kNearClipEps;
 
         for (uint16_t i = 0; i < faceCount; ++i)
         {
             statsTrianglesTotal++;
+            g_drawTelemetry.facesTotal++;
 
             const Face &face = mesh->face(i);
 
@@ -394,35 +555,90 @@ namespace pip3D
             const float d1 = (v1 - camPos).dot(camFwd);
             const float d2 = (v2 - camPos).dot(camFwd);
 
-            if (d0 < nearPlane && d1 < nearPlane && d2 < nearPlane)
+            if (d0 < nearClip && d1 < nearClip && d2 < nearClip)
+            {
+                statsTrianglesBackfaceCulled++;
+                g_drawTelemetry.recordSkip(
+                    SkipReason::NEAR_FULLY, currentFrame, i, mesh,
+                    d0, d1, d2, 0.0f,
+                    0, 0, 0, 0, 0, 0, 0,
+                    v0.x, v0.y, v0.z,
+                    camPos.x, camPos.y, camPos.z,
+                    camFwd.x, camFwd.y, camFwd.z,
+                    nearPlane, bandTop, bandBottom,
+                    true, isTextured);
                 continue;
+            }
 
-            const bool partiallyClipped = (d0 < nearPlane || d1 < nearPlane || d2 < nearPlane);
+            const bool partiallyClipped = (d0 < nearClip || d1 < nearClip || d2 < nearClip);
 
             Vector3 p0, p1, p2;
 
-            if (doBackfaceCull && (useFallbackPath || partiallyClipped))
+            if (doBackfaceCull && !partiallyClipped)
             {
-                const Vector3 faceNormal = (v1 - v0).cross(v2 - v0);
-                const float normalLenSq = faceNormal.lengthSquared();
-                if (normalLenSq <= 1e-10f)
+                if (!useFallbackPath)
+                {
+                    p0 = screenVerts[face.v0];
+                    p1 = screenVerts[face.v1];
+                    p2 = screenVerts[face.v2];
+                }
+                else
+                {
+                    p0 = CameraController::project(v0, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, viewport.x, viewport.y);
+                    p1 = CameraController::project(v1, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, viewport.x, viewport.y);
+                    p2 = CameraController::project(v2, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, viewport.x, viewport.y);
+                }
+
+                if (!isfinite(p0.x) || !isfinite(p0.y) || !isfinite(p0.z) ||
+                    !isfinite(p1.x) || !isfinite(p1.y) || !isfinite(p1.z) ||
+                    !isfinite(p2.x) || !isfinite(p2.y) || !isfinite(p2.z))
                 {
                     statsTrianglesBackfaceCulled++;
+                    g_drawTelemetry.recordSkip(
+                        SkipReason::NAN_PROJECT, currentFrame, i, mesh,
+                        d0, d1, d2, 0.0f,
+                        p0.x, p0.y, p0.z, p1.x, p1.y, p2.x, p2.y,
+                        v0.x, v0.y, v0.z,
+                        camPos.x, camPos.y, camPos.z,
+                        camFwd.x, camFwd.y, camFwd.z,
+                        nearPlane, bandTop, bandBottom,
+                        partiallyClipped, isTextured);
                     continue;
                 }
 
-                const float facing = usePerspectiveFacing
-                                         ? faceNormal.dot(toCam0)
-                                         : faceNormal.dot(-camFwd);
+                const float area = (p1.x - p0.x) * (p2.y - p0.y) - (p2.x - p0.x) * (p1.y - p0.y);
 
-                if (facing <= 0.0f)
+                if (fabsf(area) <= 1.0f)
                 {
                     statsTrianglesBackfaceCulled++;
+                    g_drawTelemetry.recordSkip(
+                        SkipReason::DEGENERATE, currentFrame, i, mesh,
+                        d0, d1, d2, area,
+                        p0.x, p0.y, p0.z, p1.x, p1.y, p2.x, p2.y,
+                        v0.x, v0.y, v0.z,
+                        camPos.x, camPos.y, camPos.z,
+                        camFwd.x, camFwd.y, camFwd.z,
+                        nearPlane, bandTop, bandBottom,
+                        partiallyClipped, isTextured);
+                    continue;
+                }
+
+                if (area >= 0.0f)
+                {
+                    statsTrianglesBackfaceCulled++;
+                    g_drawTelemetry.recordSkip(
+                        SkipReason::BACKFACE, currentFrame, i, mesh,
+                        d0, d1, d2, area,
+                        p0.x, p0.y, p0.z, p1.x, p1.y, p2.x, p2.y,
+                        v0.x, v0.y, v0.z,
+                        camPos.x, camPos.y, camPos.z,
+                        camFwd.x, camFwd.y, camFwd.z,
+                        nearPlane, bandTop, bandBottom,
+                        partiallyClipped, isTextured);
                     continue;
                 }
             }
-
-            if (!useFallbackPath)
+            else if (!useFallbackPath)
             {
                 p0 = screenVerts[face.v0];
                 p1 = screenVerts[face.v1];
@@ -435,28 +651,11 @@ namespace pip3D
                 p2 = CameraController::project(v2, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, viewport.x, viewport.y);
             }
 
-            if (doBackfaceCull && !useFallbackPath && !partiallyClipped)
-            {
-                const float area = (p1.x - p0.x) * (p2.y - p0.y) - (p2.x - p0.x) * (p1.y - p0.y);
-                if (area >= 0.0f)
-                {
-                    statsTrianglesBackfaceCulled++;
-                    continue;
-                }
-            }
-
-            if (isTextured && !partiallyClipped)
+            if (isTextured)
             {
                 const Vertex &vert0 = mesh->vert(face.v0);
                 const Vertex &vert1 = mesh->vert(face.v1);
                 const Vertex &vert2 = mesh->vert(face.v2);
-
-                Vector3 lp0 = p0;
-                Vector3 lp1 = p1;
-                Vector3 lp2 = p2;
-                lp0.y -= (float)bandTop;
-                lp1.y -= (float)bandTop;
-                lp2.y -= (float)bandTop;
 
                 float lr0, lg0, lb0, lr1, lg1, lb1, lr2, lg2, lb2;
                 if (gouraudShading)
@@ -492,7 +691,57 @@ namespace pip3D
                     lb2 = lb0;
                 }
 
-                Rasterizer::fillTriangleTextured(lp0.x, lp0.y, lp0.z, lp1.x, lp1.y, lp1.z, lp2.x, lp2.y, lp2.z, vert0.tu, vert0.tv, vert1.tu, vert1.tv, vert2.tu, vert2.tv, d0, d1, d2, lr0, lg0, lb0, lr1, lg1, lb1, lr2, lg2, lb2, *mesh->getTexture(), framebuffer.getBuffer(), zBuffer, framebufferConfig);
+                if (!partiallyClipped)
+                {
+                    Vector3 lp0 = p0;
+                    Vector3 lp1 = p1;
+                    Vector3 lp2 = p2;
+                    lp0.y -= (float)bandTop;
+                    lp1.y -= (float)bandTop;
+                    lp2.y -= (float)bandTop;
+
+                    Rasterizer::fillTriangleTextured(
+                        lp0.x, lp0.y, lp0.z,
+                        lp1.x, lp1.y, lp1.z,
+                        lp2.x, lp2.y, lp2.z,
+                        vert0.tu, vert0.tv,
+                        vert1.tu, vert1.tv,
+                        vert2.tu, vert2.tv,
+                        d0, d1, d2,
+                        lr0, lg0, lb0,
+                        lr1, lg1, lb1,
+                        lr2, lg2, lb2,
+                        *mesh->getTexture(),
+                        framebuffer.getBuffer(),
+                        zBuffer,
+                        framebufferConfig);
+                    g_drawTelemetry.facesDrawnTextured++;
+                }
+                else
+                {
+                    DrawTelemetryClipVert cv[3] = {
+                        {v0, vert0.tu, vert0.tv, d0, lr0, lg0, lb0},
+                        {v1, vert1.tu, vert1.tv, d1, lr1, lg1, lb1},
+                        {v2, vert2.tu, vert2.tv, d2, lr2, lg2, lb2}};
+                    bool drew = clipAndDrawNearTextured(
+                        cv, nearClip,
+                        cam, viewport, viewProjMatrix,
+                        framebuffer, zBuffer,
+                        *mesh->getTexture(),
+                        mesh, i, currentFrame);
+                    if (drew)
+                        g_drawTelemetry.facesDrawnClipped++;
+                    else
+                        g_drawTelemetry.recordSkip(
+                            SkipReason::CLIP_OUTCOUNT_LT3, currentFrame, i, mesh,
+                            d0, d1, d2, 0.0f,
+                            0, 0, 0, 0, 0, 0, 0,
+                            v0.x, v0.y, v0.z,
+                            camPos.x, camPos.y, camPos.z,
+                            camFwd.x, camFwd.y, camFwd.z,
+                            nearPlane, bandTop, bandBottom,
+                            true, true);
+                }
                 continue;
             }
 
