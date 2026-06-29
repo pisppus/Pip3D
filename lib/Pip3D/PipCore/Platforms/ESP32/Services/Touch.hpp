@@ -27,7 +27,7 @@ namespace pipcore::esp32::services
         [[nodiscard]] uint8_t count() const noexcept override { return _reported; }
         [[nodiscard]] pipcore::TouchPoint point(uint8_t index) const noexcept override;
 
-        static void markTouched(Touch *self) noexcept;
+        void IRAM_ATTR markTouched() noexcept;
 
     private:
         struct Slot

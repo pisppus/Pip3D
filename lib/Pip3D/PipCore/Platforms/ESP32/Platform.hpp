@@ -55,7 +55,7 @@ namespace pipcore::esp32
                 [[nodiscard]] bool digitalRead(uint8_t pin) noexcept override;
                 [[nodiscard]] int16_t analogRead(uint8_t pin) noexcept override;
 
-                void configureBacklightPin(uint8_t pin, uint8_t channel = 0, uint32_t freqHz = 5000, uint8_t resolutionBits = 12) noexcept override;
+                void configureBacklightPin(uint8_t pin, uint8_t channel = 0, uint32_t freqHz = 5000, uint8_t resolutionBits = 12, bool activeLow = false) noexcept override;
 
                 [[nodiscard]] uint32_t nowMs() noexcept override;
                 [[nodiscard]] uint64_t nowUs() noexcept override;

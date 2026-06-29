@@ -53,6 +53,15 @@ namespace pipcore::ili9488
                           const uint16_t *pixels,
                           int32_t stridePixels) override;
 
+        void writeRect565Async(int16_t x,
+                               int16_t y,
+                               int16_t w,
+                               int16_t h,
+                               const uint16_t *pixels,
+                               int32_t stridePixels) override;
+
+        void waitDMA() override;
+
     private:
         [[nodiscard]] bool ensureStageBuffer(size_t bytes);
         static void convert565To666(const uint16_t *src, uint8_t *dst, size_t count) noexcept;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <PipCore/Network/Wifi.hpp>
+#include <WiFi.h>
 
 namespace pipcore::esp32::services
 {
@@ -8,6 +9,7 @@ namespace pipcore::esp32::services
     {
     public:
         Wifi() = default;
+        ~Wifi() override;
 
         void configure(const pipcore::net::WifiConfig &cfg) noexcept override;
         void request(bool enabled) noexcept override;
@@ -22,6 +24,7 @@ namespace pipcore::esp32::services
         void setState(pipcore::net::WifiState st) noexcept;
         void wifiOff() noexcept;
         void startConnect(uint32_t nowMs) noexcept;
+        void handleWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) noexcept;
 
         pipcore::net::WifiConfig _cfg = {};
         bool _configured = false;
@@ -32,5 +35,6 @@ namespace pipcore::esp32::services
         uint32_t _attemptStartMs = 0;
         uint32_t _nextRetryMs = 0;
         uint32_t _ipV4 = 0;
+        WiFiEventId_t _eventId = 0;
     };
 }

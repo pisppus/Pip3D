@@ -6,6 +6,7 @@
 
 #include <Arduino.h>
 #include <esp_ota_ops.h>
+#include <cstdlib>
 
 namespace pipcore::esp32::services
 {
@@ -46,6 +47,12 @@ namespace pipcore::esp32::services
         {
             mbedtls_sha256_free(&_http.sha);
             _http.shaInit = false;
+        }
+
+        if (_manifestBuf)
+        {
+            std::free(_manifestBuf);
+            _manifestBuf = nullptr;
         }
     }
 

@@ -26,6 +26,12 @@ namespace pipcore::net
         uint32_t connectTimeoutMs = 15'000;
         uint32_t retryDelayMs = 2'500;
         uint32_t noSsidGraceMs = 1'000;
+
+        uint32_t staticIp = 0;
+        uint32_t gateway = 0;
+        uint32_t subnet = 0;
+        uint32_t dns1 = 0;
+        uint32_t dns2 = 0;
     };
 
     class Backend

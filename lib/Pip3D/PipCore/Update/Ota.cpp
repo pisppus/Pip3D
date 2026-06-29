@@ -6,22 +6,28 @@
 
 namespace pipcore::ota
 {
+    namespace
+    {
+        [[nodiscard]] inline Backend *getBackend() noexcept
+        {
+            if (pipcore::Platform *p = pipcore::GetPlatform())
+            {
+                return p->update();
+            }
+            return nullptr;
+        }
+    }
+
     void markAppValid() noexcept
     {
-        if (pipcore::Platform *p = pipcore::GetPlatform())
-        {
-            if (Backend *backend = p->update())
-                backend->markAppValid();
-        }
+        if (Backend *b = getBackend())
+            b->markAppValid();
     }
 
     void configure(const Options &opt, StatusCallback cb, void *user) noexcept
     {
-        if (pipcore::Platform *p = pipcore::GetPlatform())
-        {
-            if (Backend *backend = p->update())
-                backend->configure(opt, cb, user);
-        }
+        if (Backend *b = getBackend())
+            b->configure(opt, cb, user);
     }
 
     void requestCheck() noexcept
@@ -31,95 +37,66 @@ namespace pipcore::ota
 
     void requestCheck(CheckMode mode) noexcept
     {
-        if (pipcore::Platform *p = pipcore::GetPlatform())
-        {
-            if (Backend *backend = p->update())
-                backend->requestCheck(mode);
-        }
+        if (Backend *b = getBackend())
+            b->requestCheck(mode);
     }
 
     void requestInstall() noexcept
     {
-        if (pipcore::Platform *p = pipcore::GetPlatform())
-        {
-            if (Backend *backend = p->update())
-                backend->requestInstall();
-        }
+        if (Backend *b = getBackend())
+            b->requestInstall();
     }
 
     void requestStableList() noexcept
     {
-        if (pipcore::Platform *p = pipcore::GetPlatform())
-        {
-            if (Backend *backend = p->update())
-                backend->requestStableList();
-        }
+        if (Backend *b = getBackend())
+            b->requestStableList();
     }
 
     bool stableListReady() noexcept
     {
-        if (pipcore::Platform *p = pipcore::GetPlatform())
-        {
-            if (const Backend *backend = p->update())
-                return backend->stableListReady();
-        }
+        if (const Backend *b = getBackend())
+            return b->stableListReady();
         return false;
     }
 
     uint8_t stableListCount() noexcept
     {
-        if (pipcore::Platform *p = pipcore::GetPlatform())
-        {
-            if (const Backend *backend = p->update())
-                return backend->stableListCount();
-        }
+        if (const Backend *b = getBackend())
+            return b->stableListCount();
         return 0;
     }
 
     const char *stableListVersion(uint8_t idx) noexcept
     {
-        if (pipcore::Platform *p = pipcore::GetPlatform())
-        {
-            if (const Backend *backend = p->update())
-                return backend->stableListVersion(idx);
-        }
+        if (const Backend *b = getBackend())
+            return b->stableListVersion(idx);
         return "";
     }
 
     void requestInstallStableVersion(const char *version) noexcept
     {
-        if (pipcore::Platform *p = pipcore::GetPlatform())
-        {
-            if (Backend *backend = p->update())
-                backend->requestInstallStableVersion(version);
-        }
+        if (Backend *b = getBackend())
+            b->requestInstallStableVersion(version);
     }
 
     void cancel() noexcept
     {
-        if (pipcore::Platform *p = pipcore::GetPlatform())
-        {
-            if (Backend *backend = p->update())
-                backend->cancel();
-        }
+        if (Backend *b = getBackend())
+            b->cancel();
     }
 
     void service() noexcept
     {
-        if (pipcore::Platform *p = pipcore::GetPlatform())
-        {
-            if (Backend *backend = p->update())
-                backend->service();
-        }
+        if (Backend *b = getBackend())
+            b->service();
     }
 
     const Status &status() noexcept
     {
-        if (pipcore::Platform *p = pipcore::GetPlatform())
-        {
-            if (const Backend *backend = p->update())
-                return backend->status();
-        }
+        if (const Backend *b = getBackend())
+            return b->status();
+
         static Status st = {};
         return st;
     }

@@ -96,7 +96,7 @@ namespace pipcore
         [[nodiscard]] virtual bool digitalRead(uint8_t) noexcept { return false; }
         [[nodiscard]] virtual int16_t analogRead(uint8_t pin) noexcept { return 0; }
 
-        virtual void configureBacklightPin(uint8_t, uint8_t = 0, uint32_t = 5000, uint8_t = 12) noexcept {}
+        virtual void configureBacklightPin(uint8_t, uint8_t = 0, uint32_t = 5000, uint8_t = 12, bool = false) noexcept {}
         [[nodiscard]] virtual uint8_t loadMaxBrightnessPercent() noexcept { return 100; }
         virtual void storeMaxBrightnessPercent(uint8_t) noexcept {}
         virtual void setBacklightPercent(uint8_t) noexcept {}

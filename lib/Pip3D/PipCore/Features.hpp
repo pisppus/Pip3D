@@ -6,12 +6,6 @@
 #define PIPCORE_TARGET_ESP32 0
 #endif
 
-#if defined(_WIN32) || defined(__linux__)
-#define PIPCORE_TARGET_DESKTOP 1
-#else
-#define PIPCORE_TARGET_DESKTOP 0
-#endif
-
 #if PIPCORE_TARGET_DESKTOP && __has_include(<config_sim.hpp>)
 #include <config_sim.hpp>
 #elif __has_include(<config.hpp>)
@@ -19,6 +13,15 @@
 #endif
 
 #include <cstdint>
+#include <cstddef>
+
+#if defined(ESP_PLATFORM) || defined(ESP32)
+#include <esp_attr.h>
+#else
+#ifndef IRAM_ATTR
+#define IRAM_ATTR
+#endif
+#endif
 
 #if defined(_MSC_VER)
 #include <stdlib.h>
@@ -146,3 +149,35 @@ namespace pipcore::detail
 #if PIPCORE_ENABLE_OTA && !PIPCORE_ENABLE_WIFI
 #error "PIPCORE_ENABLE_OTA requires PIPCORE_ENABLE_WIFI"
 #endif
+
+namespace pipcore::util
+{
+    inline void IRAM_ATTR __attribute__((always_inline)) copySwap565(uint16_t *dst, const uint16_t *src, size_t pixels) noexcept
+    {
+        if (pixels == 0)
+            return;
+
+        const bool canUse32 = (((reinterpret_cast<uintptr_t>(src) | reinterpret_cast<uintptr_t>(dst)) & 3U) == 0U);
+
+        if (canUse32)
+        {
+            auto *dst32 = reinterpret_cast<uint32_t *>(dst);
+            auto *src32 = reinterpret_cast<const uint32_t *>(src);
+            size_t pairs = pixels >> 1;
+
+            while (pairs--)
+            {
+                __builtin_prefetch(src32 + 8, 0, 0);
+                const uint32_t p = __builtin_bswap32(*src32++);
+                *dst32++ = (p >> 16) | (p << 16);
+            }
+
+            src = reinterpret_cast<const uint16_t *>(src32);
+            dst = reinterpret_cast<uint16_t *>(dst32);
+            pixels &= 1U;
+        }
+
+        while (pixels--)
+            *dst++ = __builtin_bswap16(*src++);
+    }
+}

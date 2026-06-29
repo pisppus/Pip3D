@@ -41,12 +41,7 @@ namespace pipcore
         float invDeadSpan;
 
     public:
-        AnalogAxis(const AnalogAxisConfig &c = AnalogAxisConfig())
-            : _platform(nullptr), cfg(c), filtered(0.0f), initialized(false), rangeInv(0.0f), deadZone(c.deadZone), invDeadSpan(1.0f)
-        {
-        }
-
-        AnalogAxis(Platform *plat, const AnalogAxisConfig &c = AnalogAxisConfig())
+        AnalogAxis(Platform *plat = nullptr, const AnalogAxisConfig &c = AnalogAxisConfig())
             : _platform(plat), cfg(c), filtered(0.0f), initialized(false), rangeInv(0.0f), deadZone(c.deadZone), invDeadSpan(1.0f)
         {
         }
@@ -152,43 +147,28 @@ namespace pipcore
         Platform *_platform;
         AnalogAxis ax;
         AnalogAxis ay;
-        Button *btn;
+        Button btn;
         bool hasButton;
 
     public:
-        Joystick(const JoystickConfig &cfg = JoystickConfig())
-            : _platform(nullptr), ax(cfg.axisX), ay(cfg.axisY), btn(nullptr), hasButton(cfg.buttonPin != 0xFF)
+        Joystick(Platform *plat = nullptr, const JoystickConfig &cfg = JoystickConfig())
+            : _platform(plat),
+              ax(plat, cfg.axisX),
+              ay(plat, cfg.axisY),
+              btn(plat, cfg.buttonPin, cfg.buttonPull),
+              hasButton(cfg.buttonPin != 0xFF)
         {
-            if (hasButton)
-            {
-                btn = new Button(cfg.buttonPin, cfg.buttonPull);
-            }
         }
 
-        Joystick(Platform *plat, const JoystickConfig &cfg = JoystickConfig())
-            : _platform(plat), ax(plat, cfg.axisX), ay(plat, cfg.axisY), btn(nullptr), hasButton(cfg.buttonPin != 0xFF)
-        {
-            if (hasButton)
-            {
-                btn = new Button(plat, cfg.buttonPin, cfg.buttonPull);
-            }
-        }
-
-        ~Joystick()
-        {
-            if (btn)
-            {
-                delete btn;
-            }
-        }
+        ~Joystick() = default;
 
         void begin()
         {
             ax.begin();
             ay.begin();
-            if (btn)
+            if (hasButton)
             {
-                btn->begin();
+                btn.begin();
             }
         }
 
@@ -196,16 +176,16 @@ namespace pipcore
         {
             ax.update(deltaTime);
             ay.update(deltaTime);
-            if (btn)
+            if (hasButton)
             {
-                btn->update();
+                btn.update();
             }
         }
 
         float x() const { return ax.value(); }
         float y() const { return ay.value(); }
 
-        bool isPressed() const { return btn ? btn->isDown() : false; }
-        bool wasPressed() const { return btn ? btn->wasPressed() : false; }
+        bool isPressed() const { return hasButton ? btn.isDown() : false; }
+        bool wasPressed() { return hasButton ? btn.wasPressed() : false; } 
     };
 }

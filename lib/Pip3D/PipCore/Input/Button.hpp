@@ -23,9 +23,9 @@ namespace pipcore
         Button(Platform *platform, uint8_t pin, PullMode pull = Pullup)
             : _platform(platform),
               _pin(pin),
-              _pull(pull)
+              _pull(pull),
+              _activeLow(pull == Pullup)
         {
-            applyPullDefaults();
         }
 
         void begin()
@@ -94,11 +94,6 @@ namespace pipcore
         [[nodiscard]] static constexpr uint32_t debounceMs() noexcept
         {
             return 12;
-        }
-
-        void applyPullDefaults() noexcept
-        {
-            _activeLow = (_pull == Pullup);
         }
 
         [[nodiscard]] bool readRaw() const noexcept

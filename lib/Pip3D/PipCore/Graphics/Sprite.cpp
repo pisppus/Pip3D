@@ -34,6 +34,18 @@ namespace pipcore
         return true;
     }
 
+    void Sprite::swap(Sprite &other) noexcept
+    {
+        std::swap(_platform, other._platform);
+        std::swap(_buf, other._buf);
+        std::swap(_w, other._w);
+        std::swap(_h, other._h);
+        std::swap(_clipX, other._clipX);
+        std::swap(_clipY, other._clipY);
+        std::swap(_clipW, other._clipW);
+        std::swap(_clipH, other._clipH);
+    }
+
     void Sprite::deleteSprite()
     {
         if (_buf)

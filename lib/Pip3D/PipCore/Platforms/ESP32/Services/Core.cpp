@@ -118,7 +118,7 @@ namespace pipcore::esp32::services
         return esp_timer_get_time();
     }
 
-    void Backlight::configurePin(uint8_t pin, uint8_t channel, uint32_t freqHz, uint8_t resolutionBits) noexcept
+    void Backlight::configurePin(uint8_t pin, uint8_t channel, uint32_t freqHz, uint8_t resolutionBits, bool activeLow) noexcept
     {
         const uint8_t resolvedBits = (resolutionBits >= 1 && resolutionBits <= 16) ? resolutionBits : 12;
         ledcSetup(channel, freqHz, resolvedBits);
@@ -126,6 +126,7 @@ namespace pipcore::esp32::services
         _configured = true;
         _channel = channel;
         _resolutionBits = resolvedBits;
+        _activeLow = activeLow;
     }
 
     void Backlight::setPercent(uint8_t percent) noexcept
@@ -137,6 +138,7 @@ namespace pipcore::esp32::services
 
         const uint32_t dutyMax = (1U << _resolutionBits) - 1U;
         const uint32_t duty = (dutyMax * static_cast<uint32_t>(percent) + 50U) / 100U;
-        ledcWrite(_channel, dutyMax - duty);
+
+        ledcWrite(_channel, _activeLow ? (dutyMax - duty) : duty);
     }
 }

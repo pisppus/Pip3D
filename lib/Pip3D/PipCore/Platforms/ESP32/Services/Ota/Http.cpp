@@ -14,6 +14,19 @@ namespace pipcore::esp32::services
         if (!url || !url[0])
             return false;
 
+        if (forManifest)
+        {
+            _st.downloaded = 0;
+            _st.total = 0;
+
+            _manifestBuf = static_cast<uint8_t *>(std::malloc(kMaxManifestBuf + 1));
+            if (!_manifestBuf)
+            {
+                _st.platformCode = -1;
+                return false;
+            }
+        }
+
         _http.client.setInsecure();
         _http.client.setTimeout(5000);
         _http.http.setReuse(false);

@@ -166,6 +166,18 @@ namespace pipcore::ili9488
         return true;
     }
 
+    bool Driver::writeReg(uint8_t cmd, const uint8_t *data, size_t len)
+    {
+        if (__builtin_expect(!sendCommand(cmd), 0))
+            return false;
+        if (len > 0 && data)
+        {
+            if (__builtin_expect(!sendBytes(data, len), 0))
+                return false;
+        }
+        return true;
+    }
+
     bool Driver::begin(uint8_t rotation)
     {
         _initialized = false;
@@ -182,27 +194,64 @@ namespace pipcore::ili9488
             return failFromTransport(IoError::NotReady);
         if (!hardReset())
             return false;
-        if (!sendCommand(CmdSWRESET))
+
+        if (__builtin_expect(!sendCommand(CmdSWRESET), 0))
             return false;
         _transport->delayMs(150);
-        if (!sendCommand(CmdCOLMOD))
-            return false;
-        {
-            uint8_t v = Colmod18bpp;
-            if (!sendBytes(&v, 1))
-                return false;
-        }
+
+        const uint8_t e0_data[] = {0x00, 0x03, 0x09, 0x08, 0x16, 0x0A, 0x3F, 0x78, 0x4C, 0x09, 0x0A, 0x08, 0x16, 0x1A, 0x0F};
+        const uint8_t e1_data[] = {0x00, 0x16, 0x19, 0x03, 0x0F, 0x05, 0x32, 0x45, 0x46, 0x04, 0x0E, 0x0D, 0x35, 0x37, 0x0F};
+        const uint8_t c0_data[] = {0x17, 0x15};
+        const uint8_t c1_data[] = {0x41};
+        const uint8_t c5_data[] = {0x00, 0x12, 0x80};
+        const uint8_t interface_format = Colmod18bpp;
+        const uint8_t b0_data[] = {0x00};
+        const uint8_t b1_data[] = {0xA0};
+        const uint8_t b4_data[] = {0x02};
+        const uint8_t b6_data[] = {0x02, 0x02, 0x3B};
+        const uint8_t b7_data[] = {0xC6};
+        const uint8_t f7_data[] = {0xA9, 0x51, 0x2C, 0x82};
+
+        if (__builtin_expect(!writeReg(0xE0, e0_data, sizeof(e0_data)), 0))
+            return false; // Positive Gamma Control
+        if (__builtin_expect(!writeReg(0xE1, e1_data, sizeof(e1_data)), 0))
+            return false; // Negative Gamma Control
+        if (__builtin_expect(!writeReg(0xC0, c0_data, sizeof(c0_data)), 0))
+            return false; // Power Control 1
+        if (__builtin_expect(!writeReg(0xC1, c1_data, sizeof(c1_data)), 0))
+            return false; // Power Control 2
+        if (__builtin_expect(!writeReg(0xC5, c5_data, sizeof(c5_data)), 0))
+            return false; // VCOM Control
+        if (__builtin_expect(!writeReg(CmdCOLMOD, &interface_format, 1), 0))
+            return false; // Pixel Interface Format (0x3A)
+        if (__builtin_expect(!writeReg(0xB0, b0_data, sizeof(b0_data)), 0))
+            return false; // Interface Mode Control
+        if (__builtin_expect(!writeReg(0xB1, b1_data, sizeof(b1_data)), 0))
+            return false; // Frame Rate Control
+        if (__builtin_expect(!writeReg(0xB4, b4_data, sizeof(b4_data)), 0))
+            return false; // Display Inversion Control
+        if (__builtin_expect(!writeReg(0xB6, b6_data, sizeof(b6_data)), 0))
+            return false; // Display Function Control
+        if (__builtin_expect(!writeReg(0xB7, b7_data, sizeof(b7_data)), 0))
+            return false; // Entry Mode Set
+        if (__builtin_expect(!writeReg(0xF7, f7_data, sizeof(f7_data)), 0))
+            return false; // Adjust Control 3
+
         _transport->delayMs(10);
-        if (!sendCommand(CmdSLPOUT))
+
+        if (__builtin_expect(!sendCommand(CmdSLPOUT), 0))
             return false;
         _transport->delayMs(120);
-        if (!sendCommand(_invert ? CmdINVON : CmdINVOFF))
+
+        if (__builtin_expect(!sendCommand(_invert ? CmdINVON : CmdINVOFF), 0))
             return false;
         _transport->delayMs(10);
-        if (!sendCommand(CmdDISPON))
+
+        if (__builtin_expect(!sendCommand(CmdDISPON), 0))
             return false;
         _transport->delayMs(25);
-        if (!setRotationInternal(rotation))
+
+        if (__builtin_expect(!setRotationInternal(rotation), 0))
             return false;
 
         _initialized = true;
