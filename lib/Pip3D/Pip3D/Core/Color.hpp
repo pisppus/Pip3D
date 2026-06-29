@@ -65,8 +65,8 @@ namespace pip3D
 
         static Color temp(float k)
         {
-            thread_local float lastK = -1.0f;
-            thread_local Color lastColor(0);
+            static float lastK = -1.0f;
+            static Color lastColor(0);
 
             const float step = 50.0f;
             const int bucket = static_cast<int>(k * INV_COLOR_TEMP_STEP + 0.5f);

@@ -19,7 +19,7 @@ namespace pip3D
             const float lenSq = n.lengthSquared();
             if (likely(lenSq > 1e-12f))
             {
-                const float invLen = 1.0f / sqrtf(lenSq);
+                const float invLen = FastMath::fastInvSqrt(lenSq);
                 n *= invLen;
             }
             d = -n.dot(p0);
@@ -103,7 +103,7 @@ namespace pip3D
                 const float lenSq = planes[i].n.lengthSquared();
                 if (likely(lenSq > 1e-12f))
                 {
-                    const float invLen = 1.0f / sqrtf(lenSq);
+                    const float invLen = FastMath::fastInvSqrt(lenSq);
                     planes[i].n *= invLen;
                     planes[i].d *= invLen;
                 }
@@ -204,4 +204,3 @@ namespace pip3D
     using Frustum = CameraFrustum;
 
 }
-
