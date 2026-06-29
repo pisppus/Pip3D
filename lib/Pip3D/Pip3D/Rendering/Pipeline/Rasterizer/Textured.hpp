@@ -22,6 +22,9 @@ namespace pip3D
                                          float u1, float v1,
                                          float u2, float v2,
                                          float w0, float w1, float w2,
+                                         float lr0, float lg0, float lb0,
+                                         float lr1, float lg1, float lb1,
+                                         float lr2, float lg2, float lb2,
                                          const Texture &tex,
                                          uint16_t *frameBuffer,
                                          ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
@@ -41,6 +44,9 @@ namespace pip3D
                 std::swap(u0, u1);
                 std::swap(v0, v1);
                 std::swap(w0, w1);
+                std::swap(lr0, lr1);
+                std::swap(lg0, lg1);
+                std::swap(lb0, lb1);
             }
             if (y1 > y2)
             {
@@ -50,6 +56,9 @@ namespace pip3D
                 std::swap(u1, u2);
                 std::swap(v1, v2);
                 std::swap(w1, w2);
+                std::swap(lr1, lr2);
+                std::swap(lg1, lg2);
+                std::swap(lb1, lb2);
             }
             if (y0 > y1)
             {
@@ -59,6 +68,9 @@ namespace pip3D
                 std::swap(u0, u1);
                 std::swap(v0, v1);
                 std::swap(w0, w1);
+                std::swap(lr0, lr1);
+                std::swap(lg0, lg1);
+                std::swap(lb0, lb1);
             }
 
             if (y0 == y2)
@@ -166,6 +178,36 @@ namespace pip3D
             const uint32_t texMaskV = tex.heightMask;
             const int32_t z_step = static_cast<int32_t>(dz_dx_scaled * 16384.0f);
 
+            const bool flatLight =
+                (fabsf(lr0 - lr1) < 1e-3f && fabsf(lr1 - lr2) < 1e-3f &&
+                 fabsf(lg0 - lg1) < 1e-3f && fabsf(lg1 - lg2) < 1e-3f &&
+                 fabsf(lb0 - lb1) < 1e-3f && fabsf(lb1 - lb2) < 1e-3f);
+
+            const uint32_t flatR5 = flatLight ? static_cast<uint32_t>(clamp(lr0, 0.0f, 1.0f) * 31.0f + 0.5f) : 0;
+            const uint32_t flatG6 = flatLight ? static_cast<uint32_t>(clamp(lg0, 0.0f, 1.0f) * 63.0f + 0.5f) : 0;
+            const uint32_t flatB5 = flatLight ? static_cast<uint32_t>(clamp(lb0, 0.0f, 1.0f) * 31.0f + 0.5f) : 0;
+
+            float dlr_dx = 0.0f, dlg_dx = 0.0f, dlb_dx = 0.0f;
+            int32_t lr_cur = 0, lg_cur = 0, lb_cur = 0;
+            int32_t lr_step = 0, lg_step = 0, lb_step = 0;
+            if (!flatLight)
+            {
+                const float dl_r02 = lr0 - lr2;
+                const float dl_r12 = lr1 - lr2;
+                const float dl_g02 = lg0 - lg2;
+                const float dl_g12 = lg1 - lg2;
+                const float dl_b02 = lb0 - lb2;
+                const float dl_b12 = lb1 - lb2;
+
+                dlr_dx = (dl_r02 * dy12 - dy02 * dl_r12) * invDet;
+                dlg_dx = (dl_g02 * dy12 - dy02 * dl_g12) * invDet;
+                dlb_dx = (dl_b02 * dy12 - dy02 * dl_b12) * invDet;
+
+                lr_step = static_cast<int32_t>(dlr_dx * 65536.0f);
+                lg_step = static_cast<int32_t>(dlg_dx * 65536.0f);
+                lb_step = static_cast<int32_t>(dlb_dx * 65536.0f);
+            }
+
             auto drawSpanSubdivided = [&](int y, int16_t x_start, int16_t x_end)
             {
                 int16_t count = x_end - x_start + 1;
@@ -213,6 +255,14 @@ namespace pip3D
                     const float z_scaled_start = z_dy_term + (static_cast<float>(cur_x) + 0.5f - x2) * dz_dx_scaled;
                     int32_t z_val = static_cast<int32_t>(z_scaled_start * 16384.0f);
 
+                    if (!flatLight)
+                    {
+                        const float px = (static_cast<float>(cur_x) + 0.5f) - x2;
+                        lr_cur = static_cast<int32_t>((lr2 + dlr_dx * px) * 65536.0f);
+                        lg_cur = static_cast<int32_t>((lg2 + dlg_dx * px) * 65536.0f);
+                        lb_cur = static_cast<int32_t>((lb2 + dlb_dx * px) * 65536.0f);
+                    }
+
                     PIP3D_PREFETCH_W(zb + 16);
                     PIP3D_PREFETCH_R(fb + 16);
 
@@ -227,6 +277,32 @@ namespace pip3D
                             const uint32_t tv = (static_cast<uint32_t>(v_fixed) >> 16) & texMaskV;
                             const uint16_t texColor = texData[(tv << texShiftU) | tu];
 
+                            uint16_t litColor;
+                            if (flatLight)
+                            {
+                                const uint32_t r = (texColor >> 11) & 0x1F;
+                                const uint32_t g = (texColor >> 5) & 0x3F;
+                                const uint32_t b = texColor & 0x1F;
+                                litColor = static_cast<uint16_t>(((r * flatR5) >> 5) << 11 |
+                                                                 ((g * flatG6) >> 6) << 5 |
+                                                                 ((b * flatB5) >> 5));
+                            }
+                            else
+                            {
+                                const int32_t r5 = lr_cur >> 16;
+                                const int32_t g6 = lg_cur >> 16;
+                                const int32_t b5 = lb_cur >> 16;
+                                const uint32_t r5c = r5 < 0 ? 0 : (r5 > 31 ? 31 : r5);
+                                const uint32_t g6c = g6 < 0 ? 0 : (g6 > 63 ? 63 : g6);
+                                const uint32_t b5c = b5 < 0 ? 0 : (b5 > 31 ? 31 : b5);
+                                const uint32_t r = (texColor >> 11) & 0x1F;
+                                const uint32_t g = (texColor >> 5) & 0x3F;
+                                const uint32_t b = texColor & 0x1F;
+                                litColor = static_cast<uint16_t>(((r * r5c) >> 5) << 11 |
+                                                                 ((g * g6c) >> 6) << 5 |
+                                                                 ((b * b5c) >> 5));
+                            }
+
                             if (fogEnabled)
                             {
                                 float denom = fogKVal - static_cast<float>(d);
@@ -239,7 +315,7 @@ namespace pip3D
 
                                 if (f_alpha <= 0)
                                 {
-                                    *fb = texColor;
+                                    *fb = litColor;
                                 }
                                 else if (f_alpha >= 32)
                                 {
@@ -249,8 +325,8 @@ namespace pip3D
                                 {
                                     const uint32_t inv_f_alpha = 32 - f_alpha;
 
-                                    const uint32_t rb1 = texColor & 0xF81F;
-                                    const uint32_t g1 = texColor & 0x07E0;
+                                    const uint32_t rb1 = litColor & 0xF81F;
+                                    const uint32_t g1 = litColor & 0x07E0;
 
                                     const uint32_t rb = ((rb1 * inv_f_alpha + fogColorRb * f_alpha) >> 5) & 0xF81F;
                                     const uint32_t g = ((g1 * inv_f_alpha + fogColorG * f_alpha) >> 5) & 0x07E0;
@@ -259,12 +335,18 @@ namespace pip3D
                             }
                             else
                             {
-                                *fb = texColor;
+                                *fb = litColor;
                             }
                         }
                         z_val += z_step;
                         u_fixed += du_fixed;
                         v_fixed += dv_fixed;
+                        if (!flatLight)
+                        {
+                            lr_cur += lr_step;
+                            lg_cur += lg_step;
+                            lb_cur += lb_step;
+                        }
                         ++zb;
                         ++fb;
                     }

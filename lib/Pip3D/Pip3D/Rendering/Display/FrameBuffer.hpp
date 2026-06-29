@@ -17,6 +17,7 @@
 #endif
 
 #include "Rendering/Display/Sky.hpp"
+#include "Rendering/Display/Clouds.hpp"
 
 namespace pip3D
 {
@@ -24,6 +25,7 @@ namespace pip3D
     {
     private:
         Skybox skybox;
+        CloudLayer clouds;
         uint16_t *buffer[2];
         uint8_t activeSlot;
         uint16_t *skyboxColorCache;
@@ -190,6 +192,7 @@ namespace pip3D
                 MemUtils::freeAligned(skyboxColorCache);
                 skyboxColorCache = nullptr;
             }
+            clouds.free();
         }
 
         FrameBuffer(const FrameBuffer &) = delete;
@@ -235,6 +238,27 @@ namespace pip3D
         __attribute__((always_inline)) inline void invalidateSkyboxCache()
         {
             cacheValid = false;
+        }
+
+        __attribute__((always_inline)) inline CloudLayer &getClouds() { return clouds; }
+        __attribute__((always_inline)) inline const CloudLayer &getClouds() const { return clouds; }
+        __attribute__((always_inline)) inline bool areCloudsEnabled() const { return clouds.enabled; }
+
+        __attribute__((always_inline)) inline void setCloudsEnabled(bool e) { clouds.enabled = e; }
+
+        __attribute__((always_inline)) inline void setCloudColor(Color c) { clouds.color = c; }
+
+        __attribute__((always_inline)) inline void generateClouds(uint32_t seed, float coverage)
+        {
+            clouds.generatePanorama(seed, coverage, SCREEN_HEIGHT, skybox);
+        }
+
+        template <uint16_t WIDTH, uint16_t HEIGHT>
+        __attribute__((always_inline, hot)) inline void
+        drawClouds(float yawRad, float pitchRad, float hfovRad)
+        {
+            clouds.drawClouds<WIDTH, HEIGHT>(buffer[activeSlot], currentBandOffsetY(),
+                                             yawRad, pitchRad, hfovRad);
         }
 
         __attribute__((always_inline)) inline void endFrame()

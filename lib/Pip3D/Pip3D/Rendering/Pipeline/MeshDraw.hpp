@@ -350,6 +350,40 @@ namespace pip3D
                     lp1.y -= (float)bandTop;
                     lp2.y -= (float)bandTop;
 
+                    float lr0, lg0, lb0, lr1, lg1, lb1, lr2, lg2, lb2;
+                    if (shadingMode == SHADING_GOURAUD && !useUniformColor)
+                    {
+                        Vector3 n0 = mesh->normal(i0);
+                        Vector3 vd0 = camPos - v0;
+                        vd0.normalize();
+                        Shading::calculateLighting(v0, n0, vd0, lights, activeLightCount, baseR, baseG, baseB, lr0, lg0, lb0);
+
+                        Vector3 n1 = mesh->normal(i1);
+                        Vector3 vd1 = camPos - v1;
+                        vd1.normalize();
+                        Shading::calculateLighting(v1, n1, vd1, lights, activeLightCount, baseR, baseG, baseB, lr1, lg1, lb1);
+
+                        Vector3 n2 = mesh->normal(i2);
+                        Vector3 vd2 = camPos - v2;
+                        vd2.normalize();
+                        Shading::calculateLighting(v2, n2, vd2, lights, activeLightCount, baseR, baseG, baseB, lr2, lg2, lb2);
+                    }
+                    else
+                    {
+                        Vector3 faceNormal = (v1 - v0).cross(v2 - v0);
+                        faceNormal.normalize();
+                        const Vector3 centroid = (v0 + v1 + v2) * (1.0f / 3.0f);
+                        Vector3 viewDir = camPos - centroid;
+                        viewDir.normalize();
+                        Shading::calculateLighting(centroid, faceNormal, viewDir, lights, activeLightCount, baseR, baseG, baseB, lr0, lg0, lb0);
+                        lr1 = lr0;
+                        lg1 = lg0;
+                        lb1 = lb0;
+                        lr2 = lr0;
+                        lg2 = lg0;
+                        lb2 = lb0;
+                    }
+
                     Rasterizer::fillTriangleTextured(
                         lp0.x, lp0.y, lp0.z,
                         lp1.x, lp1.y, lp1.z,
@@ -358,6 +392,9 @@ namespace pip3D
                         vert1.tu, vert1.tv,
                         vert2.tu, vert2.tv,
                         d0, d1, d2,
+                        lr0, lg0, lb0,
+                        lr1, lg1, lb1,
+                        lr2, lg2, lb2,
                         *mesh->getTexture(),
                         framebuffer.getBuffer(),
                         zBuffer,

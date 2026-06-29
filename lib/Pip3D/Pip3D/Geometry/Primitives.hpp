@@ -39,15 +39,15 @@ namespace pip3D
         }
 
         alignas(16) inline const Vertex s_cubeVertices[24] = {
-            {-32767, -32767, -32767, packNormalConstexpr(0.0f, 0.0f, -1.0f), 0.0f, 0.0f},
-            {32767, -32767, -32767, packNormalConstexpr(0.0f, 0.0f, -1.0f), 1.0f, 0.0f},
-            {32767, 32767, -32767, packNormalConstexpr(0.0f, 0.0f, -1.0f), 1.0f, 1.0f},
-            {-32767, 32767, -32767, packNormalConstexpr(0.0f, 0.0f, -1.0f), 0.0f, 1.0f},
+            {-32767, -32767, -32767, packNormalConstexpr(0.0f, 0.0f, -1.0f), 0.0f, 1.0f},
+            {32767, -32767, -32767, packNormalConstexpr(0.0f, 0.0f, -1.0f), 1.0f, 1.0f},
+            {32767, 32767, -32767, packNormalConstexpr(0.0f, 0.0f, -1.0f), 1.0f, 0.0f},
+            {-32767, 32767, -32767, packNormalConstexpr(0.0f, 0.0f, -1.0f), 0.0f, 0.0f},
 
-            {32767, -32767, 32767, packNormalConstexpr(0.0f, 0.0f, 1.0f), 0.0f, 0.0f},
-            {-32767, -32767, 32767, packNormalConstexpr(0.0f, 0.0f, 1.0f), 1.0f, 0.0f},
-            {-32767, 32767, 32767, packNormalConstexpr(0.0f, 0.0f, 1.0f), 1.0f, 1.0f},
-            {32767, 32767, 32767, packNormalConstexpr(0.0f, 0.0f, 1.0f), 0.0f, 1.0f},
+            {32767, -32767, 32767, packNormalConstexpr(0.0f, 0.0f, 1.0f), 0.0f, 1.0f},
+            {-32767, -32767, 32767, packNormalConstexpr(0.0f, 0.0f, 1.0f), 1.0f, 1.0f},
+            {-32767, 32767, 32767, packNormalConstexpr(0.0f, 0.0f, 1.0f), 1.0f, 0.0f},
+            {32767, 32767, 32767, packNormalConstexpr(0.0f, 0.0f, 1.0f), 0.0f, 0.0f},
 
             {-32767, 32767, -32767, packNormalConstexpr(0.0f, 1.0f, 0.0f), 0.0f, 0.0f},
             {32767, 32767, -32767, packNormalConstexpr(0.0f, 1.0f, 0.0f), 1.0f, 0.0f},
@@ -59,15 +59,15 @@ namespace pip3D
             {32767, -32767, -32767, packNormalConstexpr(0.0f, -1.0f, 0.0f), 1.0f, 1.0f},
             {-32767, -32767, -32767, packNormalConstexpr(0.0f, -1.0f, 0.0f), 0.0f, 1.0f},
 
-            {32767, -32767, -32767, packNormalConstexpr(1.0f, 0.0f, 0.0f), 0.0f, 0.0f},
-            {32767, -32767, 32767, packNormalConstexpr(1.0f, 0.0f, 0.0f), 1.0f, 0.0f},
-            {32767, 32767, 32767, packNormalConstexpr(1.0f, 0.0f, 0.0f), 1.0f, 1.0f},
-            {32767, 32767, -32767, packNormalConstexpr(1.0f, 0.0f, 0.0f), 0.0f, 1.0f},
+            {32767, -32767, -32767, packNormalConstexpr(1.0f, 0.0f, 0.0f), 0.0f, 1.0f},
+            {32767, -32767, 32767, packNormalConstexpr(1.0f, 0.0f, 0.0f), 1.0f, 1.0f},
+            {32767, 32767, 32767, packNormalConstexpr(1.0f, 0.0f, 0.0f), 1.0f, 0.0f},
+            {32767, 32767, -32767, packNormalConstexpr(1.0f, 0.0f, 0.0f), 0.0f, 0.0f},
 
-            {-32767, -32767, 32767, packNormalConstexpr(-1.0f, 0.0f, 0.0f), 0.0f, 0.0f},
-            {-32767, -32767, -32767, packNormalConstexpr(-1.0f, 0.0f, 0.0f), 1.0f, 0.0f},
-            {-32767, 32767, -32767, packNormalConstexpr(-1.0f, 0.0f, 0.0f), 1.0f, 1.0f},
-            {-32767, 32767, 32767, packNormalConstexpr(-1.0f, 0.0f, 0.0f), 0.0f, 1.0f}};
+            {-32767, -32767, 32767, packNormalConstexpr(-1.0f, 0.0f, 0.0f), 0.0f, 1.0f},
+            {-32767, -32767, -32767, packNormalConstexpr(-1.0f, 0.0f, 0.0f), 1.0f, 1.0f},
+            {-32767, 32767, -32767, packNormalConstexpr(-1.0f, 0.0f, 0.0f), 1.0f, 0.0f},
+            {-32767, 32767, 32767, packNormalConstexpr(-1.0f, 0.0f, 0.0f), 0.0f, 0.0f}};
 
         inline const Face s_cubeFaces[12] = {
             {0, 2, 1},
