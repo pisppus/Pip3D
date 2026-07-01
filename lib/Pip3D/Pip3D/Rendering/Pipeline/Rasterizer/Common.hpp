@@ -33,6 +33,8 @@ namespace pip3D
 
         inline FogState g_fogState{};
         inline bool g_mipmapsEnabled = true;
+        inline float g_ambientScale = 1.0f;
+        inline float g_exposureScale = 1.0f;
 
         struct alignas(16) PlanarParams
         {

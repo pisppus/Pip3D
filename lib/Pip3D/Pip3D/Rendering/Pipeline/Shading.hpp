@@ -3,6 +3,7 @@
 #include "Core/Platform.hpp"
 #include "Math/Algebra.hpp"
 #include "Rendering/Lighting/Lighting.hpp"
+#include "Rendering/Pipeline/Rasterizer/Common.hpp"
 
 #ifndef IRAM_ATTR
 #define IRAM_ATTR
@@ -43,8 +44,9 @@ namespace pip3D
             const float vdy = viewDir.y;
             const float vdz = viewDir.z;
 
+            const float ambientScale = Rasterizer::g_ambientScale;
             const float hemi = ny * HEMI_SCALE + AMBIENT_BASE;
-            const float ambientTerm = (hemi > 0.0f) ? (AMBIENT_BASE + hemi) : 0.0f;
+            const float ambientTerm = ((hemi > 0.0f) ? (AMBIENT_BASE + hemi) : 0.0f) * ambientScale;
 
             outR = baseR * ambientTerm;
             outG = baseG * ambientTerm;
@@ -158,13 +160,14 @@ namespace pip3D
                 outB += (baseB * diffuse + specular) * lightB;
             }
 
-            outR += baseR * rimAmount;
-            outG += baseG * rimAmount;
-            outB += baseB * rimAmount;
+            outR += baseR * rimAmount * ambientScale;
+            outG += baseG * rimAmount * ambientScale;
+            outB += baseB * rimAmount * ambientScale;
 
-            outR *= 1.15f * FastMath::fastReciprocal(0.25f + outR);
-            outG *= 1.15f * FastMath::fastReciprocal(0.25f + outG);
-            outB *= 1.15f * FastMath::fastReciprocal(0.25f + outB);
+            const float exposure = 1.15f * Rasterizer::g_exposureScale;
+            outR *= exposure * FastMath::fastReciprocal(0.25f + outR);
+            outG *= exposure * FastMath::fastReciprocal(0.25f + outG);
+            outB *= exposure * FastMath::fastReciprocal(0.25f + outB);
 
             const float lum = outR * 0.299f + outG * 0.587f + outB * 0.114f;
             outR += (outR - lum) * SATURATION_LUM_FACTOR;
@@ -187,15 +190,27 @@ namespace pip3D
 
         __attribute__((always_inline)) static inline uint16_t quantizeColor(float r, float g, float b)
         {
-            const int ir = static_cast<int>(r * 31.0f + 0.5f);
-            const int ig = static_cast<int>(g * 63.0f + 0.5f);
-            const int ib = static_cast<int>(b * 31.0f + 0.5f);
+            int ir = static_cast<int>(r * 31.0f + 0.5f);
+            int ig = static_cast<int>(g * 63.0f + 0.5f);
+            int ib = static_cast<int>(b * 31.0f + 0.5f);
 
-            const uint16_t rc = (ir > 31) ? 31 : ((ir < 0) ? 0 : ir);
-            const uint16_t gc = (ig > 63) ? 63 : ((ig < 0) ? 0 : ig);
-            const uint16_t bc = (ib > 31) ? 31 : ((ib < 0) ? 0 : ib);
+            if (ig < 16)
+                ig &= ~1;
 
-            return static_cast<uint16_t>((rc << 11) | (gc << 5) | bc);
+            if (ir > 31)
+                ir = 31;
+            else if (ir < 0)
+                ir = 0;
+            if (ig > 63)
+                ig = 63;
+            else if (ig < 0)
+                ig = 0;
+            if (ib > 31)
+                ib = 31;
+            else if (ib < 0)
+                ib = 0;
+
+            return static_cast<uint16_t>((ir << 11) | (ig << 5) | ib);
         }
     };
 

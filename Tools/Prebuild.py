@@ -20,7 +20,7 @@ ANSI_GREEN  = "\033[32m"
 ANSI_YELLOW = "\033[33m"
 ANSI_RESET  = "\033[0m"
 
-CACHE_VERSION = 3
+CACHE_VERSION = 4
 CACHE_PATH    = os.path.join(project_dir, ".pio", "prebuild_cache.json")
 
 
@@ -214,13 +214,13 @@ if os.path.isdir(display_textures_dir):
                 pass
 
 skygen_path     = os.path.join(project_dir, "Tools", "Textures", "Skygen.py")
-clouds_hpp_path = os.path.join(project_dir, "lib", "Pip3D", "Pip3D", "Rendering", "Display", "Panorama.hpp")
+clouds_hpp_path = os.path.join(project_dir, "lib", "Pip3D", "Pip3D", "Rendering", "Display", "CloudsMask.hpp")
 
 if os.path.isfile(skygen_path):
     screen_w, screen_h = parse_screen_resolution()
-    sky_key = f"skygen:cloudspanorama:{screen_w}x{screen_h}"
+    sky_key = f"skygen:cloudsmask:{screen_w}x{screen_h}"
     if needs_rebuild(CACHE, sky_key, skygen_path, clouds_hpp_path):
-        print(_tag(ANSI_GREEN, f"Building sky: Skygen.py -> CloudsPanorama.hpp ({screen_w}x{screen_h})"))
+        print(_tag(ANSI_GREEN, f"Building cloud mask: Skygen.py -> CloudsMask.hpp ({screen_w}x{screen_h})"))
         run_convert(skygen_path, [clouds_hpp_path, "--screen-w", str(screen_w), "--screen-h", str(screen_h)])
         mark_built(CACHE, sky_key, skygen_path, clouds_hpp_path)
         touch(clouds_hpp_path)

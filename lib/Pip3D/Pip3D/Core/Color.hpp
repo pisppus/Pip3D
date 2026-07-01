@@ -65,19 +65,7 @@ namespace pip3D
 
         static Color temp(float k)
         {
-            static float lastK = -1.0f;
-            static Color lastColor(0);
-
-            const float step = 50.0f;
-            const int bucket = static_cast<int>(k * INV_COLOR_TEMP_STEP + 0.5f);
-            const float qk = bucket * step;
-
-            if (likely(qk == lastK))
-            {
-                return lastColor;
-            }
-
-            const float t = qk * 0.01f;
+            const float t = k * 0.01f;
             float r, g, b;
 
             const bool t_le_66 = (t <= 66.0f);
@@ -114,8 +102,6 @@ namespace pip3D
             }
 
             Color result = rgb(static_cast<uint8_t>(r), static_cast<uint8_t>(g), static_cast<uint8_t>(b));
-            lastK = qk;
-            lastColor = result;
             return result;
         }
 

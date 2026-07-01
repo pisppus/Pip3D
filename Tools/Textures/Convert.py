@@ -7,7 +7,7 @@ import math
 try:
     from PIL import Image
 except ImportError:
-    print("[-] Ошибка: Библиотека Pillow не найдена. Она будет установлена мастер-скриптом.")
+    print("[-] Error: Pillow library not found. It will be installed by the master script.")
     sys.exit(1)
 
 if os.name == 'nt':
@@ -35,13 +35,13 @@ def _image_to_rgb565_array(img):
 
 def convert_png2tex(img_path, force_output_path=None, target_size=None):
     if not os.path.exists(img_path):
-        print(f"\033[91m[-] Ошибка: Исходное изображение {img_path} не найдено!\033[0m")
+        print(f"\033[91m[-] Error: Source image {img_path} not found!\033[0m")
         sys.exit(1)
 
     try:
         img = Image.open(img_path).convert('RGB')
     except Exception as e:
-        print(f"\033[91m[-] Ошибка открытия изображения: {str(e)}\033[0m")
+        print(f"\033[91m[-] Error opening image: {str(e)}\033[0m")
         sys.exit(1)
 
     orig_width, orig_height = img.size
@@ -181,7 +181,7 @@ def convert_png2tex(img_path, force_output_path=None, target_size=None):
         print(f"\033[36m[Pip3D]\033[0m Converting: {rel_img} -> {rel_hpp} ({width}x{height} POT, {base_bytes / 1024.0:.2f} KB + {mip_count} mips = {mip_bytes / 1024.0:.2f} KB, {total_bytes / 1024.0:.2f} KB total)")
 
     except Exception as e:
-        print(f"\033[91m[-] Ошибка экспорта текстуры: {str(e)}\033[0m")
+        print(f"\033[91m[-] Error exporting texture: {str(e)}\033[0m")
         sys.exit(1)
 
     return True
@@ -189,9 +189,9 @@ def convert_png2tex(img_path, force_output_path=None, target_size=None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pip3D Image -> C++ RGB565 Texture Converter")
     parser.prog = "Convert"
-    parser.add_argument("input", help="Путь к картинке")
-    parser.add_argument("output", nargs="?", help="Путь к выходу .hpp")
-    parser.add_argument("--size", type=int, help="Принудительный размер")
+    parser.add_argument("input", help="Path to the input image")
+    parser.add_argument("output", nargs="?", help="Path to the output .hpp file")
+    parser.add_argument("--size", type=int, help="Force specific texture size")
     
     args = parser.parse_args()
     convert_png2tex(args.input, args.output, (args.size if args.size else None))

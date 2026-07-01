@@ -1,10 +1,8 @@
 #pragma once
 
 #include "Core/Platform.hpp"
-#include "Core/Jobs.hpp"
 #include "Rendering/Renderer.hpp"
 #include "Rendering/Display/Sky.hpp"
-#include <atomic>
 
 namespace pip3D
 {
@@ -25,8 +23,7 @@ namespace pip3D
     {
     public:
         TimeOfDayController(Renderer *r = nullptr)
-            : renderer(r), timeMinutes(600.0f), dayLengthSeconds(120.0f), baseIntensity(1.0f), nightIntensity(0.05f), autoAdvance(true),
-              pendingTime01(0.0f), cachedValid(false), jobInProgress(false) {}
+            : renderer(r), timeMinutes(600.0f), dayLengthSeconds(120.0f), baseIntensity(1.0f), nightIntensity(0.05f), autoAdvance(true) {}
 
         void init(Renderer *r, const TimeOfDayConfig &cfg)
         {
@@ -66,8 +63,6 @@ namespace pip3D
                 h -= 24.0f;
             float m = clamp(minutes, 0.0f, 59.999f);
             timeMinutes = h * 60.0f + m;
-            cachedValid = false;
-            jobInProgress = false;
             applyToRenderer();
         }
 
@@ -97,27 +92,7 @@ namespace pip3D
                         timeMinutes += 1440.0f;
                 }
             }
-            if (JobSystem::isEnabled())
-            {
-                float t = timeMinutes / 1440.0f;
-                if (!jobInProgress)
-                {
-                    pendingTime01 = t;
-                    if (JobSystem::submit(&TimeOfDayController::skyJobFunc, this))
-                    {
-                        jobInProgress = true;
-                    }
-                }
-
-                if (cachedValid)
-                {
-                    applySkyStateToRenderer(cachedState);
-                }
-            }
-            else
-            {
-                applyToRenderer();
-            }
+            applyToRenderer();
         }
 
     private:
@@ -129,6 +104,10 @@ namespace pip3D
             Color sunColor;
             Vector3 sunDir;
             float intensity;
+            Color cloudColor;
+            float cloudAlpha;
+            float ambientScale;
+            float exposureScale;
         };
 
         Renderer *renderer;
@@ -137,11 +116,6 @@ namespace pip3D
         float baseIntensity;
         float nightIntensity;
         bool autoAdvance;
-        SkyState cachedState;
-        float pendingTime01;
-
-        std::atomic<bool> cachedValid;
-        std::atomic<bool> jobInProgress;
 
         void computeSkyState(float t, SkyState &out) const
         {
@@ -150,79 +124,96 @@ namespace pip3D
             if (t > 1.0f)
                 t = 1.0f;
 
-            static Skybox skyNight(NIGHT);
-            static Skybox skyDawn(DAWN);
-            static Skybox skyDay(DAY);
-            static Skybox skySunset(SUNSET);
-
-            const float TEMP_DAY = 5500.0f;
-            const float TEMP_SUNSET = 2500.0f;
-            const float TEMP_NIGHT = 8000.0f;
-            const float TEMP_DAWN = 4000.0f;
-
             auto lerpColor = [](Color c1, Color c2, float k) -> Color
             {
-                return c1.blend(c2, static_cast<uint8_t>(k * 255.0f));
+                return c1.blend(c2, static_cast<uint8_t>(clamp(k, 0.0f, 1.0f) * 255.0f));
+            };
+            auto smoothstep = [](float e0, float e1, float x) -> float
+            {
+                float u = (x - e0) / (e1 - e0);
+                if (u < 0.0f)
+                    u = 0.0f;
+                else if (u > 1.0f)
+                    u = 1.0f;
+                return u * u * (3.0f - 2.0f * u);
             };
 
-            Color top, horizon, ground;
-            float lightTemp = TEMP_DAY;
-
-            if (t < 0.25f)
+            const float hour = t * 24.0f;
+            constexpr float NIGHT_FLOOR = 0.12f;
+            auto dayFactor = [&smoothstep](float h) -> float
             {
-                float k = t / 0.25f;
-                top = lerpColor(skyNight.top, skyDawn.top, k);
-                horizon = lerpColor(skyNight.horizon, skyDawn.horizon, k);
-                ground = lerpColor(skyNight.ground, skyDawn.ground, k);
-                lightTemp = TEMP_NIGHT + (TEMP_DAWN - TEMP_NIGHT) * k;
-            }
-            else if (t < 0.5f)
-            {
-                float k = (t - 0.25f) / 0.25f;
-                top = lerpColor(skyDawn.top, skyDay.top, k);
-                horizon = lerpColor(skyDawn.horizon, skyDay.horizon, k);
-                ground = lerpColor(skyDawn.ground, skyDay.ground, k);
-                lightTemp = TEMP_DAWN + (TEMP_DAY - TEMP_DAWN) * k;
-            }
-            else if (t < 0.75f)
-            {
-                float k = (t - 0.5f) / 0.25f;
-                top = lerpColor(skyDay.top, skySunset.top, k);
-                horizon = lerpColor(skyDay.horizon, skySunset.horizon, k);
-                ground = lerpColor(skyDay.ground, skySunset.ground, k);
-                lightTemp = TEMP_DAY + (TEMP_SUNSET - TEMP_DAY) * k;
-            }
-            else
-            {
-                float k = (t - 0.75f) / 0.25f;
-                top = lerpColor(skySunset.top, skyNight.top, k);
-                horizon = lerpColor(skySunset.horizon, skyNight.horizon, k);
-                ground = lerpColor(skySunset.ground, skyNight.ground, k);
-                lightTemp = TEMP_SUNSET + (TEMP_NIGHT - TEMP_SUNSET) * k;
-            }
+                if (h < 5.0f || h >= 20.5f)
+                    return 0.0f;
+                if (h < 7.0f)
+                    return smoothstep(5.0f, 7.0f, h);
+                if (h < 17.0f)
+                    return 1.0f;
+                return 1.0f - smoothstep(17.0f, 20.5f, h);
+            };
+            const float dayRaw = dayFactor(hour);
+            const float day = NIGHT_FLOOR + (1.0f - NIGHT_FLOOR) * dayRaw;
 
-            float dayAngle = (t - 0.25f) * TWO_PI;
-            float elevation = sinf(dayAngle);
+            const float twilight = (dayRaw > 0.0f && dayRaw < 1.0f) ? (1.0f - fabsf(2.0f * dayRaw - 1.0f)) : 0.0f;
+            const float twi = twilight * twilight;
 
-            float dayFactor = elevation > 0.0f ? elevation : 0.0f;
-            dayFactor = clamp(dayFactor, 0.0f, 1.0f);
+            const float dayAngle = (t - 0.25f) * TWO_PI;
+            const float elevation = sinf(dayAngle);
 
-            float intensity = nightIntensity + (baseIntensity - nightIntensity) * dayFactor;
+            static const Color
+                nightTop = Color::rgb(8, 12, 28),
+                nightHoriz = Color::rgb(20, 30, 55),
+                nightGround = Color::rgb(4, 6, 14),
+                dayTop = Color::rgb(70, 130, 220),
+                dayHoriz = Color::rgb(180, 205, 235),
+                dayGround = Color::rgb(95, 90, 80),
+                twiHoriz = Color::rgb(255, 150, 70);
 
-            float azimuth = t * TWO_PI;
-            float sunX = cosf(azimuth) * 0.6f;
-            float sunZ = sinf(azimuth) * 0.6f;
-            Vector3 sunDir(sunX, -elevation, sunZ);
-            sunDir.normalize();
+            Color top = lerpColor(nightTop, dayTop, day);
+            Color ground = lerpColor(nightGround, dayGround, day);
+            Color horizon = lerpColor(nightHoriz, dayHoriz, day);
+            horizon = lerpColor(horizon, twiHoriz, twi * 0.85f);
+            top = lerpColor(top, Color::rgb(120, 90, 130), twi * 0.30f);
 
-            Color sunColor = Color::fromTemperature(lightTemp);
+            const float azimuth = t * TWO_PI;
+            const float sx = cosf(azimuth) * 0.6f;
+            const float sz = sinf(azimuth) * 0.6f;
+            Vector3 dayDir(sx, -elevation, sz);
+            Vector3 moonDir(sx * 0.5f, -0.45f, sz * 0.5f);
+            dayDir.normalize();
+            moonDir.normalize();
+            const float wNight = 1.0f - day;
+            Vector3 lightDir(
+                dayDir.x * (1.0f - wNight) + moonDir.x * wNight,
+                dayDir.y * (1.0f - wNight) + moonDir.y * wNight,
+                dayDir.z * (1.0f - wNight) + moonDir.z * wNight);
+            lightDir.normalize();
+
+            static const Color moonLight = Color::rgb(120, 140, 190);
+            Color sunColor = Color::fromTemperature(5500.0f + (2500.0f - 5500.0f) * (1.0f - day));
+            Color lightColor = lerpColor(moonLight, sunColor, day);
+            lightColor = lerpColor(lightColor, Color::rgb(255, 150, 80), twi * 0.6f);
+
+            const float intensity = nightIntensity + (baseIntensity - nightIntensity) * day;
+
+            const float ambientScale = 0.30f + 0.70f * dayRaw;
+            const float exposureScale = 0.60f + 0.40f * dayRaw;
+
+            static const Color cloudDay_ = Color::rgb(250, 250, 252);
+            static const Color cloudNight_ = Color::rgb(55, 60, 85);
+            Color cloudColor = lerpColor(cloudNight_, cloudDay_, day);
+            cloudColor = lerpColor(cloudColor, Color::rgb(255, 200, 150), twi * 0.7f);
+            const float cloudAlpha = 0.50f + 0.50f * dayRaw;
 
             out.top = top;
             out.horizon = horizon;
             out.ground = ground;
-            out.sunColor = sunColor;
-            out.sunDir = sunDir;
+            out.sunColor = lightColor;
+            out.sunDir = lightDir;
             out.intensity = intensity;
+            out.cloudColor = cloudColor;
+            out.cloudAlpha = cloudAlpha;
+            out.ambientScale = ambientScale;
+            out.exposureScale = exposureScale;
         }
 
         void applySkyStateToRenderer(const SkyState &state)
@@ -234,23 +225,10 @@ namespace pip3D
             sky.setCustom(state.top, state.horizon, state.ground);
             renderer->invalidateSkyboxCache();
             renderer->setMainDirectionalLight(state.sunDir, state.sunColor, state.intensity);
-        }
-
-        static void skyJobFunc(void *userData)
-        {
-            TimeOfDayController *self = static_cast<TimeOfDayController *>(userData);
-            if (self)
-                self->runSkyJob();
-        }
-
-        void runSkyJob()
-        {
-            SkyState local;
-            float t = pendingTime01;
-            computeSkyState(t, local);
-            cachedState = local;
-            cachedValid = true;
-            jobInProgress = false;
+            renderer->setCloudColor(state.cloudColor);
+            renderer->setCloudAlpha(state.cloudAlpha);
+            renderer->setAmbientScale(state.ambientScale);
+            renderer->setExposureScale(state.exposureScale);
         }
 
         __attribute__((hot)) void applyToRenderer()

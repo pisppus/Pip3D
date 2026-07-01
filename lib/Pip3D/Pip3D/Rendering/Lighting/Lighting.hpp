@@ -32,7 +32,7 @@ namespace pip3D
         Light() : direction(0, -1, 0),
                   position(0, 10, 0),
                   color(Color::WHITE),
-                  intensity(1.0f),
+                  intensity(0.0f),
                   range(0.0f),
                   rangeSq(0.0f),
                   invRangeSq(0.0f),

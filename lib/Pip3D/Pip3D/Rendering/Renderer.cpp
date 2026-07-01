@@ -240,6 +240,9 @@ namespace pip3D
                 lights[i].warmCache();
             }
 
+            Rasterizer::g_ambientScale = ambientScale;
+            Rasterizer::g_exposureScale = exposureScale;
+
             const bool vpWasDirty = viewProjMatrixDirty;
             CameraController::updateViewProjectionIfNeeded(cameras[activeCameraIndex],
                                                            viewport,
