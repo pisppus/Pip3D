@@ -20,7 +20,7 @@ ANSI_GREEN  = "\033[32m"
 ANSI_YELLOW = "\033[33m"
 ANSI_RESET  = "\033[0m"
 
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 CACHE_PATH    = os.path.join(project_dir, ".pio", "prebuild_cache.json")
 
 

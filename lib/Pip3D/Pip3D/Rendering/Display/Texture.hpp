@@ -12,5 +12,7 @@ namespace pip3D
         uint16_t widthMask;
         uint16_t heightMask;
         const uint16_t *palette;
+        const uint16_t *mipData;
+        uint8_t mipCount;
     };
 }

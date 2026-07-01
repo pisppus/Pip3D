@@ -278,6 +278,9 @@ namespace pip3D
 
         void setFogEnabled(bool enabled) { fogEnabled = enabled; }
         bool getFogEnabled() const { return fogEnabled; }
+
+        void setMipmapsEnabled(bool enabled) { Rasterizer::g_mipmapsEnabled = enabled; }
+        bool getMipmapsEnabled() const { return Rasterizer::g_mipmapsEnabled; }
         void setFogColor(const Color &color) { fogColor = color; }
         Color getFogColor() const { return fogColor; }
         void setFogLimits(float nearDist, float farDist)
