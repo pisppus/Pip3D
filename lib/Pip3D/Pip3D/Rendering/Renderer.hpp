@@ -135,6 +135,9 @@ namespace pip3D
         float fogNear;
         float fogFar;
 
+        float ambientScale = 1.0f;
+        float exposureScale = 1.0f;
+
         bool shouldRenderShadowForBounds(const Vector3 &center, float radius) const;
         void drawSunDiscAtScreen(int16_t cx, int16_t cyFull, const Color &color, float glow, float sizeScale);
         void drawWaterTriangleInternal(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2, const Color &waterColor, uint8_t alphaByte, const DisplayConfig &cfg, uint16_t *frameBufferPtr);
@@ -240,6 +243,8 @@ namespace pip3D
         void invalidateSkyboxCache() { framebuffer.invalidateSkyboxCache(); }
 
         void setCloudsEnabled(bool enabled) { framebuffer.setCloudsEnabled(enabled); }
+        void setCloudColor(const Color &c) { framebuffer.setCloudColor(c); }
+        void setCloudAlpha(float a) { framebuffer.setCloudAlpha(a); }
         bool areCloudsEnabled() const { return framebuffer.areCloudsEnabled(); }
         void generateClouds(uint32_t seed = 0xC10Du, float coverage = 0.45f)
         {
@@ -278,6 +283,13 @@ namespace pip3D
 
         void setFogEnabled(bool enabled) { fogEnabled = enabled; }
         bool getFogEnabled() const { return fogEnabled; }
+
+        void setAmbientScale(float s) { ambientScale = (s < 0.0f) ? 0.0f : (s > 2.0f) ? 2.0f
+                                                                                      : s; }
+        float getAmbientScale() const { return ambientScale; }
+        void setExposureScale(float s) { exposureScale = (s < 0.05f) ? 0.05f : (s > 2.0f) ? 2.0f
+                                                                                          : s; }
+        float getExposureScale() const { return exposureScale; }
 
         void setMipmapsEnabled(bool enabled) { Rasterizer::g_mipmapsEnabled = enabled; }
         bool getMipmapsEnabled() const { return Rasterizer::g_mipmapsEnabled; }

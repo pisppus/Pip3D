@@ -245,6 +245,8 @@ namespace pip3D
         __attribute__((always_inline)) inline bool areCloudsEnabled() const { return clouds.enabled; }
 
         __attribute__((always_inline)) inline void setCloudsEnabled(bool e) { clouds.enabled = e; }
+        __attribute__((always_inline)) inline void setCloudColor(Color c) { clouds.setCloudColor(c); }
+        __attribute__((always_inline)) inline void setCloudAlpha(float a) { clouds.setCloudAlpha(a); }
 
         __attribute__((always_inline)) inline void generateClouds(uint32_t seed, float coverage)
         {

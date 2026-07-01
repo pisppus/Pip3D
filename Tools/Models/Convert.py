@@ -27,7 +27,7 @@ def pack_normal(nx, ny, nz):
 
 def convert_obj2mesh(obj_path, force_output_path=None):
     if not os.path.exists(obj_path):
-        print(f"\033[91m[-] Ошибка: Исходный файл {obj_path} не найден!\033[0m")
+        print(f"\033[91m[-] Error: Source file {obj_path} not found!\033[0m")
         sys.exit(1)
 
     raw_vertices = []
@@ -98,11 +98,11 @@ def convert_obj2mesh(obj_path, force_output_path=None):
                             tri_indices.append(unique_verts[corner])
                         faces.append(tri_indices)
     except Exception as e:
-        print(f"\033[91m[-] Ошибка при парсинге OBJ-файла: {str(e)}\033[0m")
+        print(f"\033[91m[-] Error parsing OBJ file: {str(e)}\033[0m")
         sys.exit(1)
 
     if not vertices:
-        print(f"\033[91m[-] Ошибка: В файле не обнаружено валидных полигонов!\033[0m")
+        print(f"\033[91m[-] Error: No valid polygons found in the file!\033[0m")
         sys.exit(1)
 
     xs = [v[0] for v in raw_vertices]
@@ -222,7 +222,7 @@ def convert_obj2mesh(obj_path, force_output_path=None):
         print(f"\033[36m[Pip3D]\033[0m Converting: {rel_obj} -> {rel_hpp} ({verts_count} verts, {faces_count} tris, UV: {uv_status})")
         
     except Exception as e:
-        print(f"\033[91m[-] Ошибка при экспорте C++ заголовка: {str(e)}\033[0m")
+        print(f"\033[91m[-] Error exporting C++ header: {str(e)}\033[0m")
         sys.exit(1)
 
     return True
@@ -230,8 +230,8 @@ def convert_obj2mesh(obj_path, force_output_path=None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pip3D Wavefront OBJ -> C++ Header Static Mesh Exporter with UV support")
     parser.prog = "Convert"
-    parser.add_argument("input", help="Путь к исходному .obj файлу")
-    parser.add_argument("output", nargs="?", help="Опциональный путь к выходному .hpp файлу")
+    parser.add_argument("input", help="Path to the source .obj file")
+    parser.add_argument("output", nargs="?", help="Optional path to the output .hpp file")
     
     args = parser.parse_args()
     convert_obj2mesh(args.input, args.output)

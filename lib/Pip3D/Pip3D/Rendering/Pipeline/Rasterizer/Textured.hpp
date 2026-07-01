@@ -214,8 +214,11 @@ namespace pip3D
                  fabsf(lb0 - lb1) < 1e-3f && fabsf(lb1 - lb2) < 1e-3f);
 
             const uint32_t flatR5 = flatLight ? static_cast<uint32_t>(clamp(lr0, 0.0f, 1.0f) * 31.0f + 0.5f) : 0;
-            const uint32_t flatG6 = flatLight ? static_cast<uint32_t>(clamp(lg0, 0.0f, 1.0f) * 63.0f + 0.5f) : 0;
+            uint32_t flatG6 = flatLight ? static_cast<uint32_t>(clamp(lg0, 0.0f, 1.0f) * 63.0f + 0.5f) : 0;
             const uint32_t flatB5 = flatLight ? static_cast<uint32_t>(clamp(lb0, 0.0f, 1.0f) * 31.0f + 0.5f) : 0;
+
+            if (flatLight && flatG6 < 16u)
+                flatG6 &= ~1u;
 
             float dlr_dx = 0.0f, dlg_dx = 0.0f, dlb_dx = 0.0f;
             int32_t lr_cur = 0, lg_cur = 0, lb_cur = 0;
