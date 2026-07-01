@@ -15,6 +15,24 @@ if os.name == 'nt':
     kernel32 = ctypes.windll.kernel32
     kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
 
+def _pixel_to_rgb565(r, g, b):
+    r5 = (r >> 3) & 0x1F
+    g6 = (g >> 2) & 0x3F
+    b5 = (b >> 3) & 0x1F
+    return (r5 << 11) | (g6 << 5) | b5
+
+
+def _image_to_rgb565_array(img):
+    pixels = img.load()
+    w, h = img.size
+    arr = []
+    for y in range(h):
+        for x in range(w):
+            r, g, b = pixels[x, y]
+            arr.append(_pixel_to_rgb565(r, g, b))
+    return arr
+
+
 def convert_png2tex(img_path, force_output_path=None, target_size=None):
     if not os.path.exists(img_path):
         print(f"\033[91m[-] Ошибка: Исходное изображение {img_path} не найдено!\033[0m")
@@ -29,14 +47,19 @@ def convert_png2tex(img_path, force_output_path=None, target_size=None):
     orig_width, orig_height = img.size
 
     try:
-        resample_filter = Image.Resampling.LANCZOS
+        resample_lanczos = Image.Resampling.LANCZOS
     except AttributeError:
-        resample_filter = Image.LANCZOS if hasattr(Image, 'LANCZOS') else Image.ANTIALIAS
+        resample_lanczos = Image.LANCZOS if hasattr(Image, 'LANCZOS') else Image.ANTIALIAS
+
+    try:
+        resample_bilinear = Image.Resampling.BILINEAR
+    except AttributeError:
+        resample_bilinear = Image.BILINEAR if hasattr(Image, 'BILINEAR') else Image.ANTIALIAS
 
     raw_name = os.path.splitext(os.path.basename(img_path))[0]
     name_parts = raw_name.split('_')
     clean_name = raw_name
-    
+
     detected_size = target_size
     if len(name_parts) > 1 and not target_size:
         try:
@@ -64,7 +87,7 @@ def convert_png2tex(img_path, force_output_path=None, target_size=None):
     height = min(max(height, 16), 128)
 
     if (width != orig_width) or (height != orig_height):
-        img = img.resize((width, height), resample_filter)
+        img = img.resize((width, height), resample_lanczos)
 
     pixels = img.load()
 
@@ -72,6 +95,20 @@ def convert_png2tex(img_path, force_output_path=None, target_size=None):
     height_shift = int(math.log2(height))
     width_mask = width - 1
     height_mask = height - 1
+
+    mip_levels = []
+    mip_w, mip_h = width, height
+    mip_img = img
+    while mip_w > 1 or mip_h > 1:
+        next_w = mip_w >> 1
+        next_h = mip_h >> 1
+        if next_w < 1: next_w = 1
+        if next_h < 1: next_h = 1
+        mip_img = mip_img.resize((next_w, next_h), resample_bilinear)
+        mip_levels.append((next_w, next_h, _image_to_rgb565_array(mip_img)))
+        mip_w, mip_h = next_w, next_h
+
+    mip_count = len(mip_levels)
 
     class_name = clean_name[0].upper() + clean_name[1:] if clean_name else "Texture"
     var_name = class_name.lower()
@@ -88,7 +125,7 @@ def convert_png2tex(img_path, force_output_path=None, target_size=None):
                 target_dir = os.path.join(test_path, "Textures")
                 break
             curr = os.path.dirname(curr)
-            
+
         if target_dir:
             header_path = os.path.join(target_dir, clean_name + ".hpp")
         else:
@@ -99,34 +136,50 @@ def convert_png2tex(img_path, force_output_path=None, target_size=None):
             out.write("#pragma once\n#include \"Rendering/Display/Texture.hpp\"\n\nnamespace pip3D\n{\n")
             out.write("    namespace detail\n    {\n")
             out.write(f"        alignas(16) static const uint16_t s_{var_name}TextureData[{width * height}] = {{\n")
-            
             for y in range(height):
                 out.write("            ")
                 for x in range(width):
                     r, g, b = pixels[x, y]
-                    r5 = (r >> 3) & 0x1F
-                    g6 = (g >> 2) & 0x3F
-                    b5 = (b >> 3) & 0x1F
-                    rgb565 = (r5 << 11) | (g6 << 5) | b5
+                    rgb565 = _pixel_to_rgb565(r, g, b)
                     out.write(f"0x{rgb565:04X}, ")
                 out.write("\n")
-                
-            out.write("        };\n    }\n\n")
-            
+            out.write("        };\n\n")
+
+            if mip_count > 0:
+                total_mip_pixels = sum(len(arr) for _, _, arr in mip_levels)
+                out.write(f"        alignas(16) static const uint16_t s_{var_name}MipData[{total_mip_pixels}] = {{\n")
+                for level_idx, (mw, mh, arr) in enumerate(mip_levels):
+                    out.write(f"            // mip level {level_idx + 1}: {mw}x{mh}\n")
+                    for y in range(mh):
+                        out.write("            ")
+                        for x in range(mw):
+                            out.write(f"0x{arr[y * mw + x]:04X}, ")
+                        out.write("\n")
+                out.write("        };\n\n")
+
+            out.write("    }\n\n")
+
             out.write(f"    inline Texture g_{var_name}Texture = {{\n")
             out.write(f"        .data = detail::s_{var_name}TextureData,\n")
             out.write(f"        .widthShift = {width_shift},\n")
             out.write(f"        .heightShift = {height_shift},\n")
             out.write(f"        .widthMask = {width_mask},\n")
             out.write(f"        .heightMask = {height_mask},\n")
-            out.write(f"        .palette = nullptr\n")
+            out.write(f"        .palette = nullptr,\n")
+            if mip_count > 0:
+                out.write(f"        .mipData = detail::s_{var_name}MipData,\n")
+            else:
+                out.write(f"        .mipData = nullptr,\n")
+            out.write(f"        .mipCount = {mip_count}\n")
             out.write("    };\n}\n")
-            
+
         rel_img = os.path.join("Textures", "Sources", os.path.basename(img_path)).replace("\\", "/")
         rel_hpp = os.path.join("Rendering", "Display", "Textures", os.path.basename(header_path)).replace("\\", "/")
-        flash_ram_bytes = width * height * 2
-        print(f"\033[36m[Pip3D]\033[0m Converting: {rel_img} -> {rel_hpp} ({width}x{height} POT, {flash_ram_bytes / 1024.0:.2f} KB)")
-        
+        base_bytes = width * height * 2
+        mip_bytes = sum(len(arr) * 2 for _, _, arr in mip_levels)
+        total_bytes = base_bytes + mip_bytes
+        print(f"\033[36m[Pip3D]\033[0m Converting: {rel_img} -> {rel_hpp} ({width}x{height} POT, {base_bytes / 1024.0:.2f} KB + {mip_count} mips = {mip_bytes / 1024.0:.2f} KB, {total_bytes / 1024.0:.2f} KB total)")
+
     except Exception as e:
         print(f"\033[91m[-] Ошибка экспорта текстуры: {str(e)}\033[0m")
         sys.exit(1)

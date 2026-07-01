@@ -32,6 +32,7 @@ namespace pip3D
         };
 
         inline FogState g_fogState{};
+        inline bool g_mipmapsEnabled = true;
 
         struct alignas(16) PlanarParams
         {

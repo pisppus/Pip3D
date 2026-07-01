@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 
 #include "Core/Platform.hpp"
 #include "Core/Viewport.hpp"
@@ -15,6 +16,16 @@ namespace pip3D
 {
     namespace Rasterizer
     {
+        static constexpr uint16_t kDebugMipColors[8] = {
+            0x001F, // 0: blue
+            0x07FF, // 1: cyan
+            0x07E0, // 2: green
+            0xFFE0, // 3: yellow
+            0xFD20, // 4: orange
+            0xF800, // 5: red
+            0xF81F, // 6: magenta
+            0xFFFF  // 7+: white
+        };
         inline void fillTriangleTextured(float x0, float y0, float z0,
                                          float x1, float y1, float z1,
                                          float x2, float y2, float z2,
@@ -178,6 +189,25 @@ namespace pip3D
             const uint32_t texMaskV = tex.heightMask;
             const int32_t z_step = static_cast<int32_t>(dz_dx_scaled * 16384.0f);
 
+            const uint16_t *const __restrict__ mipData = tex.mipData;
+            const uint8_t maxMipLevel = tex.mipCount;
+            const bool hasMipmaps = (maxMipLevel > 0 && mipData != nullptr && g_mipmapsEnabled);
+            const uint8_t baseShift = tex.widthShift;
+
+            uint32_t mipOffsets[8];
+            {
+                uint32_t offset = 0;
+                mipOffsets[0] = 0;
+                const uint8_t maxLevels = maxMipLevel < 8 ? maxMipLevel : 8;
+                for (uint8_t k = 0; k < maxLevels; ++k)
+                {
+                    const uint8_t mipShift = baseShift - (k + 1);
+                    const uint32_t mipSize = (mipShift > 0) ? (1U << (2 * mipShift)) : 1U;
+                    offset += mipSize;
+                    mipOffsets[k + 1] = offset;
+                }
+            }
+
             const bool flatLight =
                 (fabsf(lr0 - lr1) < 1e-3f && fabsf(lr1 - lr2) < 1e-3f &&
                  fabsf(lg0 - lg1) < 1e-3f && fabsf(lg1 - lg2) < 1e-3f &&
@@ -252,6 +282,87 @@ namespace pip3D
                     const int32_t du_fixed = static_cast<int32_t>(du * 65536.0f);
                     const int32_t dv_fixed = static_cast<int32_t>(dv * 65536.0f);
 
+                    bool chunkDither = false;
+                    uint32_t chunkFracLod = 0;
+                    const uint16_t *chunkTexData = texData;
+                    uint32_t chunkTexShift = texShiftU;
+                    uint32_t chunkTexMaskU = texMaskU;
+                    uint32_t chunkTexMaskV = texMaskV;
+                    int32_t chunkUVShift = 0;
+                    int32_t chunkLod = 0;
+                    const uint16_t *chunkTexDataHi = texData;
+                    uint32_t chunkTexShiftHi = texShiftU;
+                    uint32_t chunkTexMaskUHi = texMaskU;
+                    uint32_t chunkTexMaskVHi = texMaskV;
+                    int32_t chunkUVShiftHi = 0;
+
+                    if (hasMipmaps)
+                    {
+                        const float inv_q = FastMath::fastReciprocal(q);
+                        const float du_dx_scr = (du_over_z_dx - u * dq_dx) * inv_q;
+                        const float dv_dx_scr = (dv_over_z_dx - v * dq_dx) * inv_q;
+                        const float du_dy_scr = (du_over_z_dy - u * dq_dy) * inv_q;
+                        const float dv_dy_scr = (dv_over_z_dy - v * dq_dy) * inv_q;
+                        const float du_dx_a = du_dx_scr < 0.0f ? -du_dx_scr : du_dx_scr;
+                        const float dv_dx_a = dv_dx_scr < 0.0f ? -dv_dx_scr : dv_dx_scr;
+                        const float du_dy_a = du_dy_scr < 0.0f ? -du_dy_scr : du_dy_scr;
+                        const float dv_dy_a = dv_dy_scr < 0.0f ? -dv_dy_scr : dv_dy_scr;
+                        float dmax = du_dx_a;
+                        if (dv_dx_a > dmax)
+                            dmax = dv_dx_a;
+                        if (du_dy_a > dmax)
+                            dmax = du_dy_a;
+                        if (dv_dy_a > dmax)
+                            dmax = dv_dy_a;
+
+                        if (dmax > 1.0f)
+                        {
+                            uint32_t bits;
+                            std::memcpy(&bits, &dmax, sizeof(bits));
+                            float lodLevel = static_cast<float>(static_cast<int32_t>((bits >> 23) & 0xFF) - 127);
+                            lodLevel += static_cast<float>((bits >> 15) & 0xFF) * (1.0f / 256.0f);
+
+                            if (lodLevel < 0.0f)
+                                lodLevel = 0.0f;
+                            if (lodLevel > static_cast<float>(maxMipLevel))
+                                lodLevel = static_cast<float>(maxMipLevel);
+
+                            const int32_t intLod = static_cast<int32_t>(lodLevel);
+                            chunkFracLod = static_cast<uint32_t>((lodLevel - static_cast<float>(intLod)) * 256.0f);
+                            chunkLod = intLod;
+
+                            if (intLod == 0)
+                            {
+                                chunkTexData = texData;
+                                chunkTexShift = texShiftU;
+                                chunkTexMaskU = texMaskU;
+                                chunkTexMaskV = texMaskV;
+                                chunkUVShift = 0;
+                            }
+                            else
+                            {
+                                const uint32_t mipShift = baseShift - intLod;
+                                chunkTexData = mipData + mipOffsets[intLod - 1];
+                                chunkTexShift = mipShift;
+                                chunkTexMaskU = (1U << mipShift) - 1U;
+                                chunkTexMaskV = chunkTexMaskU;
+                                chunkUVShift = intLod;
+                            }
+
+                            const int32_t hiLod = intLod + 1;
+                            if (hiLod <= static_cast<int32_t>(maxMipLevel) && chunkFracLod > 0)
+                            {
+                                const uint32_t mipShiftHi = baseShift - hiLod;
+                                chunkTexDataHi = mipData + mipOffsets[hiLod - 1];
+                                chunkTexShiftHi = mipShiftHi;
+                                chunkTexMaskUHi = (1U << mipShiftHi) - 1U;
+                                chunkTexMaskVHi = chunkTexMaskUHi;
+                                chunkUVShiftHi = hiLod;
+                                chunkDither = true;
+                            }
+                        }
+                    }
+
                     const float z_scaled_start = z_dy_term + (static_cast<float>(cur_x) + 0.5f - x2) * dz_dx_scaled;
                     int32_t z_val = static_cast<int32_t>(z_scaled_start * 16384.0f);
 
@@ -265,90 +376,207 @@ namespace pip3D
 
                     PIP3D_PREFETCH_W(zb + 16);
                     PIP3D_PREFETCH_R(fb + 16);
+                    PIP3D_PREFETCH_R(chunkTexData);
 
-                    for (int16_t i = 0; i < step; ++i)
+                    if (likely(!chunkDither))
                     {
-                        const int16_t d = static_cast<int16_t>(z_val >> 14);
-                        const int16_t curr = *zb & 0x7FFF;
-                        if (d < curr)
+                        const uint32_t cshift = chunkTexShift;
+                        const uint32_t cmaskU = chunkTexMaskU;
+                        const uint32_t cmaskV = chunkTexMaskV;
+                        const int32_t cush = chunkUVShift;
+                        const uint16_t *const cdata = chunkTexData;
+                        const int32_t lrs = lr_step, lgs = lg_step, lbs = lb_step;
+
+                        for (int16_t i = 0; i < step; ++i)
                         {
-                            *zb = d;
-                            const uint32_t tu = (static_cast<uint32_t>(u_fixed) >> 16) & texMaskU;
-                            const uint32_t tv = (static_cast<uint32_t>(v_fixed) >> 16) & texMaskV;
-                            const uint16_t texColor = texData[(tv << texShiftU) | tu];
-
-                            uint16_t litColor;
-                            if (flatLight)
+                            const int16_t d = static_cast<int16_t>(z_val >> 14);
+                            const int16_t curr = *zb & 0x7FFF;
+                            if (d < curr)
                             {
-                                const uint32_t r = (texColor >> 11) & 0x1F;
-                                const uint32_t g = (texColor >> 5) & 0x3F;
-                                const uint32_t b = texColor & 0x1F;
-                                litColor = static_cast<uint16_t>(((r * flatR5) >> 5) << 11 |
-                                                                 ((g * flatG6) >> 6) << 5 |
-                                                                 ((b * flatB5) >> 5));
-                            }
-                            else
-                            {
-                                const int32_t r5 = lr_cur >> 16;
-                                const int32_t g6 = lg_cur >> 16;
-                                const int32_t b5 = lb_cur >> 16;
-                                const uint32_t r5c = r5 < 0 ? 0 : (r5 > 31 ? 31 : r5);
-                                const uint32_t g6c = g6 < 0 ? 0 : (g6 > 63 ? 63 : g6);
-                                const uint32_t b5c = b5 < 0 ? 0 : (b5 > 31 ? 31 : b5);
-                                const uint32_t r = (texColor >> 11) & 0x1F;
-                                const uint32_t g = (texColor >> 5) & 0x3F;
-                                const uint32_t b = texColor & 0x1F;
-                                litColor = static_cast<uint16_t>(((r * r5c) >> 5) << 11 |
-                                                                 ((g * g6c) >> 6) << 5 |
-                                                                 ((b * b5c) >> 5));
-                            }
-
-                            if (fogEnabled)
-                            {
-                                float denom = fogKVal - static_cast<float>(d);
-                                if (unlikely(denom < 1.0f))
-                                    denom = 1.0f;
-                                const float z_eye = fogKnVal * FastMath::fastReciprocal(denom);
-
-                                const float fogF = (z_eye - fogWorldNear) * fogWorldScale32;
-                                const int32_t f_alpha = static_cast<int32_t>(fogF);
-
-                                if (f_alpha <= 0)
+                                *zb = d;
+#if defined(PIP3D_DEBUG_MIPMAP)
+                                const uint16_t texColor = kDebugMipColors[chunkLod < 7 ? chunkLod : 7];
+#else
+                                const uint32_t tu = (static_cast<uint32_t>(u_fixed >> (16 + cush))) & cmaskU;
+                                const uint32_t tv = (static_cast<uint32_t>(v_fixed >> (16 + cush))) & cmaskV;
+                                const uint16_t texColor = cdata[(tv << cshift) | tu];
+#endif
+                                uint16_t litColor;
+                                if (flatLight)
                                 {
-                                    *fb = litColor;
-                                }
-                                else if (f_alpha >= 32)
-                                {
-                                    *fb = fogColor;
+                                    const uint32_t r = (texColor >> 11) & 0x1F;
+                                    const uint32_t g = (texColor >> 5) & 0x3F;
+                                    const uint32_t b = texColor & 0x1F;
+                                    litColor = static_cast<uint16_t>(((r * flatR5) >> 5) << 11 |
+                                                                     ((g * flatG6) >> 6) << 5 |
+                                                                     ((b * flatB5) >> 5));
                                 }
                                 else
                                 {
-                                    const uint32_t inv_f_alpha = 32 - f_alpha;
-
-                                    const uint32_t rb1 = litColor & 0xF81F;
-                                    const uint32_t g1 = litColor & 0x07E0;
-
-                                    const uint32_t rb = ((rb1 * inv_f_alpha + fogColorRb * f_alpha) >> 5) & 0xF81F;
-                                    const uint32_t g = ((g1 * inv_f_alpha + fogColorG * f_alpha) >> 5) & 0x07E0;
-                                    *fb = static_cast<uint16_t>(rb | g);
+                                    const int32_t r5 = lr_cur >> 16;
+                                    const int32_t g6 = lg_cur >> 16;
+                                    const int32_t b5 = lb_cur >> 16;
+                                    const uint32_t r5c = r5 < 0 ? 0 : (r5 > 31 ? 31 : r5);
+                                    const uint32_t g6c = g6 < 0 ? 0 : (g6 > 63 ? 63 : g6);
+                                    const uint32_t b5c = b5 < 0 ? 0 : (b5 > 31 ? 31 : b5);
+                                    const uint32_t r = (texColor >> 11) & 0x1F;
+                                    const uint32_t g = (texColor >> 5) & 0x3F;
+                                    const uint32_t b = texColor & 0x1F;
+                                    litColor = static_cast<uint16_t>(((r * r5c) >> 5) << 11 |
+                                                                     ((g * g6c) >> 6) << 5 |
+                                                                     ((b * b5c) >> 5));
+                                }
+                                if (fogEnabled)
+                                {
+                                    float denom = fogKVal - static_cast<float>(d);
+                                    if (unlikely(denom < 1.0f))
+                                        denom = 1.0f;
+                                    const float z_eye = fogKnVal * FastMath::fastReciprocal(denom);
+                                    const float fogF = (z_eye - fogWorldNear) * fogWorldScale32;
+                                    const int32_t f_alpha = static_cast<int32_t>(fogF);
+                                    if (f_alpha <= 0)
+                                    {
+                                        *fb = litColor;
+                                    }
+                                    else if (f_alpha >= 32)
+                                    {
+                                        *fb = fogColor;
+                                    }
+                                    else
+                                    {
+                                        const uint32_t inv_f_alpha = 32 - f_alpha;
+                                        const uint32_t rb = ((litColor & 0xF81F) * inv_f_alpha + fogColorRb * f_alpha >> 5) & 0xF81F;
+                                        const uint32_t g = ((litColor & 0x07E0) * inv_f_alpha + fogColorG * f_alpha >> 5) & 0x07E0;
+                                        *fb = static_cast<uint16_t>(rb | g);
+                                    }
+                                }
+                                else
+                                {
+                                    *fb = litColor;
                                 }
                             }
-                            else
+                            z_val += z_step;
+                            u_fixed += du_fixed;
+                            v_fixed += dv_fixed;
+                            if (!flatLight)
                             {
-                                *fb = litColor;
+                                lr_cur += lrs;
+                                lg_cur += lgs;
+                                lb_cur += lbs;
                             }
+                            ++zb;
+                            ++fb;
                         }
-                        z_val += z_step;
-                        u_fixed += du_fixed;
-                        v_fixed += dv_fixed;
-                        if (!flatLight)
+                    }
+                    else
+                    {
+                        const int32_t lrs = lr_step, lgs = lg_step, lbs = lb_step;
+                        const int16_t baseY = static_cast<int16_t>(y);
+
+                        for (int16_t i = 0; i < step; ++i)
                         {
-                            lr_cur += lr_step;
-                            lg_cur += lg_step;
-                            lb_cur += lb_step;
+                            const int16_t d = static_cast<int16_t>(z_val >> 14);
+                            const int16_t curr = *zb & 0x7FFF;
+                            if (d < curr)
+                            {
+                                *zb = d;
+                                const int16_t px_x = cur_x + i;
+                                const uint8_t bayer = static_cast<uint8_t>(detail::kBayerMatrix10Bit[baseY & 3][px_x & 3] >> 2);
+                                const bool useHi = (chunkFracLod > bayer);
+
+#if defined(PIP3D_DEBUG_MIPMAP)
+                                const int32_t vizLod = useHi ? chunkUVShiftHi : chunkLod;
+                                const uint16_t texColor = kDebugMipColors[vizLod < 7 ? vizLod : 7];
+#else
+                                const uint16_t *td;
+                                uint32_t tsh, tmu, tmv;
+                                int32_t ush;
+                                if (likely(!useHi))
+                                {
+                                    td = chunkTexData;
+                                    tsh = chunkTexShift;
+                                    tmu = chunkTexMaskU;
+                                    tmv = chunkTexMaskV;
+                                    ush = chunkUVShift;
+                                }
+                                else
+                                {
+                                    td = chunkTexDataHi;
+                                    tsh = chunkTexShiftHi;
+                                    tmu = chunkTexMaskUHi;
+                                    tmv = chunkTexMaskVHi;
+                                    ush = chunkUVShiftHi;
+                                }
+                                const uint32_t tu = (static_cast<uint32_t>(u_fixed >> (16 + ush))) & tmu;
+                                const uint32_t tv = (static_cast<uint32_t>(v_fixed >> (16 + ush))) & tmv;
+                                const uint16_t texColor = td[(tv << tsh) | tu];
+#endif
+                                uint16_t litColor;
+                                if (flatLight)
+                                {
+                                    const uint32_t r = (texColor >> 11) & 0x1F;
+                                    const uint32_t g = (texColor >> 5) & 0x3F;
+                                    const uint32_t b = texColor & 0x1F;
+                                    litColor = static_cast<uint16_t>(((r * flatR5) >> 5) << 11 |
+                                                                     ((g * flatG6) >> 6) << 5 |
+                                                                     ((b * flatB5) >> 5));
+                                }
+                                else
+                                {
+                                    const int32_t r5 = lr_cur >> 16;
+                                    const int32_t g6 = lg_cur >> 16;
+                                    const int32_t b5 = lb_cur >> 16;
+                                    const uint32_t r5c = r5 < 0 ? 0 : (r5 > 31 ? 31 : r5);
+                                    const uint32_t g6c = g6 < 0 ? 0 : (g6 > 63 ? 63 : g6);
+                                    const uint32_t b5c = b5 < 0 ? 0 : (b5 > 31 ? 31 : b5);
+                                    const uint32_t r = (texColor >> 11) & 0x1F;
+                                    const uint32_t g = (texColor >> 5) & 0x3F;
+                                    const uint32_t b = texColor & 0x1F;
+                                    litColor = static_cast<uint16_t>(((r * r5c) >> 5) << 11 |
+                                                                     ((g * g6c) >> 6) << 5 |
+                                                                     ((b * b5c) >> 5));
+                                }
+                                if (fogEnabled)
+                                {
+                                    float denom = fogKVal - static_cast<float>(d);
+                                    if (unlikely(denom < 1.0f))
+                                        denom = 1.0f;
+                                    const float z_eye = fogKnVal * FastMath::fastReciprocal(denom);
+                                    const float fogF = (z_eye - fogWorldNear) * fogWorldScale32;
+                                    const int32_t f_alpha = static_cast<int32_t>(fogF);
+                                    if (f_alpha <= 0)
+                                    {
+                                        *fb = litColor;
+                                    }
+                                    else if (f_alpha >= 32)
+                                    {
+                                        *fb = fogColor;
+                                    }
+                                    else
+                                    {
+                                        const uint32_t inv_f_alpha = 32 - f_alpha;
+                                        const uint32_t rb = ((litColor & 0xF81F) * inv_f_alpha + fogColorRb * f_alpha >> 5) & 0xF81F;
+                                        const uint32_t g = ((litColor & 0x07E0) * inv_f_alpha + fogColorG * f_alpha >> 5) & 0x07E0;
+                                        *fb = static_cast<uint16_t>(rb | g);
+                                    }
+                                }
+                                else
+                                {
+                                    *fb = litColor;
+                                }
+                            }
+                            z_val += z_step;
+                            u_fixed += du_fixed;
+                            v_fixed += dv_fixed;
+                            if (!flatLight)
+                            {
+                                lr_cur += lrs;
+                                lg_cur += lgs;
+                                lb_cur += lbs;
+                            }
+                            ++zb;
+                            ++fb;
                         }
-                        ++zb;
-                        ++fb;
                     }
 
                     q = next_q;
