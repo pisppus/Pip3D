@@ -77,16 +77,22 @@ namespace pip3D
 
         static __attribute__((always_inline)) inline uint16_t ditherRGB565(uint16_t c, uint8_t level)
         {
-            if (level < 8)
+            const bool bump = (level >= 8u);
+            if (!bump)
                 return c;
 
             const uint32_t r = (c >> 11) & 0x1Fu;
             const uint32_t g = (c >> 5) & 0x3Fu;
             const uint32_t b = c & 0x1Fu;
 
-            const uint32_t nr = (r < 31u) ? r + 1u : 31u;
-            const uint32_t ng = (g < 63u) ? g + 1u : 63u;
-            const uint32_t nb = (b < 31u) ? b + 1u : 31u;
+            const uint8_t sel = level & 3u;
+            uint32_t nr = r, ng = g, nb = b;
+            if (sel == 0u)
+                nr = (r < 31u) ? r + 1u : 31u;
+            else if (sel == 1u)
+                nb = (b < 31u) ? b + 1u : 31u;
+            else
+                ng = (g < 63u) ? g + 1u : 63u;
 
             return static_cast<uint16_t>((nr << 11) | (ng << 5) | nb);
         }
@@ -404,16 +410,6 @@ namespace pip3D
                 }
 
                 if constexpr (WIDTH & 1u)
-                {
-                    const uint8_t tLast = bayer4x4[(static_cast<uint8_t>(globalY) & 3u) * 4 +
-                                                   ((WIDTH - 1) & 3u)];
-                    const uint16_t lastColor = skyActive ? ditherRGB565(
-                                                               skyboxColorCache[static_cast<size_t>(globalY)], tLast)
-                                                         : baseClear;
-                    buf[static_cast<size_t>(y) * WIDTH + WIDTH - 1] = lastColor;
-                }
-
-                if (WIDTH & 1u)
                 {
                     const uint8_t tLast = bayer4x4[(static_cast<uint8_t>(globalY) & 3u) * 4 +
                                                    ((WIDTH - 1) & 3u)];

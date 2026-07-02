@@ -117,6 +117,33 @@ namespace pip3D
         float nightIntensity;
         bool autoAdvance;
 
+        struct TimeKey
+        {
+            float hour;
+            Color skyTop;
+            Color skyHorizon;
+            Color skyGround;
+            Color sunColor;
+            float sunIntensity;
+            Color cloudColor;
+            float cloudAlpha;
+            float ambientScale;
+            float exposureScale;
+        };
+
+        static constexpr TimeKey kTimeKeys[8] = {
+            // hour, skyTop,                skyHorizon,           skyGround,            sunColor,             sunInt, cloudColor,           cloudA, ambient, exposure
+            { 0.0f, {8, 12, 28},            {20, 30, 55},         {4, 6, 14},           {120, 140, 190},      0.10f,  {55, 60, 85},         0.45f,  0.28f,   0.58f}, // deep night
+            { 5.0f, {18, 22, 48},           {55, 40, 70},         {6, 6, 14},           {255, 110, 60},       0.25f,  {120, 90, 110},       0.55f,  0.42f,   0.68f}, // pre-dawn
+            { 6.5f, {60, 80, 130},          {255, 150, 90},       {50, 40, 45},         {255, 170, 110},      0.60f,  {255, 210, 180},      0.75f,  0.70f,   0.84f}, // sunrise / golden
+            { 8.0f, {70, 130, 220},         {180, 205, 235},      {95, 90, 80},         {255, 240, 220},      0.92f,  {250, 250, 252},      0.95f,  0.93f,   0.97f}, // morning
+            {12.0f, {70, 135, 225},         {190, 210, 240},      {100, 95, 85},        {255, 250, 240},      1.00f,  {250, 250, 252},      1.00f,  1.00f,   1.00f}, // noon
+            {17.0f, {80, 120, 200},         {200, 200, 215},      {95, 85, 75},         {255, 235, 200},      0.95f,  {252, 245, 235},      0.95f,  0.95f,   0.98f}, // late afternoon
+            {19.0f, {90, 70, 130},          {255, 130, 60},       {55, 35, 40},         {255, 150, 80},       0.55f,  {255, 190, 140},      0.70f,  0.68f,   0.82f}, // sunset / golden
+            {21.0f, {12, 16, 38},           {30, 35, 65},         {5, 6, 15},           {130, 145, 195},      0.14f,  {60, 65, 90},         0.50f,  0.36f,   0.66f}, // night onset
+        };
+        static constexpr int kTimeKeyCount = 8;
+
         void computeSkyState(float t, SkyState &out) const
         {
             if (t < 0.0f)
@@ -128,52 +155,58 @@ namespace pip3D
             {
                 return c1.blend(c2, static_cast<uint8_t>(clamp(k, 0.0f, 1.0f) * 255.0f));
             };
+            auto lerpF = [](float a, float b, float k) -> float
+            {
+                return a + (b - a) * k;
+            };
             auto smoothstep = [](float e0, float e1, float x) -> float
             {
                 float u = (x - e0) / (e1 - e0);
-                if (u < 0.0f)
-                    u = 0.0f;
-                else if (u > 1.0f)
-                    u = 1.0f;
+                if (u < 0.0f) u = 0.0f;
+                else if (u > 1.0f) u = 1.0f;
                 return u * u * (3.0f - 2.0f * u);
             };
 
             const float hour = t * 24.0f;
-            constexpr float NIGHT_FLOOR = 0.12f;
-            auto dayFactor = [&smoothstep](float h) -> float
+            int i0 = kTimeKeyCount - 1;
+            for (int i = 0; i < kTimeKeyCount - 1; ++i)
             {
-                if (h < 5.0f || h >= 20.5f)
-                    return 0.0f;
-                if (h < 7.0f)
-                    return smoothstep(5.0f, 7.0f, h);
-                if (h < 17.0f)
-                    return 1.0f;
-                return 1.0f - smoothstep(17.0f, 20.5f, h);
-            };
-            const float dayRaw = dayFactor(hour);
-            const float day = NIGHT_FLOOR + (1.0f - NIGHT_FLOOR) * dayRaw;
+                if (hour >= kTimeKeys[i].hour && hour < kTimeKeys[i + 1].hour)
+                {
+                    i0 = i;
+                    break;
+                }
+            }
+            const TimeKey &kA = kTimeKeys[i0];
+            const TimeKey &kB = (i0 + 1 < kTimeKeyCount) ? kTimeKeys[i0 + 1] : kTimeKeys[0];
 
-            const float twilight = (dayRaw > 0.0f && dayRaw < 1.0f) ? (1.0f - fabsf(2.0f * dayRaw - 1.0f)) : 0.0f;
-            const float twi = twilight * twilight;
+            float span = (i0 + 1 < kTimeKeyCount) ? (kB.hour - kA.hour) : ((24.0f + kTimeKeys[0].hour) - kA.hour);
+            float local = (hour - kA.hour) / span;
+            float k = smoothstep(0.0f, 1.0f, local);
+
+            out.top        = lerpColor(kA.skyTop,     kB.skyTop,     k);
+            out.horizon    = lerpColor(kA.skyHorizon, kB.skyHorizon, k);
+            out.ground     = lerpColor(kA.skyGround,  kB.skyGround,  k);
+            out.sunColor   = lerpColor(kA.sunColor,   kB.sunColor,   k);
+            out.cloudColor = lerpColor(kA.cloudColor, kB.cloudColor, k);
+            out.cloudAlpha   = lerpF(kA.cloudAlpha,   kB.cloudAlpha,   k);
+            out.ambientScale = lerpF(kA.ambientScale, kB.ambientScale, k);
+            out.exposureScale= lerpF(kA.exposureScale,kB.exposureScale,k);
+
+            const float keyIntensity = lerpF(kA.sunIntensity, kB.sunIntensity, k);
+            out.intensity = nightIntensity + (baseIntensity - nightIntensity) * keyIntensity;
 
             const float dayAngle = (t - 0.25f) * TWO_PI;
             const float elevation = sinf(dayAngle);
-
-            static const Color
-                nightTop = Color::rgb(8, 12, 28),
-                nightHoriz = Color::rgb(20, 30, 55),
-                nightGround = Color::rgb(4, 6, 14),
-                dayTop = Color::rgb(70, 130, 220),
-                dayHoriz = Color::rgb(180, 205, 235),
-                dayGround = Color::rgb(95, 90, 80),
-                twiHoriz = Color::rgb(255, 150, 70);
-
-            Color top = lerpColor(nightTop, dayTop, day);
-            Color ground = lerpColor(nightGround, dayGround, day);
-            Color horizon = lerpColor(nightHoriz, dayHoriz, day);
-            horizon = lerpColor(horizon, twiHoriz, twi * 0.85f);
-            top = lerpColor(top, Color::rgb(120, 90, 130), twi * 0.30f);
-
+            float dayRaw;
+            if (hour < 5.0f || hour >= 21.0f)
+                dayRaw = 0.0f;
+            else if (hour < 7.0f)
+                dayRaw = smoothstep(5.0f, 7.0f, hour);
+            else if (hour < 19.0f)
+                dayRaw = 1.0f;
+            else
+                dayRaw = 1.0f - smoothstep(19.0f, 21.0f, hour);
             const float azimuth = t * TWO_PI;
             const float sx = cosf(azimuth) * 0.6f;
             const float sz = sinf(azimuth) * 0.6f;
@@ -181,39 +214,12 @@ namespace pip3D
             Vector3 moonDir(sx * 0.5f, -0.45f, sz * 0.5f);
             dayDir.normalize();
             moonDir.normalize();
-            const float wNight = 1.0f - day;
-            Vector3 lightDir(
+            const float wNight = 1.0f - dayRaw;
+            out.sunDir = Vector3(
                 dayDir.x * (1.0f - wNight) + moonDir.x * wNight,
                 dayDir.y * (1.0f - wNight) + moonDir.y * wNight,
                 dayDir.z * (1.0f - wNight) + moonDir.z * wNight);
-            lightDir.normalize();
-
-            static const Color moonLight = Color::rgb(120, 140, 190);
-            Color sunColor = Color::fromTemperature(5500.0f + (2500.0f - 5500.0f) * (1.0f - day));
-            Color lightColor = lerpColor(moonLight, sunColor, day);
-            lightColor = lerpColor(lightColor, Color::rgb(255, 150, 80), twi * 0.6f);
-
-            const float intensity = nightIntensity + (baseIntensity - nightIntensity) * day;
-
-            const float ambientScale = 0.30f + 0.70f * dayRaw;
-            const float exposureScale = 0.60f + 0.40f * dayRaw;
-
-            static const Color cloudDay_ = Color::rgb(250, 250, 252);
-            static const Color cloudNight_ = Color::rgb(55, 60, 85);
-            Color cloudColor = lerpColor(cloudNight_, cloudDay_, day);
-            cloudColor = lerpColor(cloudColor, Color::rgb(255, 200, 150), twi * 0.7f);
-            const float cloudAlpha = 0.50f + 0.50f * dayRaw;
-
-            out.top = top;
-            out.horizon = horizon;
-            out.ground = ground;
-            out.sunColor = lightColor;
-            out.sunDir = lightDir;
-            out.intensity = intensity;
-            out.cloudColor = cloudColor;
-            out.cloudAlpha = cloudAlpha;
-            out.ambientScale = ambientScale;
-            out.exposureScale = exposureScale;
+            out.sunDir.normalize();
         }
 
         void applySkyStateToRenderer(const SkyState &state)
