@@ -427,15 +427,19 @@ namespace pip3D
 
     void Renderer::drawSkyboxBackground()
     {
-        framebuffer.fillBackground<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>();
+        const Vector3 &fwd = cameras[activeCameraIndex].forward();
+        const float pitch = asinf(clamp(fwd.y, -1.0f, 1.0f));
+        const float vfov = cameras[activeCameraIndex].fov * kDegToRad;
+        const float pitchShiftRows =
+            (vfov > 1e-4f) ? (pitch / vfov) * static_cast<float>(SCREEN_HEIGHT) : 0.0f;
+
+        framebuffer.fillBackground<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>(pitchShiftRows);
 
         if (framebuffer.getClouds().isReady())
         {
-            const Vector3 &fwd = cameras[activeCameraIndex].forward();
             const float yaw = atan2f(fwd.x, fwd.z);
-            const float pitch = asinf(clamp(fwd.y, -1.0f, 1.0f));
             const float hfov = ensureHfovCached();
-            framebuffer.drawClouds<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>(yaw, pitch, hfov);
+            framebuffer.drawClouds<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>(yaw, pitchShiftRows, hfov);
         }
     }
 

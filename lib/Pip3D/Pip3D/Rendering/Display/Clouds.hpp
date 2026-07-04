@@ -135,13 +135,19 @@ namespace pip3D
         drawClouds(uint16_t *__restrict__ buf,
                    int16_t bandOffY,
                    float yawRad,
-                   float pitchRad,
+                   float pitchShiftRows,
                    float hfovRad) const
         {
             if (unlikely(!enabled))
                 return;
 
-            if (bandOffY >= static_cast<int16_t>(cloudLineY))
+            const int32_t shift = static_cast<int32_t>(pitchShiftRows);
+            const int32_t cloudLineDynI =
+                static_cast<int32_t>(cloudLineY) + shift;
+            const int16_t cloudLineDyn =
+                static_cast<int16_t>(cloudLineDynI > 0 ? cloudLineDynI : 0);
+
+            if (bandOffY >= cloudLineDyn)
                 return;
 
             if (unlikely(lutDirty))
@@ -161,7 +167,6 @@ namespace pip3D
             constexpr float span = static_cast<float>(CLOUDS_W) *
                                    static_cast<float>(CLOUDS_REPEATS);
             constexpr float INV_TAU = 1.0f / TAU;
-            constexpr float INV_PITCH = 1.0f / 0.7853982f;
 
             const float centerPano = -(y * span) * INV_TAU;
             const float stepPano = (hfovFrac * span) / static_cast<float>(WIDTH);
@@ -169,9 +174,6 @@ namespace pip3D
 
             const uint32_t stepFP = static_cast<uint32_t>(stepPano * 65536.0f);
             int32_t curFP = static_cast<int32_t>(startPano * 65536.0f);
-
-            const float pitchShift = (-pitchRad * INV_PITCH * 0.5f) *
-                                     static_cast<float>(CLOUDS_H);
 
             const uint16_t invCloudLineY = cloudLineY > 0 ? cloudLineY : 1u;
             const uint8_t *__restrict__ aData = alphaData;
@@ -182,18 +184,19 @@ namespace pip3D
             int16_t rowMap[HEIGHT];
             const int32_t CLOUDS_H_I = static_cast<int32_t>(CLOUDS_H);
             const int32_t invY_I = static_cast<int32_t>(invCloudLineY);
-            const int32_t pitchSh_I = static_cast<int32_t>(pitchShift);
 
             for (uint16_t yb = 0; yb < HEIGHT; ++yb)
             {
                 const int16_t globalY = bandOffY + static_cast<int16_t>(yb);
-                if (globalY < 0 || globalY >= static_cast<int16_t>(cloudLineY))
+                if (globalY < 0 || globalY >= cloudLineDyn)
                 {
                     rowMap[yb] = -1;
                     continue;
                 }
-                int32_t m = (static_cast<int32_t>(globalY) * CLOUDS_H_I) / invY_I;
-                m += pitchSh_I;
+                int32_t virtualY = static_cast<int32_t>(globalY) - shift;
+                if (virtualY < 0)
+                    virtualY = 0;
+                int32_t m = (virtualY * CLOUDS_H_I) / invY_I;
                 if (m < 0)
                     m = 0;
                 if (m >= CLOUDS_H_I)
