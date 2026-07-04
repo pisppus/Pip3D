@@ -1,6 +1,7 @@
-#!/usr/bin/env python3
-import os
 import sys
+sys.dont_write_bytecode = True
+
+import os
 import argparse
 import math
 

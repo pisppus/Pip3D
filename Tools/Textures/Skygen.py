@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import sys
 sys.dont_write_bytecode = True
 
@@ -10,8 +8,17 @@ import numpy as np
 try:
     from PIL import Image
 except ImportError:
-    print("[-] Pillow not found: pip install Pillow")
+    print("\033[91m[-] Error: Pillow not found: pip install Pillow\033[0m")
     sys.exit(1)
+
+if os.name == 'nt':
+    import ctypes
+    kernel32 = ctypes.windll.kernel32
+    kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
+
+
+def _tag(msg):
+    return f"\033[36m[Pip3D]\033[0m {msg}"
 
 
 PANO_W            = 512
@@ -286,8 +293,8 @@ def main():
     cloud_rgb = tuple(int(v) for v in args.cloud.split(","))
     repeats   = compute_repeats(args.screen_w)
 
-    print(f"[Skygen] cloud mask: coverage={args.coverage}  seed={args.seed:#x}  cloud={cloud_rgb}")
-    print(f"[Skygen] texture={PANO_W}x{PANO_H}  repeats={repeats}  (screen {args.screen_w}x{args.screen_h})")
+    print(_tag(f"Skygen: cloud mask coverage={args.coverage}  seed={args.seed:#x}  cloud={cloud_rgb}"))
+    print(_tag(f"Skygen: texture={PANO_W}x{PANO_H}  repeats={repeats}  (screen {args.screen_w}x{args.screen_h})"))
 
     alpha_plane, shade_plane = gen_cloud_mask(args.coverage, args.seed)
 
@@ -296,11 +303,11 @@ def main():
     os.makedirs(sources_dir, exist_ok=True)
     preview_path = os.path.join(sources_dir, PREVIEW_FILENAME)
     Image.fromarray(mask_to_preview(alpha_plane, shade_plane, cloud_rgb), "RGB").save(preview_path)
-    print(f"[Skygen] Preview: {preview_path}")
+    print(_tag(f"Skygen: Preview: {preview_path}"))
 
     if args.output:
         hpp, total = write_mask_header(alpha_plane, shade_plane, cloud_rgb, repeats, args.output)
-        print(f"[Skygen] Flash header: {hpp}  ({total} bytes total: two 8-bit RLE planes + offsets, 0 RAM)")
+        print(_tag(f"Skygen: Flash header: {hpp}  ({total} bytes total: two 8-bit RLE planes + offsets, 0 RAM)"))
 
 
 if __name__ == "__main__":
