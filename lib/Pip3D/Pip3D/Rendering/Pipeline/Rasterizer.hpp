@@ -15,3 +15,4 @@
 #include "Rasterizer/Planar.hpp"
 #include "Rasterizer/Blob.hpp"
 #include "Rasterizer/Water.hpp"
+#include "Rasterizer/Billboard.hpp"
