@@ -261,10 +261,10 @@ namespace pip3D
 
         template <uint16_t WIDTH, uint16_t HEIGHT>
         __attribute__((always_inline, hot)) inline void
-        drawClouds(float yawRad, float pitchRad, float hfovRad)
+        drawClouds(float yawRad, float pitchShiftRows, float hfovRad)
         {
             clouds.drawClouds<WIDTH, HEIGHT>(buffer[activeSlot], currentBandOffsetY(),
-                                             yawRad, pitchRad, hfovRad);
+                                             yawRad, pitchShiftRows, hfovRad);
         }
 
         __attribute__((always_inline)) inline void endFrame()
@@ -348,7 +348,8 @@ namespace pip3D
         }
 
         template <uint16_t WIDTH, uint16_t HEIGHT>
-        __attribute__((always_inline, hot)) inline void fillBackground()
+        __attribute__((always_inline, hot)) inline void
+        fillBackground(float pitchShiftRows)
         {
             uint16_t *__restrict__ buf = buffer[activeSlot];
             if (unlikely(!buf))
@@ -362,6 +363,8 @@ namespace pip3D
 
             const int16_t bandOffY = currentBandOffsetY();
             constexpr uint16_t widthHalf = WIDTH >> 1;
+            constexpr int16_t maxY = static_cast<int16_t>(SCREEN_HEIGHT) - 1;
+            const int32_t shiftI = static_cast<int32_t>(pitchShiftRows);
 
             for (uint16_t y = 0; y < HEIGHT; ++y)
             {
@@ -371,7 +374,12 @@ namespace pip3D
                 uint32_t lutOdd;
                 if (skyActive)
                 {
-                    const uint16_t base = skyboxColorCache[static_cast<size_t>(globalY)];
+                    int32_t vy = static_cast<int32_t>(globalY) - shiftI;
+                    if (vy < 0)
+                        vy = 0;
+                    else if (vy > maxY)
+                        vy = maxY;
+                    const uint16_t base = skyboxColorCache[static_cast<size_t>(vy)];
                     const uint8_t brow = static_cast<uint8_t>(globalY & 3u);
                     const uint8_t t0 = bayer4x4[brow * 4 + 0];
                     const uint8_t t1 = bayer4x4[brow * 4 + 1];
@@ -413,8 +421,13 @@ namespace pip3D
                 {
                     const uint8_t tLast = bayer4x4[(static_cast<uint8_t>(globalY) & 3u) * 4 +
                                                    ((WIDTH - 1) & 3u)];
+                    int32_t vyL = static_cast<int32_t>(globalY) - shiftI;
+                    if (vyL < 0)
+                        vyL = 0;
+                    else if (vyL > maxY)
+                        vyL = maxY;
                     const uint16_t lastColor = skyActive ? ditherRGB565(
-                                                               skyboxColorCache[static_cast<size_t>(globalY)], tLast)
+                                                               skyboxColorCache[static_cast<size_t>(vyL)], tLast)
                                                          : baseClear;
                     buf[static_cast<size_t>(y) * WIDTH + WIDTH - 1] = lastColor;
                 }
