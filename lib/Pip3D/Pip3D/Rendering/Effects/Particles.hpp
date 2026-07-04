@@ -6,6 +6,7 @@
 #include "Debug/Logging.hpp"
 #include "Math/Algebra.hpp"
 #include "Rendering/Renderer.hpp"
+#include "Geometry/Billboard.hpp"
 #include "Physics/Physics.hpp"
 #include <vector>
 #include <cmath>
@@ -18,7 +19,8 @@ namespace pip3D
         PARTICLE_BILLBOARD,
         PARTICLE_SPARK_STRETCH,
         PARTICLE_TURBULENT,
-        PARTICLE_MASKED
+        PARTICLE_MASKED,
+        PARTICLE_TEXTURED
     };
 
     struct Particle
@@ -58,6 +60,10 @@ namespace pip3D
 
         ParticleType type;
         bool physicsCollision;
+
+        const Texture *texture = nullptr;
+        uint16_t chromaKey = 0xF81F;
+        bool cutout = true;
 
         ParticleEmitterConfig()
             : maxParticles(64), emitRate(30.0f),
@@ -289,6 +295,26 @@ namespace pip3D
                     continue;
                 }
 
+                if (config.type == PARTICLE_TEXTURED && config.texture != nullptr)
+                {
+                    const float size_world = (p.startSize + (p.endSize - p.startSize) * t) * 0.04f;
+
+                    Billboard bb;
+                    bb.position = p.position;
+                    bb.width = size_world;
+                    bb.height = size_world;
+                    bb.texture = config.texture;
+                    bb.tint = col;
+                    bb.chromaKey = config.chromaKey;
+                    bb.orientation = BB_SCREEN_ALIGNED;
+                    bb.blend = config.cutout ? BB_BLEND_CUTOUT : BB_BLEND_ALPHA;
+                    bb.alpha = alpha;
+                    bb.screenSpaceSize = false;
+                    bb.visible = true;
+                    renderer.drawBillboard(bb);
+                    continue;
+                }
+
                 float size_world = (p.startSize + (p.endSize - p.startSize) * t) * 0.04f;
                 float radius_pixels = (size_world * projScale / z_view) * halfViewportHeight;
 
@@ -512,6 +538,31 @@ namespace pip3D
             cfg.endSize = 3.0f;
             cfg.looping = true;
             cfg.additive = true;
+            return createEmitter(cfg, pos);
+        }
+
+        ParticleEmitter *createTexturedEmitter(const Vector3 &pos,
+                                               const Texture *texture,
+                                               bool cutout = true)
+        {
+            ParticleEmitterConfig cfg;
+            cfg.type = PARTICLE_TEXTURED;
+            cfg.texture = texture;
+            cfg.cutout = cutout;
+            cfg.chromaKey = 0xF81F;
+            cfg.maxParticles = 80;
+            cfg.emitRate = 60.0f;
+            cfg.minLifetime = 0.5f;
+            cfg.maxLifetime = 1.0f;
+            cfg.initialSpeed = 2.0f;
+            cfg.spread = 0.5f;
+            cfg.acceleration = Vector3(0.0f, 3.5f, 0.0f);
+            cfg.startColor = Color::WHITE;
+            cfg.endColor = Color::fromRGB888(180, 80, 0);
+            cfg.startSize = 18.0f;
+            cfg.endSize = 4.0f;
+            cfg.looping = true;
+            cfg.additive = !cutout;
             return createEmitter(cfg, pos);
         }
 

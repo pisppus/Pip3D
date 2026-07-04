@@ -47,6 +47,7 @@
 namespace pip3D
 {
     class PhysicsWorld;
+    struct Billboard;
 
     struct FlushJob
     {
@@ -138,8 +139,13 @@ namespace pip3D
         float ambientScale = 1.0f;
         float exposureScale = 1.0f;
 
+        bool sunEnabled = true;
+        bool sunVisible = false;
+        Color sunColor = Color::WHITE;
+        float sunIntensity = 1.0f;
+        Vector3 sunWorldDir = Vector3(0.0f, 1.0f, 0.0f);
+
         bool shouldRenderShadowForBounds(const Vector3 &center, float radius) const;
-        void drawSunDiscAtScreen(int16_t cx, int16_t cyFull, const Color &color, float glow, float sizeScale);
         void drawWaterTriangleInternal(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2, const Color &waterColor, uint8_t alphaByte, const DisplayConfig &cfg, uint16_t *frameBufferPtr);
 
         __attribute__((always_inline)) inline float ensureHfovCached()
@@ -179,6 +185,8 @@ namespace pip3D
 
         void setLight(int index, const Light &light);
         Light *getLight(int index);
+        const Light *getLights() const { return lights.data(); }
+        int getActiveLightCount() const { return activeLightCount; }
         void clearLights();
         void setMainDirectionalLight(const Vector3 &direction, const Color &color, float intensity = 1.0f);
         void setLightPosition(const Vector3 &pos);
@@ -336,6 +344,18 @@ namespace pip3D
         static constexpr uint16_t reflectHeight() { return REFLECT_HEIGHT; }
         uint16_t *getReflectBuffer() const { return reflectBuffer; }
         void drawSunSprite(const Vector3 &worldPos, const Color &color, float glow, float sizeScale = 1.0f);
+        void setSunEnabled(bool enabled) { sunEnabled = enabled; }
+        bool isSunEnabled() const { return sunEnabled; }
+        void updateSun(const Vector3 &dir, const Color &color, float intensity, bool visible)
+        {
+            sunWorldDir = dir;
+            sunColor = color;
+            sunIntensity = intensity;
+            sunVisible = visible;
+        }
+        bool isSunVisible() const { return sunVisible; }
+        void drawSky();
+        void drawBillboard(const Billboard &bb);
         void drawText(int16_t x, int16_t y, const char *text, uint16_t color = 0xFFFF);
         void drawText(int16_t x, int16_t y, const char *text, Color color);
         void drawTextAdaptive(int16_t x, int16_t y, const char *text);

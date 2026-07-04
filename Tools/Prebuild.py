@@ -203,6 +203,10 @@ if os.path.isdir(tex_sources_dir):
             touch(hpp_path)
             CACHE_CHANGED = True
 
+sun_hpp_path = os.path.join(display_textures_dir, "Sun.hpp")
+if os.path.isfile(os.path.join(textures_dir, "Sungen.py")):
+    expected_tex_outputs["Sun.hpp"] = True
+
 if os.path.isdir(display_textures_dir):
     for existing in os.listdir(display_textures_dir):
         if existing.lower().endswith(".hpp") and existing not in expected_tex_outputs:
@@ -224,6 +228,16 @@ if os.path.isfile(skygen_path):
         run_convert(skygen_path, [clouds_hpp_path, "--screen-w", str(screen_w), "--screen-h", str(screen_h)])
         mark_built(CACHE, sky_key, skygen_path, clouds_hpp_path)
         touch(clouds_hpp_path)
+        CACHE_CHANGED = True
+
+sungen_path = os.path.join(textures_dir, "Sungen.py")
+if os.path.isfile(sungen_path):
+    sun_key = "sungen:sun"
+    if needs_rebuild(CACHE, sun_key, sungen_path, sun_hpp_path):
+        print(_tag(ANSI_GREEN, f"Building sun texture: Sungen.py -> Sun.hpp"))
+        run_convert(sungen_path, [sun_hpp_path])
+        mark_built(CACHE, sun_key, sungen_path, sun_hpp_path)
+        touch(sun_hpp_path)
         CACHE_CHANGED = True
 
 if CACHE_CHANGED:

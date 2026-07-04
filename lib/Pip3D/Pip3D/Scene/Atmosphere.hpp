@@ -108,6 +108,8 @@ namespace pip3D
             float cloudAlpha;
             float ambientScale;
             float exposureScale;
+            float sunSpriteAlpha;
+            bool sunVisible;
         };
 
         Renderer *renderer;
@@ -131,15 +133,15 @@ namespace pip3D
             float exposureScale;
         };
 
-        static constexpr TimeKey kTimeKeys[8] = {
+       static constexpr TimeKey kTimeKeys[8] = {
             // hour, skyTop,                skyHorizon,           skyGround,            sunColor,             sunInt, cloudColor,           cloudA, ambient, exposure
             { 0.0f, {8, 12, 28},            {20, 30, 55},         {4, 6, 14},           {120, 140, 190},      0.10f,  {55, 60, 85},         0.45f,  0.28f,   0.58f}, // deep night
             { 5.0f, {18, 22, 48},           {55, 40, 70},         {6, 6, 14},           {255, 110, 60},       0.25f,  {120, 90, 110},       0.55f,  0.42f,   0.68f}, // pre-dawn
-            { 6.5f, {60, 80, 130},          {255, 150, 90},       {50, 40, 45},         {255, 170, 110},      0.60f,  {255, 210, 180},      0.75f,  0.70f,   0.84f}, // sunrise / golden
+            { 6.5f, {60, 80, 130},          {255, 150, 90},       {50, 40, 45},         {255, 170, 110},      0.60f,  {255, 210, 180},      0.75f,  0.70f,   0.84f}, // sunrise
             { 8.0f, {70, 130, 220},         {180, 205, 235},      {95, 90, 80},         {255, 240, 220},      0.92f,  {250, 250, 252},      0.95f,  0.93f,   0.97f}, // morning
             {12.0f, {70, 135, 225},         {190, 210, 240},      {100, 95, 85},        {255, 250, 240},      1.00f,  {250, 250, 252},      1.00f,  1.00f,   1.00f}, // noon
             {17.0f, {80, 120, 200},         {200, 200, 215},      {95, 85, 75},         {255, 235, 200},      0.95f,  {252, 245, 235},      0.95f,  0.95f,   0.98f}, // late afternoon
-            {19.0f, {90, 70, 130},          {255, 130, 60},       {55, 35, 40},         {255, 150, 80},       0.55f,  {255, 190, 140},      0.70f,  0.68f,   0.82f}, // sunset / golden
+            {19.0f, {90, 70, 130},          {255, 130, 60},       {55, 35, 40},         {255, 150, 80},       0.55f,  {255, 190, 140},      0.70f,  0.68f,   0.82f}, // sunset
             {21.0f, {12, 16, 38},           {30, 35, 65},         {5, 6, 15},           {130, 145, 195},      0.14f,  {60, 65, 90},         0.50f,  0.36f,   0.66f}, // night onset
         };
         static constexpr int kTimeKeyCount = 8;
@@ -162,8 +164,10 @@ namespace pip3D
             auto smoothstep = [](float e0, float e1, float x) -> float
             {
                 float u = (x - e0) / (e1 - e0);
-                if (u < 0.0f) u = 0.0f;
-                else if (u > 1.0f) u = 1.0f;
+                if (u < 0.0f)
+                    u = 0.0f;
+                else if (u > 1.0f)
+                    u = 1.0f;
                 return u * u * (3.0f - 2.0f * u);
             };
 
@@ -184,14 +188,14 @@ namespace pip3D
             float local = (hour - kA.hour) / span;
             float k = smoothstep(0.0f, 1.0f, local);
 
-            out.top        = lerpColor(kA.skyTop,     kB.skyTop,     k);
-            out.horizon    = lerpColor(kA.skyHorizon, kB.skyHorizon, k);
-            out.ground     = lerpColor(kA.skyGround,  kB.skyGround,  k);
-            out.sunColor   = lerpColor(kA.sunColor,   kB.sunColor,   k);
+            out.top = lerpColor(kA.skyTop, kB.skyTop, k);
+            out.horizon = lerpColor(kA.skyHorizon, kB.skyHorizon, k);
+            out.ground = lerpColor(kA.skyGround, kB.skyGround, k);
+            out.sunColor = lerpColor(kA.sunColor, kB.sunColor, k);
             out.cloudColor = lerpColor(kA.cloudColor, kB.cloudColor, k);
-            out.cloudAlpha   = lerpF(kA.cloudAlpha,   kB.cloudAlpha,   k);
+            out.cloudAlpha = lerpF(kA.cloudAlpha, kB.cloudAlpha, k);
             out.ambientScale = lerpF(kA.ambientScale, kB.ambientScale, k);
-            out.exposureScale= lerpF(kA.exposureScale,kB.exposureScale,k);
+            out.exposureScale = lerpF(kA.exposureScale, kB.exposureScale, k);
 
             const float keyIntensity = lerpF(kA.sunIntensity, kB.sunIntensity, k);
             out.intensity = nightIntensity + (baseIntensity - nightIntensity) * keyIntensity;
@@ -220,6 +224,9 @@ namespace pip3D
                 dayDir.y * (1.0f - wNight) + moonDir.y * wNight,
                 dayDir.z * (1.0f - wNight) + moonDir.z * wNight);
             out.sunDir.normalize();
+
+            out.sunSpriteAlpha = dayRaw;
+            out.sunVisible = (dayRaw > 0.01f);
         }
 
         void applySkyStateToRenderer(const SkyState &state)
@@ -235,6 +242,9 @@ namespace pip3D
             renderer->setCloudAlpha(state.cloudAlpha);
             renderer->setAmbientScale(state.ambientScale);
             renderer->setExposureScale(state.exposureScale);
+
+            const Vector3 toSun(-state.sunDir.x, -state.sunDir.y, -state.sunDir.z);
+            renderer->updateSun(toSun, state.sunColor, state.sunSpriteAlpha, state.sunVisible);
         }
 
         __attribute__((hot)) void applyToRenderer()
