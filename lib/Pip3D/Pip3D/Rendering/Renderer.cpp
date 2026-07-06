@@ -3,6 +3,7 @@
 #include "Debug/Gizmos.hpp"
 #include <cstring>
 #include "Rendering/Pipeline/Telemetry.hpp"
+#include "Rendering/Lighting/Deferred.hpp"
 
 #ifndef PIP3D_DISPLAY_ORDER
 #define PIP3D_DISPLAY_ORDER 0
@@ -45,7 +46,8 @@ namespace pip3D
                            fogEnabled(false),
                            fogColor(Color::rgb(140, 160, 175)),
                            fogNear(10.0f),
-                           fogFar(80.0f)
+                           fogFar(80.0f),
+                           deferredLightingEnabled(false)
     {
         lights[0].type = LIGHT_DIRECTIONAL;
         lights[0].direction = Vector3(-0.5f, -1.0f, -0.5f);
@@ -538,5 +540,94 @@ namespace pip3D
         Color color = Color::fromTemperature(kelvin);
         lights[0].color = color;
         lights[0].colorCacheDirty = true;
+    }
+
+    int Renderer::addPointLight(const Vector3 &pos, const Color &color,
+                                float range, float intensity)
+    {
+        if (range <= 0.0f)
+            return -1;
+        Light pl;
+        pl.type = LIGHT_POINT;
+        pl.position = pos;
+        pl.color = color;
+        pl.intensity = intensity;
+        pl.setRange(range);
+        pl.colorCacheDirty = true;
+        pointLights.push_back(pl);
+        return static_cast<int>(pointLights.size() - 1);
+    }
+
+    void Renderer::setPointLight(int idx, const Vector3 &pos, const Color &color,
+                                 float range, float intensity)
+    {
+        if (idx < 0 || idx >= static_cast<int>(pointLights.size()))
+            return;
+        Light &pl = pointLights[idx];
+        pl.position = pos;
+        pl.color = color;
+        pl.intensity = intensity;
+        pl.setRange(range);
+        pl.colorCacheDirty = true;
+    }
+
+    void Renderer::setPointLightPosition(int idx, const Vector3 &pos)
+    {
+        if (idx < 0 || idx >= static_cast<int>(pointLights.size()))
+            return;
+        pointLights[idx].position = pos;
+    }
+
+    void Renderer::removePointLight(int idx)
+    {
+        if (idx < 0 || idx >= static_cast<int>(pointLights.size()))
+            return;
+        pointLights.erase(pointLights.begin() + idx);
+    }
+
+    void Renderer::clearPointLights()
+    {
+        pointLights.clear();
+    }
+
+    void Renderer::applyDeferredLighting()
+    {
+        if (!deferredLightingEnabled)
+            return;
+
+        syncPointLightsForward();
+
+        if (pointLights.empty())
+            return;
+
+        for (size_t i = 0; i < pointLights.size(); ++i)
+            pointLights[i].warmCache();
+
+        ::pip3D::applyDeferred3DLighting(
+            framebuffer.getBuffer(),
+            zBuffer,
+            pointLights.data(),
+            static_cast<int>(pointLights.size()),
+            cameras[activeCameraIndex],
+            viewProjMatrix,
+            viewport);
+    }
+
+    void Renderer::syncPointLightsForward()
+    {
+        if (lights.empty())
+            lights.resize(1);
+        if (lights.size() > 1)
+            lights.resize(1);
+
+        const int maxForwardLights = 4;
+        int added = 0;
+        for (size_t i = 0; i < pointLights.size() && added < maxForwardLights; ++i)
+        {
+            lights.push_back(pointLights[i]);
+            ++added;
+        }
+
+        activeLightCount = static_cast<int>(lights.size());
     }
 }

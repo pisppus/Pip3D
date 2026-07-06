@@ -572,32 +572,22 @@ namespace pip3D
 
             const bool partiallyClipped = (d0 < nearClip || d1 < nearClip || d2 < nearClip);
 
-            Vector3 p0, p1, p2;
-
-            if (doBackfaceCull && !partiallyClipped)
+            if (doBackfaceCull)
             {
-                if (!useFallbackPath)
-                {
-                    p0 = screenVerts[face.v0];
-                    p1 = screenVerts[face.v1];
-                    p2 = screenVerts[face.v2];
-                }
-                else
-                {
-                    p0 = CameraController::project(v0, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, viewport.x, viewport.y);
-                    p1 = CameraController::project(v1, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, viewport.x, viewport.y);
-                    p2 = CameraController::project(v2, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, viewport.x, viewport.y);
-                }
+                float nx = (v1.y - v0.y) * (v2.z - v0.z) - (v1.z - v0.z) * (v2.y - v0.y);
+                float ny = (v1.z - v0.z) * (v2.x - v0.x) - (v1.x - v0.x) * (v2.z - v0.z);
+                float nz = (v1.x - v0.x) * (v2.y - v0.y) - (v1.y - v0.y) * (v2.x - v0.x);
+                float vx = v0.x - camPos.x;
+                float vy = v0.y - camPos.y;
+                float vz = v0.z - camPos.z;
 
-                if (!isfinite(p0.x) || !isfinite(p0.y) || !isfinite(p0.z) ||
-                    !isfinite(p1.x) || !isfinite(p1.y) || !isfinite(p1.z) ||
-                    !isfinite(p2.x) || !isfinite(p2.y) || !isfinite(p2.z))
+                if (nx * vx + ny * vy + nz * vz >= 0.0f)
                 {
                     statsTrianglesBackfaceCulled++;
                     g_drawTelemetry.recordSkip(
-                        SkipReason::NAN_PROJECT, currentFrame, i, mesh,
+                        SkipReason::BACKFACE, currentFrame, i, mesh,
                         d0, d1, d2, 0.0f,
-                        p0.x, p0.y, p0.z, p1.x, p1.y, p2.x, p2.y,
+                        0, 0, 0, 0, 0, 0, 0,
                         v0.x, v0.y, v0.z,
                         camPos.x, camPos.y, camPos.z,
                         camFwd.x, camFwd.y, camFwd.z,
@@ -605,7 +595,25 @@ namespace pip3D
                         partiallyClipped, isTextured);
                     continue;
                 }
+            }
 
+            Vector3 p0, p1, p2;
+
+            if (!useFallbackPath)
+            {
+                p0 = screenVerts[face.v0];
+                p1 = screenVerts[face.v1];
+                p2 = screenVerts[face.v2];
+            }
+            else
+            {
+                p0 = CameraController::project(v0, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, viewport.x, viewport.y);
+                p1 = CameraController::project(v1, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, viewport.x, viewport.y);
+                p2 = CameraController::project(v2, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, viewport.x, viewport.y);
+            }
+
+            if (!partiallyClipped)
+            {
                 const float area = (p1.x - p0.x) * (p2.y - p0.y) - (p2.x - p0.x) * (p1.y - p0.y);
 
                 if (fabsf(area) <= 1.0f)
@@ -622,33 +630,6 @@ namespace pip3D
                         partiallyClipped, isTextured);
                     continue;
                 }
-
-                if (area >= 0.0f)
-                {
-                    statsTrianglesBackfaceCulled++;
-                    g_drawTelemetry.recordSkip(
-                        SkipReason::BACKFACE, currentFrame, i, mesh,
-                        d0, d1, d2, area,
-                        p0.x, p0.y, p0.z, p1.x, p1.y, p2.x, p2.y,
-                        v0.x, v0.y, v0.z,
-                        camPos.x, camPos.y, camPos.z,
-                        camFwd.x, camFwd.y, camFwd.z,
-                        nearPlane, bandTop, bandBottom,
-                        partiallyClipped, isTextured);
-                    continue;
-                }
-            }
-            else if (!useFallbackPath)
-            {
-                p0 = screenVerts[face.v0];
-                p1 = screenVerts[face.v1];
-                p2 = screenVerts[face.v2];
-            }
-            else
-            {
-                p0 = CameraController::project(v0, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, viewport.x, viewport.y);
-                p1 = CameraController::project(v1, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, viewport.x, viewport.y);
-                p2 = CameraController::project(v2, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, viewport.x, viewport.y);
             }
 
             if (isTextured)
