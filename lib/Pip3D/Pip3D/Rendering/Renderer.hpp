@@ -18,6 +18,7 @@
 #include "Rendering/Pipeline/Telemetry.hpp"
 #include "Lighting/Lighting.hpp"
 #include "Lighting/Shadow.hpp"
+#include "Lighting/Deferred.hpp"
 #include "Pipeline/Rasterizer.hpp"
 #include "Pipeline/Shading.hpp"
 #include "Rendering/Display/Sky.hpp"
@@ -112,6 +113,9 @@ namespace pip3D
 
         std::vector<Light> lights;
         int activeLightCount;
+
+        std::vector<Light> pointLights;
+        bool deferredLightingEnabled;
 
         bool shadowsEnabled;
         bool backfaceCullingEnabled;
@@ -236,6 +240,21 @@ namespace pip3D
                 return;
             lights[0].type = type;
         }
+
+        int addPointLight(const Vector3 &pos, const Color &color,
+                          float range, float intensity = 1.0f);
+        void setPointLight(int idx, const Vector3 &pos, const Color &color,
+                           float range, float intensity);
+        void setPointLightPosition(int idx, const Vector3 &pos);
+        void removePointLight(int idx);
+        void clearPointLights();
+        int getPointLightCount() const { return static_cast<int>(pointLights.size()); }
+        const Light *getPointLights() const { return pointLights.data(); }
+
+        void setDeferredLightingEnabled(bool enabled) { deferredLightingEnabled = enabled; }
+        bool isDeferredLightingEnabled() const { return deferredLightingEnabled; }
+        void applyDeferredLighting();
+        void syncPointLightsForward();
 
         void setSkyboxEnabled(bool enabled) { framebuffer.setSkyboxEnabled(enabled); }
         void setSkyboxType(SkyboxType type) { framebuffer.setSkyboxType(type); }
