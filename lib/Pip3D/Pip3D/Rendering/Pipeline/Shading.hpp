@@ -187,31 +187,6 @@ namespace pip3D
             else if (outB > 1.0f)
                 outB = 1.0f;
         }
-
-        __attribute__((always_inline)) static inline uint16_t quantizeColor(float r, float g, float b)
-        {
-            int ir = static_cast<int>(r * 31.0f + 0.5f);
-            int ig = static_cast<int>(g * 63.0f + 0.5f);
-            int ib = static_cast<int>(b * 31.0f + 0.5f);
-
-            if (ig < 16)
-                ig &= ~1;
-
-            if (ir > 31)
-                ir = 31;
-            else if (ir < 0)
-                ir = 0;
-            if (ig > 63)
-                ig = 63;
-            else if (ig < 0)
-                ig = 0;
-            if (ib > 31)
-                ib = 31;
-            else if (ib < 0)
-                ib = 0;
-
-            return static_cast<uint16_t>((ir << 11) | (ig << 5) | ib);
-        }
     };
 
 }

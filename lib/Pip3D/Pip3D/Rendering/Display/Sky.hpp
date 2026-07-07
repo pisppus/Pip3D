@@ -57,23 +57,7 @@ namespace pip3D
 
     __attribute__((always_inline)) inline Color lerpColor(Color c1, Color c2, uint32_t s) const
     {
-      if (unlikely(s == 0))
-        return c1;
-      if (unlikely(s >= 256))
-        return c2;
-
-      const uint32_t alpha = s >> 3;
-      const uint32_t ia = 32u - alpha;
-      const uint32_t c1_raw = c1.rgb565;
-      const uint32_t c2_raw = c2.rgb565;
-
-      const uint32_t rb1 = c1_raw & 0xF81Fu, rb2 = c2_raw & 0xF81Fu;
-      const uint32_t g1 = c1_raw & 0x07E0u, g2 = c2_raw & 0x07E0u;
-
-      const uint32_t rb = ((rb1 * ia + rb2 * alpha) >> 5) & 0xF81Fu;
-      const uint32_t g = ((g1 * ia + g2 * alpha) >> 5) & 0x07E0u;
-
-      return Color(static_cast<uint16_t>(rb | g));
+      return c1.blend256(c2, static_cast<uint16_t>(s));
     }
 
   public:

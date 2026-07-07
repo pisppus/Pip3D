@@ -271,8 +271,10 @@ namespace pip3D
             params.du_dy_fixed = static_cast<int32_t>(du_dy_scaled);
             params.dv_dx_fixed = static_cast<int32_t>(dv_dx_scaled);
             params.dv_dy_fixed = static_cast<int32_t>(dv_dy_scaled);
-            params.s_rb = shadowColor & 0xF81F;
-            params.s_g = shadowColor & 0x07E0;
+
+            const Color sCol(shadowColor);
+            params.s_rb = sCol.rb();
+            params.s_g = sCol.g();
             params.baseAlpha = alpha;
 
             int startTop = static_cast<int>(ceilf(y0 - 0.5f));

@@ -199,8 +199,8 @@ namespace pip3D
                             uint32_t pack = fb32[0];
                             if (write0)
                             {
-                                const uint16_t low = static_cast<uint16_t>(pack);
-                                const uint16_t blended = blendScalar(low, bl);
+                                const Color lowColor(static_cast<uint16_t>(pack));
+                                const uint16_t blended = blendScalar(lowColor.rgb565, bl);
                                 pack = (pack & 0xFFFF0000) | blended;
                             }
                             if (write1)

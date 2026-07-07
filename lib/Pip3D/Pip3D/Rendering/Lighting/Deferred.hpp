@@ -187,9 +187,10 @@ namespace pip3D
                                 const uint32_t addG = addG_table[i5];
                                 const uint32_t addB = addB_table[i5];
 
-                                const uint32_t r = std::min(((dst >> 11) & 0x1Fu) + addR, 31u);
-                                const uint32_t g = std::min(((dst >> 5) & 0x3Fu) + addG, 63u);
-                                const uint32_t b = std::min((dst & 0x1Fu) + addB, 31u);
+                                const Color dstCol(dst);
+                                const uint32_t r = std::min(static_cast<uint32_t>(dstCol.r5()) + addR, 31u);
+                                const uint32_t g = std::min(static_cast<uint32_t>(dstCol.g6()) + addG, 63u);
+                                const uint32_t b = std::min(static_cast<uint32_t>(dstCol.b5()) + addB, 31u);
 
                                 *fbPtr = static_cast<uint16_t>((r << 11) | (g << 5) | b);
                             }

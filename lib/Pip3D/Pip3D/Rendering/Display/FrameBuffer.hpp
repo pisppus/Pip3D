@@ -75,28 +75,6 @@ namespace pip3D
                 rebuildSkyboxCache();
         }
 
-        static __attribute__((always_inline)) inline uint16_t ditherRGB565(uint16_t c, uint8_t level)
-        {
-            const bool bump = (level >= 8u);
-            if (!bump)
-                return c;
-
-            const uint32_t r = (c >> 11) & 0x1Fu;
-            const uint32_t g = (c >> 5) & 0x3Fu;
-            const uint32_t b = c & 0x1Fu;
-
-            const uint8_t sel = level & 3u;
-            uint32_t nr = r, ng = g, nb = b;
-            if (sel == 0u)
-                nr = (r < 31u) ? r + 1u : 31u;
-            else if (sel == 1u)
-                nb = (b < 31u) ? b + 1u : 31u;
-            else
-                ng = (g < 63u) ? g + 1u : 63u;
-
-            return static_cast<uint16_t>((nr << 11) | (ng << 5) | nb);
-        }
-
 #if defined(PIP3D_PC)
         __attribute__((always_inline)) inline void swapEndianInPlace(uint32_t count)
         {
@@ -385,10 +363,12 @@ namespace pip3D
                     const uint8_t t1 = bayer4x4[brow * 4 + 1];
                     const uint8_t t2 = bayer4x4[brow * 4 + 2];
                     const uint8_t t3 = bayer4x4[brow * 4 + 3];
-                    const uint16_t d0 = ditherRGB565(base, t0);
-                    const uint16_t d1 = ditherRGB565(base, t1);
-                    const uint16_t d2 = ditherRGB565(base, t2);
-                    const uint16_t d3 = ditherRGB565(base, t3);
+
+                    const Color baseColor(base);
+                    const uint16_t d0 = baseColor.dither(t0).rgb565;
+                    const uint16_t d1 = baseColor.dither(t1).rgb565;
+                    const uint16_t d2 = baseColor.dither(t2).rgb565;
+                    const uint16_t d3 = baseColor.dither(t3).rgb565;
                     lutEven = (static_cast<uint32_t>(d1) << 16) | d0;
                     lutOdd = (static_cast<uint32_t>(d3) << 16) | d2;
                 }
@@ -426,8 +406,7 @@ namespace pip3D
                         vyL = 0;
                     else if (vyL > maxY)
                         vyL = maxY;
-                    const uint16_t lastColor = skyActive ? ditherRGB565(
-                                                               skyboxColorCache[static_cast<size_t>(vyL)], tLast)
+                    const uint16_t lastColor = skyActive ? Color(skyboxColorCache[static_cast<size_t>(vyL)]).dither(tLast).rgb565
                                                          : baseClear;
                     buf[static_cast<size_t>(y) * WIDTH + WIDTH - 1] = lastColor;
                 }

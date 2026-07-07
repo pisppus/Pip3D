@@ -49,10 +49,7 @@ namespace pip3D
         {
             if (unlikely(colorCacheDirty))
             {
-                const uint16_t lightRGB = color.rgb565;
-                cachedR = static_cast<float>((lightRGB >> 11) & 0x1F) * INV_31;
-                cachedG = static_cast<float>((lightRGB >> 5) & 0x3F) * INV_63;
-                cachedB = static_cast<float>(lightRGB & 0x1F) * INV_31;
+                color.toFloat(cachedR, cachedG, cachedB);
                 colorCacheDirty = false;
             }
         }

@@ -153,10 +153,6 @@ namespace pip3D
             if (t > 1.0f)
                 t = 1.0f;
 
-            auto lerpColor = [](Color c1, Color c2, float k) -> Color
-            {
-                return c1.blend(c2, static_cast<uint8_t>(clamp(k, 0.0f, 1.0f) * 255.0f));
-            };
             auto lerpF = [](float a, float b, float k) -> float
             {
                 return a + (b - a) * k;
@@ -188,11 +184,12 @@ namespace pip3D
             float local = (hour - kA.hour) / span;
             float k = smoothstep(0.0f, 1.0f, local);
 
-            out.top = lerpColor(kA.skyTop, kB.skyTop, k);
-            out.horizon = lerpColor(kA.skyHorizon, kB.skyHorizon, k);
-            out.ground = lerpColor(kA.skyGround, kB.skyGround, k);
-            out.sunColor = lerpColor(kA.sunColor, kB.sunColor, k);
-            out.cloudColor = lerpColor(kA.cloudColor, kB.cloudColor, k);
+            const uint8_t factor = static_cast<uint8_t>(clamp(k, 0.0f, 1.0f) * 255.0f);
+            out.top = kA.skyTop.blend(kB.skyTop, factor);
+            out.horizon = kA.skyHorizon.blend(kB.skyHorizon, factor);
+            out.ground = kA.skyGround.blend(kB.skyGround, factor);
+            out.sunColor = kA.sunColor.blend(kB.sunColor, factor);
+            out.cloudColor = kA.cloudColor.blend(kB.cloudColor, factor);
             out.cloudAlpha = lerpF(kA.cloudAlpha, kB.cloudAlpha, k);
             out.ambientScale = lerpF(kA.ambientScale, kB.ambientScale, k);
             out.exposureScale = lerpF(kA.exposureScale, kB.exposureScale, k);

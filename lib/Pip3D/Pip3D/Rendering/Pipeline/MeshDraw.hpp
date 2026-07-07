@@ -26,9 +26,7 @@ namespace pip3D
                                        float &baseG,
                                        float &baseB)
         {
-            baseR = ((color >> 11) & 0x1F) * RGB565_RED_TO_FLOAT;
-            baseG = ((color >> 5) & 0x3F) * RGB565_GREEN_TO_FLOAT;
-            baseB = (color & 0x1F) * RGB565_BLUE_TO_FLOAT;
+            Color(color).toFloat(baseR, baseG, baseB);
         }
 
         static void drawTriangle3D_Preprojected(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2,
@@ -168,7 +166,7 @@ namespace pip3D
                     finalB = finalB * (1.0f - fogFactor) + Rasterizer::g_fogState.color_b_f * fogFactor;
                 }
 
-                uniformColor = Shading::quantizeColor(finalR, finalG, finalB);
+                uniformColor = Color::fromFloat(finalR, finalG, finalB).rgb565;
             }
 
             const uint16_t vertexCountUsed = mesh->numVertices();
@@ -620,7 +618,7 @@ namespace pip3D
                     finalB = finalB * (1.0f - fogFactor) + Rasterizer::g_fogState.color_b_f * fogFactor;
                 }
 
-                shadedColor = Shading::quantizeColor(finalR, finalG, finalB);
+                shadedColor = Color::fromFloat(finalR, finalG, finalB).rgb565;
             }
 
             Rasterizer::fillTriangle(lp0.x, lp0.y, lp0.z,

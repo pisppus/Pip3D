@@ -75,11 +75,10 @@ namespace pip3D
                     if (sx < 0 || sx >= cfg.width || sx < vpLeft || sx >= vpRight)
                         continue;
 
-                    const uint16_t pixel = fb[rowBase + sx];
-                    const uint32_t r = (pixel >> 11) & 0x1Fu;
-                    const uint32_t g = (pixel >> 5) & 0x3Fu;
-                    const uint32_t b = pixel & 0x1Fu;
-                    totalLuma += (r * 2392u) + (g * 2348u) + (b * 912u);
+                    const Color pixel(fb[rowBase + sx]);
+                    totalLuma += (static_cast<uint32_t>(pixel.r5()) * 2392u) + 
+                                 (static_cast<uint32_t>(pixel.g6()) * 2348u) + 
+                                 (static_cast<uint32_t>(pixel.b5()) * 912u);
                     ++samples;
                 }
             }
