@@ -422,7 +422,7 @@ namespace pip3D
                 finalB = finalB * invFog + Rasterizer::g_fogState.color_b_f * fogFactor;
             }
 
-            uniformColor = Shading::quantizeColor(finalR, finalG, finalB);
+            uniformColor = Color::fromFloat(finalR, finalG, finalB).rgb565;
         }
 
         const uint16_t vertexCountUsed = mesh->numVertices();

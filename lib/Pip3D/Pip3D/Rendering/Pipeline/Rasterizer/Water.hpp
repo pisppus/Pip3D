@@ -111,9 +111,9 @@ namespace pip3D
             const float ampShimmerX = 1.7f * resScale;
             const float ampShimmerY = 1.3f * resScale;
 
-            const uint16_t waterTint565 = Color::rgb(5, 55, 115).rgb565;
-            const uint32_t tint_rb = waterTint565 & 0xF81Fu;
-            const uint32_t tint_g = waterTint565 & 0x07E0u;
+            const Color waterTint = Color::rgb(5, 55, 115);
+            const uint32_t tint_rb = waterTint.rb();
+            const uint32_t tint_g = waterTint.g();
 
             const uint32_t bgTintAlpha = 55u >> 3;
             const uint32_t bgTintInvA = 32u - bgTintAlpha;
@@ -204,15 +204,16 @@ namespace pip3D
                             reflColor = reflectionBuffer[static_cast<size_t>(hy) * reflW + hx];
                         }
 
-                        const uint16_t bgPixel = fbRow[x];
-                        const uint32_t bg_rb = bgPixel & 0xF81Fu;
-                        const uint32_t bg_g = bgPixel & 0x07E0u;
+                        const Color bgPixel(fbRow[x]);
+                        const uint32_t bg_rb = bgPixel.rb();
+                        const uint32_t bg_g = bgPixel.g();
 
                         const uint32_t tinted_rb = ((bg_rb * bgTintInvA + tint_rb * bgTintAlpha) >> 5) & 0xF81Fu;
                         const uint32_t tinted_g = ((bg_g * bgTintInvA + tint_g * bgTintAlpha) >> 5) & 0x07E0u;
 
-                        const uint32_t refl_rb = reflColor & 0xF81Fu;
-                        const uint32_t refl_g = reflColor & 0x07E0u;
+                        const Color refl(reflColor);
+                        const uint32_t refl_rb = refl.rb();
+                        const uint32_t refl_g = refl.g();
 
                         const uint32_t final_rb = ((tinted_rb * refRowInvA + refl_rb * refRowAlpha) >> 5) & 0xF81Fu;
                         const uint32_t final_g = ((tinted_g * refRowInvA + refl_g * refRowAlpha) >> 5) & 0x07E0u;

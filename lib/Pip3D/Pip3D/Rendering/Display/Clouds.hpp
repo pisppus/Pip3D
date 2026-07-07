@@ -53,10 +53,9 @@ namespace pip3D
 
         __attribute__((always_inline)) inline void buildLuts() noexcept
         {
-            const uint32_t base = cloudColor.rgb565;
-            const uint32_t r5 = (base >> 11) & 0x1Fu;
-            const uint32_t g6 = (base >> 5) & 0x3Fu;
-            const uint32_t b5 = base & 0x1Fu;
+            const uint32_t r5 = cloudColor.r5();
+            const uint32_t g6 = cloudColor.g6();
+            const uint32_t b5 = cloudColor.b5();
 
             for (uint32_t s8 = 0; s8 < 256u; ++s8)
             {

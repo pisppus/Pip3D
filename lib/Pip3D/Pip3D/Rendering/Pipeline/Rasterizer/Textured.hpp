@@ -407,12 +407,10 @@ namespace pip3D
                                 uint16_t litColor;
                                 if (flatLight)
                                 {
-                                    const uint32_t r = (texColor >> 11) & 0x1F;
-                                    const uint32_t g = (texColor >> 5) & 0x3F;
-                                    const uint32_t b = texColor & 0x1F;
-                                    litColor = static_cast<uint16_t>(((r * flatR5) >> 5) << 11 |
-                                                                     ((g * flatG6) >> 6) << 5 |
-                                                                     ((b * flatB5) >> 5));
+                                    const Color tc(texColor);
+                                    litColor = static_cast<uint16_t>(((tc.r5() * flatR5) >> 5) << 11 |
+                                                                     ((tc.g6() * flatG6) >> 6) << 5 |
+                                                                     ((tc.b5() * flatB5) >> 5));
                                 }
                                 else
                                 {
@@ -517,12 +515,10 @@ namespace pip3D
                                 uint16_t litColor;
                                 if (flatLight)
                                 {
-                                    const uint32_t r = (texColor >> 11) & 0x1F;
-                                    const uint32_t g = (texColor >> 5) & 0x3F;
-                                    const uint32_t b = texColor & 0x1F;
-                                    litColor = static_cast<uint16_t>(((r * flatR5) >> 5) << 11 |
-                                                                     ((g * flatG6) >> 6) << 5 |
-                                                                     ((b * flatB5) >> 5));
+                                    const Color tc(texColor);
+                                    litColor = static_cast<uint16_t>(((tc.r5() * flatR5) >> 5) << 11 |
+                                                                     ((tc.g6() * flatG6) >> 6) << 5 |
+                                                                     ((tc.b5() * flatB5) >> 5));
                                 }
                                 else
                                 {
