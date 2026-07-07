@@ -4,7 +4,6 @@
 
 namespace pip3D
 {
-
     struct CameraKeyframe
     {
         Vector3 position;
@@ -28,18 +27,18 @@ namespace pip3D
     class CameraTimeline
     {
         const CameraKeyframe *keys;
-        int count;
+        int8_t count;
+        int8_t currentSegment;
         bool loop;
-        int currentSegment;
         bool playing;
 
     public:
         CameraTimeline()
-            : keys(nullptr), count(0), loop(false), currentSegment(-1), playing(false)
+            : keys(nullptr), count(0), currentSegment(-1), loop(false), playing(false)
         {
         }
 
-        void setTrack(const CameraKeyframe *k, int n, bool looped = false)
+        void setTrack(const CameraKeyframe *k, int8_t n, bool looped = false)
         {
             keys = k;
             count = n;
@@ -53,9 +52,7 @@ namespace pip3D
             if (!keys || count < 2)
             {
                 if (keys && count == 1)
-                {
                     applyKey(cam, keys[0]);
-                }
                 playing = false;
                 return;
             }
@@ -65,22 +62,20 @@ namespace pip3D
             playing = true;
         }
 
-        void update(Camera &cam, float dt)
+        PIP3D_FORCE_INLINE void update(Camera &cam, float dt)
         {
-            if (!playing || !keys || count < 2)
+            if (!playing)
                 return;
 
             cam.updateAnim(dt);
             if (!cam.isAnimating())
-            {
                 advance(cam);
-            }
         }
 
-        bool isPlaying() const { return playing; }
+        PIP3D_FORCE_INLINE bool isPlaying() const { return playing; }
 
     private:
-        static void applyKey(Camera &cam, const CameraKeyframe &k)
+        PIP3D_FORCE_INLINE static void applyKey(Camera &cam, const CameraKeyframe &k)
         {
             cam.position = k.position;
             cam.target = k.target;
@@ -89,33 +84,23 @@ namespace pip3D
             cam.markDirty();
         }
 
-        static void setupAnim(Camera &cam, const CameraKeyframe &from, const CameraKeyframe &to)
+        PIP3D_FORCE_INLINE static void setupAnim(Camera &cam, const CameraKeyframe &from, const CameraKeyframe &to)
         {
-            CameraAnimation &a = cam.anim;
-            a.startPos = from.position;
-            a.startTgt = from.target;
-            a.startUp = from.up;
-            a.startFov = from.fov;
-            a.targetPos = to.position;
-            a.targetTgt = to.target;
-            a.targetUp = to.up;
-            a.targetFov = to.fov;
-            a.duration = from.duration;
-            a.invDuration = (from.duration > 0.0f) ? (1.0f / from.duration) : 0.0f;
-            a.time = 0.0f;
-            a.type = from.type;
-            a.active = (from.duration > 0.0f);
+            if (from.duration > 0.0f)
+            {
+                cam.anim.reset(from.position, from.target, from.up, from.fov,
+                               to.position, to.target, to.up, to.fov,
+                               from.duration, from.type);
+            }
+            else
+            {
+                cam.anim.active = false;
+            }
         }
 
-        void advance(Camera &cam)
+        PIP3D_FORCE_INLINE void advance(Camera &cam)
         {
-            if (!keys || count < 2)
-            {
-                playing = false;
-                return;
-            }
-
-            currentSegment++;
+            ++currentSegment;
             if (currentSegment >= count - 1)
             {
                 if (!loop)
@@ -126,10 +111,7 @@ namespace pip3D
                 currentSegment = 0;
                 applyKey(cam, keys[0]);
             }
-
             setupAnim(cam, keys[currentSegment], keys[currentSegment + 1]);
         }
     };
-
 }
-

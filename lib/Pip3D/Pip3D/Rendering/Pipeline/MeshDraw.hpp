@@ -188,7 +188,7 @@ namespace pip3D
             const float viewportWidth = static_cast<float>(viewport.width);
             const float viewportHalfWidth = viewportWidth * 0.5f;
             const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
-            const bool usePerspectiveFacing = camera.projectionType == PERSPECTIVE || camera.projectionType == FISHEYE;
+            const bool usePerspectiveFacing = camera.projectionType == PERSPECTIVE;
 
             if (mesh->getCachedProjectionFrameStamp() != frameStamp)
             {

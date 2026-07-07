@@ -34,7 +34,7 @@ namespace pip3D
         const Vector3 camFwd = cam.forward();
         const Vector3 camRight = cam.right();
         const Vector3 camUp = cam.upVec();
-        const bool perspective = (cam.projectionType == PERSPECTIVE || cam.projectionType == FISHEYE);
+        const bool perspective = (cam.projectionType == PERSPECTIVE);
 
         const float fovRad = cam.fov * kDegToRad;
         const float projScale = perspective ? FastMath::fastReciprocal(tanf(fovRad * 0.5f)) : 1.0f;
