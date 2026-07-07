@@ -514,7 +514,7 @@ namespace pip3D
         const Vector3 &camFwd = cam.forward();
         const Vector3 camPos = cam.position;
         const float nearPlane = cam.nearPlane;
-        const bool usePerspectiveFacing = cam.projectionType == PERSPECTIVE || cam.projectionType == FISHEYE;
+        const bool usePerspectiveFacing = cam.projectionType == PERSPECTIVE;
         const bool isTextured = mesh->isTextured();
         const bool doBackfaceCull = backfaceCullingEnabled;
         const bool gouraudShading = (shadingMode == SHADING_GOURAUD) && !useUniformColor;
