@@ -5,7 +5,6 @@
 #include <cstring>
 
 #include "Core/Platform.hpp"
-#include "Core/Viewport.hpp"
 #include "Core/Memory.hpp"
 #include "Core/Color.hpp"
 #include "Math/Algebra.hpp"
@@ -241,7 +240,7 @@ namespace pip3D
         __attribute__((always_inline, hot)) inline void
         drawClouds(float yawRad, float pitchShiftRows, float hfovRad)
         {
-            clouds.drawClouds<WIDTH, HEIGHT>(buffer[activeSlot], currentBandOffsetY(),
+            clouds.drawClouds<WIDTH, HEIGHT>(buffer[activeSlot], g_bandOffsetY,
                                              yawRad, pitchShiftRows, hfovRad);
         }
 
@@ -278,7 +277,7 @@ namespace pip3D
             if (w <= 0 || h <= 0)
                 return;
 
-            const int16_t bandTop = currentBandOffsetY();
+            const int16_t bandTop = g_bandOffsetY;
             const int16_t bandBottom = static_cast<int16_t>(bandTop + config.height);
 
             const int16_t x0 = (x < 0) ? 0 : x;
@@ -296,8 +295,8 @@ namespace pip3D
                      "FrameBuffer::endFrameRegion localY out of bounds (y=%d, localY=%d, bandOffset=%d, bandHeight=%d, fbHeight=%d)",
                      static_cast<int>(y),
                      static_cast<int>(localY),
-                     static_cast<int>(currentBandOffsetY()),
-                     static_cast<int>(currentBandHeight()),
+                     static_cast<int>(g_bandOffsetY),
+                     static_cast<int>(g_bandHeight),
                      static_cast<int>(config.height));
                 return;
             }
@@ -339,7 +338,7 @@ namespace pip3D
             const uint16_t baseClear = clearColor.rgb565;
             const uint32_t baseClear32 = (static_cast<uint32_t>(baseClear) << 16) | baseClear;
 
-            const int16_t bandOffY = currentBandOffsetY();
+            const int16_t bandOffY = g_bandOffsetY;
             constexpr uint16_t widthHalf = WIDTH >> 1;
             constexpr int16_t maxY = static_cast<int16_t>(SCREEN_HEIGHT) - 1;
             const int32_t shiftI = static_cast<int32_t>(pitchShiftRows);

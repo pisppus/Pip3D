@@ -12,6 +12,12 @@
 namespace pip3D
 {
 
+    enum ShadingMode : uint8_t
+    {
+        SHADING_FLAT = 0,
+        SHADING_GOURAUD = 1
+    };
+
     class Shading
     {
     public:

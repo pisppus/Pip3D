@@ -227,8 +227,8 @@ namespace pip3D
 
         const float viewportHalfWidth = static_cast<float>(viewport.width) * 0.5f;
         const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
-        const int16_t bandTop = currentBandOffsetY();
-        const int16_t bandBottom = static_cast<int16_t>(bandTop + currentBandHeight());
+        const int16_t bandTop = g_bandOffsetY;
+        const int16_t bandBottom = static_cast<int16_t>(bandTop + g_bandHeight);
         const DisplayConfig &framebufferConfig = framebuffer.getConfig();
         const float viewportWidth = static_cast<float>(viewport.width);
 
@@ -446,9 +446,9 @@ namespace pip3D
         if (mesh->ensureDecodedVertexCache())
             localVerts = mesh->getCachedLocalVertices();
 
-        const uint32_t frameStamp = currentFrameStamp();
-        const int16_t bandTop = currentBandOffsetY();
-        const int16_t bandBottom = static_cast<int16_t>(bandTop + currentBandHeight());
+        const uint32_t frameStamp = g_frameStamp;
+        const int16_t bandTop = g_bandOffsetY;
+        const int16_t bandBottom = static_cast<int16_t>(bandTop + g_bandHeight);
         const float viewportWidth = static_cast<float>(viewport.width);
         const float viewportHalfWidth = viewportWidth * 0.5f;
         const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
@@ -518,7 +518,7 @@ namespace pip3D
         const bool isTextured = mesh->isTextured();
         const bool doBackfaceCull = backfaceCullingEnabled;
         const bool gouraudShading = (shadingMode == SHADING_GOURAUD) && !useUniformColor;
-        const uint32_t currentFrame = currentFrameStamp();
+        const uint32_t currentFrame = g_frameStamp;
 
         constexpr float kNearClipEps = 1e-4f;
         const float nearClip = nearPlane + kNearClipEps;

@@ -2,7 +2,6 @@
 
 #include "Core/Platform.hpp"
 #include "Core/Color.hpp"
-#include "Core/Viewport.hpp"
 #include "Debug/Logging.hpp"
 #include "Math/Algebra.hpp"
 #include "Rendering/Renderer.hpp"
@@ -249,8 +248,8 @@ namespace pip3D
             if (!fb)
                 return;
 
-            int16_t bandTop = currentBandOffsetY();
-            int16_t bandH = currentBandHeight();
+            int16_t bandTop = g_bandOffsetY;
+            int16_t bandH = g_bandHeight;
             int16_t bandBottom = bandTop + bandH;
 
             const Camera &cam = renderer.getCamera();

@@ -1,5 +1,6 @@
 #include "Renderer.hpp"
 #include "Debug/Logging.hpp"
+#include "Core/Jobs.hpp"
 #include "Debug/Gizmos.hpp"
 #include <cstring>
 #include "Rendering/Pipeline/Telemetry.hpp"
@@ -64,12 +65,37 @@ namespace pip3D
             MemUtils::freeData(reflectBuffer);
         if (reflectWriteBuffer)
             MemUtils::freeData(reflectWriteBuffer);
+
+        JobSystem::shutdown();
+        for (int i = 0; i < FLUSH_JOB_SLOTS; ++i)
+        {
+            if (flushSlotSem[i])
+            {
+                vSemaphoreDelete(flushSlotSem[i]);
+                flushSlotSem[i] = nullptr;
+            }
+        }
     }
 
     bool Renderer::init(const DisplayConfig &cfg)
     {
         initialized = false;
-        useDualCore(true);
+        JobSystem::init();
+
+        for (int i = 0; i < FLUSH_JOB_SLOTS; ++i)
+        {
+            if (flushSlotSem[i])
+            {
+                vSemaphoreDelete(flushSlotSem[i]);
+                flushSlotSem[i] = nullptr;
+            }
+            flushSlotSem[i] = xSemaphoreCreateBinary();
+            if (flushSlotSem[i])
+                xSemaphoreGive(flushSlotSem[i]);
+            else
+                LOGE(::pip3D::Debug::LOG_MODULE_RENDER,
+                     "Renderer::init: flushSlotSem[%d] creation failed", i);
+        }
 
         LOGI(::pip3D::Debug::LOG_MODULE_RENDER,
              "Renderer::init: display %dx%d @ %dMHz (cs=%d, dc=%d, mosi=%d, sclk=%d, rst=%d, bl=%d, rotation=%u)",
@@ -204,7 +230,7 @@ namespace pip3D
 #endif
 
         const DisplayConfig &cfg = framebuffer.getConfig();
-        framebuffer.endFrameRegion(0, currentBandOffsetY(), cfg.width, cfg.height);
+        framebuffer.endFrameRegion(0, g_bandOffsetY, cfg.width, cfg.height);
         perfCounter.endFrame();
     }
 
@@ -212,6 +238,11 @@ namespace pip3D
     {
         if (!isInitialized())
             return;
+
+#if !defined(PIP3D_PC)
+        if (JobSystem::isEnabled() && flushSlotSem[framebuffer.getActiveSlot()])
+            xSemaphoreTake(flushSlotSem[framebuffer.getActiveSlot()], portMAX_DELAY);
+#endif
 
         if (bandIndex == 0)
             g_drawTelemetry.resetFrame();
@@ -229,12 +260,12 @@ namespace pip3D
             bandIndex = BAND_COUNT - 1;
 
         int16_t bandTop = static_cast<int16_t>(bandIndex * BAND_HEIGHT);
-        currentBandOffsetY() = bandTop;
-        currentBandHeight() = BAND_HEIGHT;
+        g_bandOffsetY = bandTop;
+        g_bandHeight = BAND_HEIGHT;
 
         if (bandIndex == 0)
         {
-            currentFrameStamp()++;
+            g_frameStamp++;
             perfCounter.begin();
 
             for (int i = 0; i < activeLightCount; ++i)
@@ -363,10 +394,11 @@ namespace pip3D
         }
 
 #if !defined(PIP3D_PC)
-        if (isDualCoreEnabled())
+        if (JobSystem::isEnabled())
         {
-            JobSystem::waitAll();
-            FlushJob &job = flushJobs[flushJobNext];
+            const int slot = framebuffer.getActiveSlot();
+
+            FlushJob &job = flushJobs[slot];
             job.display = display;
             job.pixels = framebuffer.getStagingBufferForFlush();
             job.x = 0;
@@ -374,15 +406,17 @@ namespace pip3D
             job.w = fbCfg.width;
             job.h = fbCfg.height;
             job.stridePixels = fbCfg.width;
+            job.doneSem = flushSlotSem[slot];
 
             if (JobSystem::submit(&Renderer::flushJobFunc, &job))
             {
                 framebuffer.swapStagingSlot();
-                flushJobNext ^= 1;
             }
             else
             {
                 framebuffer.endFrameRegion(0, bandY, fbCfg.width, fbCfg.height);
+                if (flushSlotSem[slot])
+                    xSemaphoreGive(flushSlotSem[slot]);
             }
         }
         else
@@ -425,6 +459,9 @@ namespace pip3D
         job->display->writeRect565(job->x, job->y, job->w, job->h,
                                    job->pixels, job->stridePixels);
 #endif
+
+        if (job->doneSem)
+            xSemaphoreGive(job->doneSem);
     }
 
     void Renderer::drawSkyboxBackground()

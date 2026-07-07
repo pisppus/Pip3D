@@ -5,7 +5,6 @@
 #include <cstdint>
 
 #include "Core/Platform.hpp"
-#include "Core/Viewport.hpp"
 #include "Math/Algebra.hpp"
 #include "Rendering/Display/ZBuffer.hpp"
 

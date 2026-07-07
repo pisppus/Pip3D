@@ -7,24 +7,6 @@
 #include "Math/Algebra.hpp"
 #include "Rendering/Pipeline/Rasterizer/Common.hpp"
 
-#if !defined(IRAM_ATTR)
-#if defined(ESP_PLATFORM) || defined(ESP32)
-#include <esp_attr.h>
-#else
-#define IRAM_ATTR
-#endif
-#endif
-
-#if defined(__GNUC__) || defined(__clang__)
-#ifndef PIP3D_PREFETCH
-#define PIP3D_PREFETCH(ptr) __builtin_prefetch((ptr), 1, 0)
-#endif
-#else
-#ifndef PIP3D_PREFETCH
-#define PIP3D_PREFETCH(ptr) ((void)0)
-#endif
-#endif
-
 namespace pip3D
 {
     template <uint16_t WIDTH, uint16_t HEIGHT>
@@ -50,8 +32,8 @@ namespace pip3D
 
             while (count >= 4)
             {
-                PIP3D_PREFETCH(buf + 16);
-                PIP3D_PREFETCH(fb + 16);
+                PIP3D_PREFETCH_W(buf + 16);
+                PIP3D_PREFETCH_W(fb + 16);
 
                 const int16_t d0 = static_cast<int16_t>(depth);
                 const int16_t d1 = static_cast<int16_t>(depth + depthStep);

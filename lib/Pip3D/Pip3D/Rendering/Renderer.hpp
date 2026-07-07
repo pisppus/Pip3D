@@ -2,10 +2,7 @@
 
 #include "Core/Platform.hpp"
 #include "Core/Color.hpp"
-#include "Core/Viewport.hpp"
 #include "Core/Diagnostics.hpp"
-#include "Core/Events.hpp"
-#include "Core/Resources.hpp"
 #include "Debug/Gizmos.hpp"
 #include "Camera/Camera.hpp"
 #include "Camera/Frustum.hpp"
@@ -59,6 +56,7 @@ namespace pip3D
         int16_t w;
         int16_t h;
         int32_t stridePixels;
+        SemaphoreHandle_t doneSem;
     };
 
     class Renderer
@@ -124,7 +122,7 @@ namespace pip3D
         ShadowSettings shadowSettings;
         uint32_t shadowCacheGeneration;
         Color lastAutoShadowColor;
-        PerformanceCounter perfCounter;
+        PerfCounter perfCounter;
         ShadingMode shadingMode;
 
         uint32_t statsTrianglesTotal;
@@ -170,6 +168,9 @@ namespace pip3D
         static constexpr int FLUSH_JOB_SLOTS = 2;
         FlushJob flushJobs[FLUSH_JOB_SLOTS];
         int flushJobNext = 0;
+#if !defined(PIP3D_PC)
+        SemaphoreHandle_t flushSlotSem[FLUSH_JOB_SLOTS] = {nullptr, nullptr};
+#endif
 
     public:
         Renderer();

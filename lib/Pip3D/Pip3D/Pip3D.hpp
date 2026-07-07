@@ -3,10 +3,7 @@
 #include "Core/Platform.hpp"
 #include "Core/Memory.hpp"
 #include "Core/Color.hpp"
-#include "Core/Viewport.hpp"
 #include "Core/Diagnostics.hpp"
-#include "Core/Events.hpp"
-#include "Core/Resources.hpp"
 #include "Core/Jobs.hpp"
 
 #include "Debug/Flags.hpp"
