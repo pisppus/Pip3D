@@ -1,314 +1,195 @@
-#include "Jobs.hpp"
+#include "Core/Jobs.hpp"
+#include "Debug/Logging.hpp"
 
 namespace pip3D
 {
-#ifdef ARDUINO_ARCH_ESP32
+
+#if PIP3D_TARGET_ESP32
 
     static constexpr int MAX_JOBS = 32;
+    static constexpr int JOB_MASK = MAX_JOBS - 1;
+    static constexpr uint32_t STACK_SIZE = 4096;
+    static constexpr UBaseType_t WORKER_PRIORITY = 1;
+    static constexpr BaseType_t WORKER_CORE = 0;
 
     static Job s_jobQueue[MAX_JOBS];
     static volatile int s_head = 0;
     static volatile int s_tail = 0;
 
     static TaskHandle_t s_workerTask = nullptr;
-    static SemaphoreHandle_t s_queueMutex = nullptr;
-    static SemaphoreHandle_t s_jobSemaphore = nullptr;
-
-    static volatile int s_pending = 0;
     static SemaphoreHandle_t s_doneSemaphore = nullptr;
 
-    static bool s_initialized = false;
-    static bool s_enabled = false;
+    volatile bool JobSystem::s_running = false;
 
-    static inline bool queueEmpty()
-    {
-        return s_head == s_tail;
-    }
-
-    static inline bool queueFull()
-    {
-        int nextHead = s_head + 1;
-        if (nextHead >= MAX_JOBS)
-            nextHead = 0;
-        return nextHead == s_tail;
-    }
+    PIP3D_FORCE_INLINE static void memFence() { __sync_synchronize(); }
 
     bool JobSystem::init()
     {
 #if CONFIG_FREERTOS_UNICORE
-        s_enabled = false;
+        s_running = false;
         LOGW(::pip3D::Debug::LOG_MODULE_CORE,
              "JobSystem disabled: FreeRTOS unicore configuration");
         return false;
 #else
-        if (s_initialized)
-        {
-            s_enabled = true;
+        if (s_running)
             return true;
-        }
-
-        s_queueMutex = xSemaphoreCreateMutex();
-        if (!s_queueMutex)
-        {
-            LOGE(::pip3D::Debug::LOG_MODULE_CORE,
-                 "JobSystem::init failed: could not create queue mutex");
-            return false;
-        }
-
-        s_jobSemaphore = xSemaphoreCreateCounting(MAX_JOBS, 0);
-        if (!s_jobSemaphore)
-        {
-            vSemaphoreDelete(s_queueMutex);
-            s_queueMutex = nullptr;
-            LOGE(::pip3D::Debug::LOG_MODULE_CORE,
-                 "JobSystem::init failed: could not create job semaphore");
-            return false;
-        }
 
         s_doneSemaphore = xSemaphoreCreateCounting(MAX_JOBS, 0);
         if (!s_doneSemaphore)
         {
-            vSemaphoreDelete(s_queueMutex);
-            vSemaphoreDelete(s_jobSemaphore);
-            s_queueMutex = nullptr;
-            s_jobSemaphore = nullptr;
             LOGE(::pip3D::Debug::LOG_MODULE_CORE,
-                 "JobSystem::init failed: could not create done semaphore");
-            return false;
-        }
-
-        const uint32_t STACK_SIZE = 4096;
-        BaseType_t res = xTaskCreatePinnedToCore(
-            JobSystem::workerLoop,
-            "Pip3DJobWorker",
-            STACK_SIZE,
-            nullptr,
-            1,
-            &s_workerTask,
-            0);
-
-        if (res != pdPASS)
-        {
-            vSemaphoreDelete(s_queueMutex);
-            vSemaphoreDelete(s_jobSemaphore);
-            vSemaphoreDelete(s_doneSemaphore);
-            s_queueMutex = nullptr;
-            s_jobSemaphore = nullptr;
-            s_doneSemaphore = nullptr;
-            s_workerTask = nullptr;
-            LOGE(::pip3D::Debug::LOG_MODULE_CORE,
-                 "JobSystem::init failed: xTaskCreatePinnedToCore returned %d",
-                 (int)res);
+                 "JobSystem::init: done counting semaphore failed");
             return false;
         }
 
         s_head = 0;
         s_tail = 0;
-        s_pending = 0;
-        s_initialized = true;
-        s_enabled = true;
+
+        const BaseType_t res = xTaskCreatePinnedToCore(
+            JobSystem::workerLoop,
+            "Pip3DJobWorker",
+            STACK_SIZE,
+            nullptr,
+            WORKER_PRIORITY,
+            &s_workerTask,
+            WORKER_CORE);
+
+        if (res != pdPASS)
+        {
+            vSemaphoreDelete(s_doneSemaphore);
+            s_doneSemaphore = nullptr;
+            s_workerTask = nullptr;
+            LOGE(::pip3D::Debug::LOG_MODULE_CORE,
+                 "JobSystem::init: xTaskCreatePinnedToCore returned %d",
+                 (int)res);
+            return false;
+        }
+
+        s_running = true;
         return true;
-    }
 #endif
-
-        void JobSystem::shutdown()
-        {
-            s_enabled = false;
-
-            if (s_workerTask)
-            {
-                vTaskDelete(s_workerTask);
-                s_workerTask = nullptr;
-            }
-
-            if (s_queueMutex)
-            {
-                vSemaphoreDelete(s_queueMutex);
-                s_queueMutex = nullptr;
-            }
-
-            if (s_jobSemaphore)
-            {
-                vSemaphoreDelete(s_jobSemaphore);
-                s_jobSemaphore = nullptr;
-            }
-
-            if (s_doneSemaphore)
-            {
-                vSemaphoreDelete(s_doneSemaphore);
-                s_doneSemaphore = nullptr;
-            }
-
-            s_head = 0;
-            s_tail = 0;
-            s_pending = 0;
-            s_initialized = false;
-        }
-
-        bool JobSystem::submit(JobFunc func, void *userData)
-        {
-            if (!s_initialized || !s_enabled || !func)
-            {
-                LOGW(::pip3D::Debug::LOG_MODULE_CORE,
-                     "JobSystem::submit rejected: initialized=%d enabled=%d func=%p",
-                     (int)s_initialized,
-                     (int)s_enabled,
-                     (void *)func);
-                return false;
-            }
-
-            if (xSemaphoreTake(s_queueMutex, 0) != pdTRUE)
-            {
-                LOGW(::pip3D::Debug::LOG_MODULE_CORE,
-                     "JobSystem::submit could not acquire queue mutex");
-                return false;
-            }
-
-            if (queueFull())
-            {
-                xSemaphoreGive(s_queueMutex);
-                LOGW(::pip3D::Debug::LOG_MODULE_CORE,
-                     "JobSystem queue full, job rejected");
-                return false;
-            }
-
-            int index = s_head;
-            s_jobQueue[index].func = func;
-            s_jobQueue[index].userData = userData;
-
-            int nextHead = index + 1;
-            if (nextHead >= MAX_JOBS)
-                nextHead = 0;
-            s_head = nextHead;
-
-            ++s_pending;
-
-            xSemaphoreGive(s_queueMutex);
-            xSemaphoreGive(s_jobSemaphore);
-
-            return true;
-        }
-
-        bool JobSystem::isEnabled()
-        {
-            return s_enabled;
-        }
-
-        bool JobSystem::waitAll(uint32_t timeoutTicks)
-        {
-            if (!s_initialized)
-                return true;
-
-            for (;;)
-            {
-                while (xSemaphoreTake(s_doneSemaphore, 0) == pdTRUE)
-                {
-                }
-
-                int pendingNow;
-                while (xSemaphoreTake(s_queueMutex, portMAX_DELAY) != pdTRUE)
-                {
-                }
-                pendingNow = s_pending;
-                xSemaphoreGive(s_queueMutex);
-
-                if (pendingNow == 0)
-                    return true;
-
-                if (xSemaphoreTake(s_doneSemaphore, timeoutTicks) != pdTRUE)
-                    return false;
-            }
-        }
-
-        int JobSystem::pendingCount()
-        {
-            if (!s_initialized)
-                return 0;
-
-            int count;
-            if (xSemaphoreTake(s_queueMutex, portMAX_DELAY) == pdTRUE)
-            {
-                count = s_pending;
-                xSemaphoreGive(s_queueMutex);
-            }
-            else
-            {
-                count = s_pending;
-            }
-            return count;
-        }
-
-        void JobSystem::workerLoop(void *param)
-        {
-            (void)param;
-
-            for (;;)
-            {
-                if (!s_enabled)
-                {
-                    vTaskDelay(1);
-                    continue;
-                }
-
-                if (xSemaphoreTake(s_jobSemaphore, portMAX_DELAY) != pdTRUE)
-                {
-                    continue;
-                }
-
-                Job job = {nullptr, nullptr};
-
-                if (xSemaphoreTake(s_queueMutex, portMAX_DELAY) == pdTRUE)
-                {
-                    if (!queueEmpty())
-                    {
-                        int index = s_tail;
-                        job = s_jobQueue[index];
-
-                        int nextTail = index + 1;
-                        if (nextTail >= MAX_JOBS)
-                            nextTail = 0;
-                        s_tail = nextTail;
-                    }
-                    xSemaphoreGive(s_queueMutex);
-                }
-
-                if (job.func)
-                {
-                    job.func(job.userData);
-                }
-
-                bool notify = false;
-                while (xSemaphoreTake(s_queueMutex, portMAX_DELAY) != pdTRUE)
-                {
-                }
-                if (s_pending > 0)
-                {
-                    --s_pending;
-                    notify = (s_pending == 0);
-                }
-                xSemaphoreGive(s_queueMutex);
-
-                if (notify)
-                {
-                    xSemaphoreGive(s_doneSemaphore);
-                }
-            }
-        }
-
-#else
-
-    static bool s_enabled = false;
-
-    bool JobSystem::init()
-    {
-        s_enabled = false;
-        return false;
     }
 
     void JobSystem::shutdown()
     {
-        s_enabled = false;
+        if (!s_running)
+            return;
+
+        waitAll();
+
+        s_running = false;
+
+        if (s_workerTask)
+        {
+            xTaskNotifyGive(s_workerTask);
+            vTaskDelay(1);
+            vTaskDelete(s_workerTask);
+            s_workerTask = nullptr;
+        }
+
+        if (s_doneSemaphore)
+        {
+            vSemaphoreDelete(s_doneSemaphore);
+            s_doneSemaphore = nullptr;
+        }
+
+        s_head = 0;
+        s_tail = 0;
     }
+
+    bool JobSystem::submit(JobFunc func, void *userData)
+    {
+        if (unlikely(!s_running || !func))
+        {
+            LOGW(::pip3D::Debug::LOG_MODULE_CORE,
+                 "JobSystem::submit rejected: running=%d func=%p",
+                 (int)s_running, (void *)func);
+            return false;
+        }
+
+        const int head = s_head;
+        const int nextHead = (head + 1) & JOB_MASK;
+
+        if (nextHead == s_tail)
+        {
+            LOGW(::pip3D::Debug::LOG_MODULE_CORE,
+                 "JobSystem::submit: queue full, job rejected");
+            return false;
+        }
+
+        s_jobQueue[head].func = func;
+        s_jobQueue[head].userData = userData;
+        memFence();
+        s_head = nextHead;
+
+        if (s_workerTask)
+            xTaskNotifyGive(s_workerTask);
+
+        return true;
+    }
+
+    bool JobSystem::waitAll()
+    {
+        if (!s_running)
+            return true;
+
+        for (;;)
+        {
+            while (xSemaphoreTake(s_doneSemaphore, 0) == pdTRUE)
+            {
+            }
+
+            memFence();
+            const int pending = (s_head - s_tail + MAX_JOBS) & JOB_MASK;
+
+            if (pending == 0)
+                return true;
+
+            if (xSemaphoreTake(s_doneSemaphore, portMAX_DELAY) != pdTRUE)
+                return false;
+        }
+    }
+
+    void JobSystem::workerLoop(void *param)
+    {
+        (void)param;
+
+        for (;;)
+        {
+            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+            if (!s_running)
+                return;
+
+            for (;;)
+            {
+                const int tail = s_tail;
+                if (tail == s_head)
+                    break;
+
+                memFence();
+                Job job = s_jobQueue[tail];
+                s_tail = (tail + 1) & JOB_MASK;
+
+                if (job.func)
+                    job.func(job.userData);
+
+                xSemaphoreGive(s_doneSemaphore);
+            }
+        }
+    }
+
+#else
+
+    volatile bool JobSystem::s_running = false;
+
+    bool JobSystem::init()
+    {
+        s_running = false;
+        return false;
+    }
+
+    void JobSystem::shutdown() { s_running = false; }
 
     bool JobSystem::submit(JobFunc func, void *userData)
     {
@@ -318,43 +199,9 @@ namespace pip3D
         return true;
     }
 
-    bool JobSystem::waitAll(uint32_t timeoutTicks)
-    {
-        (void)timeoutTicks;
-        return true;
-    }
+    bool JobSystem::waitAll() { return true; }
 
-    int JobSystem::pendingCount()
-    {
-        return 0;
-    }
-
-    bool JobSystem::isEnabled()
-    {
-        return s_enabled;
-    }
-
-    void JobSystem::workerLoop(void *param)
-    {
-        (void)param;
-    }
+    void JobSystem::workerLoop(void *param) { (void)param; }
 
 #endif
-
-        void useDualCore(bool enabled)
-        {
-            if (enabled)
-            {
-                JobSystem::init();
-            }
-            else
-            {
-                JobSystem::shutdown();
-            }
-        }
-
-        bool isDualCoreEnabled()
-        {
-            return JobSystem::isEnabled();
-        }
-    }
+}

@@ -1,4 +1,5 @@
 #pragma once
+
 #include <cstdint>
 #include <cmath>
 
@@ -12,7 +13,7 @@ namespace pip3D
 {
     inline constexpr float COLOR_BYTE_MAX_F = 255.0f;
 
-    struct alignas(2) Color
+    struct Color
     {
         uint16_t rgb565;
 
@@ -247,7 +248,7 @@ namespace pip3D
         }
 
         static constexpr uint16_t BLACK = 0, WHITE = 0xFFFF, RED = 0xF800, GREEN = 0x07E0, BLUE = 0x001F, CYAN = 0x07FF, MAGENTA = 0xF81F, YELLOW = 0xFFE0;
-        static constexpr uint16_t GRAY = 0x8410, DARK_GRAY = 0x4208, LIGHT_GRAY = 0xC618, ORANGE = 0xFD20, PINK = 0xF81F, PURPLE = 0x780F, BROWN = 0xA145, LIME = 0x07E0;
+        static constexpr uint16_t GRAY = 0x8410, DARK_GRAY = 0x4208, LIGHT_GRAY = 0xC618, ORANGE = 0xFD20, PINK = 0xFE19, PURPLE = 0x780F, BROWN = 0xA145, LIME = 0x07E0;
     };
 
     struct Palette

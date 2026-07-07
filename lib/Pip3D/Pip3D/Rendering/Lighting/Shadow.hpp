@@ -93,8 +93,8 @@ namespace pip3D
             uint8_t baseAlpha;
             computeShadowColorAndAlpha(shadowSettings, shadowColor, baseAlpha);
 
-            const int16_t bandTop = currentBandOffsetY();
-            const int16_t bandBottom = static_cast<int16_t>(bandTop + currentBandHeight());
+            const int16_t bandTop = g_bandOffsetY;
+            const int16_t bandBottom = static_cast<int16_t>(bandTop + g_bandHeight);
 
             renderShadowGeometry(meshCenter, meshRadius, mesh->getTransform(), shadowMesh,
                                  light, shadowSettings, camera, viewProjMatrix, viewport,
@@ -141,8 +141,8 @@ namespace pip3D
             uint8_t baseAlpha;
             computeShadowColorAndAlpha(shadowSettings, shadowColor, baseAlpha);
 
-            const int16_t bandTop = currentBandOffsetY();
-            const int16_t bandBottom = static_cast<int16_t>(bandTop + currentBandHeight());
+            const int16_t bandTop = g_bandOffsetY;
+            const int16_t bandBottom = static_cast<int16_t>(bandTop + g_bandHeight);
 
             renderShadowGeometry(instCenter, instRadius, instance->transform(), shadowMesh,
                                  light, shadowSettings, camera, viewProjMatrix, viewport,

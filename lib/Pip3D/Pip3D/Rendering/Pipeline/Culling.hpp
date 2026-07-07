@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Core/Platform.hpp"
-#include "Core/Viewport.hpp"
 #include "Camera/Camera.hpp"
 #include "Math/Algebra.hpp"
 #include "Rendering/Display/ZBuffer.hpp"
@@ -111,7 +110,7 @@ namespace pip3D
             const int16_t cy = static_cast<int16_t>(cy_f);
             const int16_t rScrInt = static_cast<int16_t>(rScr > 1.0f ? rScr : 1.0f);
 
-            const int16_t bandTop = currentBandOffsetY();
+            const int16_t bandTop = g_bandOffsetY;
             const int16_t bandBottom = bandTop + static_cast<int16_t>(cfg.height);
             const int16_t cfgW = static_cast<int16_t>(cfg.width);
 

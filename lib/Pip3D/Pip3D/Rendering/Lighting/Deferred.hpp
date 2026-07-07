@@ -2,7 +2,6 @@
 
 #include "Core/Platform.hpp"
 #include "Core/Color.hpp"
-#include "Core/Viewport.hpp"
 #include "Math/Algebra.hpp"
 #include "Camera/Camera.hpp"
 #include "Rendering/Display/ZBuffer.hpp"
@@ -36,7 +35,7 @@ namespace pip3D
             {960, 448, 832, 320}};
 
         const int16_t screenW = SCREEN_WIDTH;
-        const int16_t bandTop = currentBandOffsetY();
+        const int16_t bandTop = g_bandOffsetY;
         const int16_t bandBottom = static_cast<int16_t>(bandTop + SCREEN_BAND_HEIGHT);
         const int16_t *const zbBase = zBuffer->getBufferPtr();
         if (!zbBase)

@@ -186,8 +186,8 @@ namespace pip3D
         if (maxY >= (int16_t)SCREEN_HEIGHT)
             maxY = (int16_t)SCREEN_HEIGHT - 1;
 
-        const int16_t bandTop = currentBandOffsetY();
-        const int16_t bandH = currentBandHeight();
+        const int16_t bandTop = g_bandOffsetY;
+        const int16_t bandH = g_bandHeight;
         const int16_t bandBottom = static_cast<int16_t>(bandTop + bandH);
 
         if (maxY < bandTop || minY >= bandBottom)
@@ -418,8 +418,8 @@ namespace pip3D
             return;
         }
 
-        const int16_t bandTop = currentBandOffsetY();
-        const int16_t bandBottom = static_cast<int16_t>(bandTop + currentBandHeight());
+        const int16_t bandTop = g_bandOffsetY;
+        const int16_t bandBottom = static_cast<int16_t>(bandTop + g_bandHeight);
         if (maxSy < bandTop || minSy >= bandBottom)
             return;
         if (maxSx < 0.0f || minSx >= viewport.width)

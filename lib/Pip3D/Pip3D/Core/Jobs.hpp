@@ -2,7 +2,7 @@
 
 #include "Core/Platform.hpp"
 
-#ifdef ARDUINO_ARCH_ESP32
+#if PIP3D_TARGET_ESP32
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/semphr.h>
@@ -10,7 +10,7 @@
 
 namespace pip3D
 {
-    typedef void (*JobFunc)(void *userData);
+    using JobFunc = void (*)(void *userData);
 
     struct Job
     {
@@ -24,14 +24,11 @@ namespace pip3D
         static bool init();
         static void shutdown();
         static bool submit(JobFunc func, void *userData = nullptr);
-        static bool waitAll(uint32_t timeoutTicks = portMAX_DELAY);
-        static int pendingCount();
-        static bool isEnabled();
+        static bool waitAll();
+        PIP3D_FORCE_INLINE static bool isEnabled() { return s_running; }
 
     private:
         static void workerLoop(void *param);
+        static volatile bool s_running;
     };
-
-    void useDualCore(bool enabled);
-    bool isDualCoreEnabled();
 }

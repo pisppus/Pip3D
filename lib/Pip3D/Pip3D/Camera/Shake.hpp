@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Math/Algebra.hpp"
 #include <cmath>
+#include "Math/Algebra.hpp"
 
 namespace pip3D
 {

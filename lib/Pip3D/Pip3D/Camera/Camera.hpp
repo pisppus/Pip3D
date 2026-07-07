@@ -1,12 +1,12 @@
 #pragma once
 
-#include "Math/Algebra.hpp"
-#include "Shake.hpp"
+#include <algorithm>
+#include <cmath>
+
 #include "Animation.hpp"
 #include "Frustum.hpp"
-#include "Core/Viewport.hpp"
-#include <cmath>
-#include <algorithm>
+#include "Math/Algebra.hpp"
+#include "Shake.hpp"
 
 namespace pip3D
 {

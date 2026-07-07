@@ -158,8 +158,8 @@ namespace pip3D
             }
         }
 
-        const int16_t bandTop = currentBandOffsetY();
-        const int16_t bandBottom = static_cast<int16_t>(bandTop + currentBandHeight());
+        const int16_t bandTop = g_bandOffsetY;
+        const int16_t bandBottom = static_cast<int16_t>(bandTop + g_bandHeight);
         const DisplayConfig &cfg = framebuffer.getConfig();
 
         float minY = fminf(p0.y, fminf(p1.y, fminf(p2.y, p3.y)));

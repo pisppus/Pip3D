@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Core/Viewport.hpp"
 #include "Font.hpp"
 #include "Rendering/Display/FrameBuffer.hpp"
 
@@ -19,7 +18,7 @@ namespace pip3D
                 return;
 
             const DisplayConfig &cfg = framebuffer.getConfig();
-            const int16_t bandTop = currentBandOffsetY();
+            const int16_t bandTop = g_bandOffsetY;
             const int16_t textBottom = static_cast<int16_t>(y + BitmapFont::getCharHeight());
             if (textBottom <= bandTop || y >= bandTop + cfg.height)
                 return;
@@ -42,7 +41,7 @@ namespace pip3D
             if (cfg.width == 0 || cfg.height == 0)
                 return 0xFFFF;
 
-            const int16_t bandTop = currentBandOffsetY();
+            const int16_t bandTop = g_bandOffsetY;
             const int16_t bandBottom = static_cast<int16_t>(bandTop + cfg.height);
 
             if (width > 40)

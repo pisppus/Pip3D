@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Core/Viewport.hpp"
 #include "Camera/Camera.hpp"
 #include "Camera/Frustum.hpp"
 #include "Math/Algebra.hpp"
@@ -179,10 +178,10 @@ namespace pip3D
 
             Vector3 *worldVerts = mesh->getCachedWorldVertices();
             Vector3 *screenVerts = mesh->getCachedScreenVertices();
-            const uint32_t frameStamp = currentFrameStamp();
+            const uint32_t frameStamp = g_frameStamp;
             const Matrix4x4 &meshTransform = mesh->getTransform();
-            const int16_t bandTop = currentBandOffsetY();
-            const int16_t bandBottom = static_cast<int16_t>(bandTop + currentBandHeight());
+            const int16_t bandTop = g_bandOffsetY;
+            const int16_t bandBottom = static_cast<int16_t>(bandTop + g_bandHeight);
             const float viewportWidth = static_cast<float>(viewport.width);
             const float viewportHalfWidth = viewportWidth * 0.5f;
             const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
@@ -475,8 +474,8 @@ namespace pip3D
             Vector3 *worldVerts = mesh->getCachedWorldVertices();
             Vector3 *screenVerts = mesh->getCachedScreenVertices();
             const Matrix4x4 &meshTransform = mesh->getTransform();
-            const int16_t bandTop = currentBandOffsetY();
-            const int16_t bandBottom = static_cast<int16_t>(bandTop + currentBandHeight());
+            const int16_t bandTop = g_bandOffsetY;
+            const int16_t bandBottom = static_cast<int16_t>(bandTop + g_bandHeight);
             const float viewportWidth = static_cast<float>(viewport.width);
             const float viewportHalfWidth = viewportWidth * 0.5f;
             const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
@@ -559,8 +558,8 @@ namespace pip3D
                                                       bool useUniformColor,
                                                       uint16_t uniformColor)
         {
-            const int16_t bandTop = currentBandOffsetY();
-            const int16_t bandBottom = static_cast<int16_t>(bandTop + currentBandHeight());
+            const int16_t bandTop = g_bandOffsetY;
+            const int16_t bandBottom = static_cast<int16_t>(bandTop + g_bandHeight);
             const float viewportWidth = static_cast<float>(viewport.width);
             uint16_t *const frameBuffer = framebuffer.getBuffer();
             const DisplayConfig &framebufferConfig = framebuffer.getConfig();
@@ -707,8 +706,8 @@ namespace pip3D
 
             const float viewportHalfWidth = static_cast<float>(viewport.width) * 0.5f;
             const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
-            const int16_t bandTop = currentBandOffsetY();
-            const int16_t bandBottom = static_cast<int16_t>(bandTop + currentBandHeight());
+            const int16_t bandTop = g_bandOffsetY;
+            const int16_t bandBottom = static_cast<int16_t>(bandTop + g_bandHeight);
             const DisplayConfig &framebufferConfig = framebuffer.getConfig();
             const float viewportWidth = static_cast<float>(viewport.width);
 

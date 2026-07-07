@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Camera/Camera.hpp"
 #include <cmath>
+#include "Camera/Camera.hpp"
 
 namespace pip3D
 {

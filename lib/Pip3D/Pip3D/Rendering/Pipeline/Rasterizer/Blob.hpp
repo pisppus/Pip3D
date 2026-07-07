@@ -4,7 +4,6 @@
 #include <cmath>
 #include <cstdint>
 
-#include "Core/Viewport.hpp"
 #include "Math/Algebra.hpp"
 #include "Rendering/Display/ZBuffer.hpp"
 #include "Rendering/Pipeline/Rasterizer/Common.hpp"
