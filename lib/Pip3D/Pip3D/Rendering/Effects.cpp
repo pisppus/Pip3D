@@ -335,7 +335,7 @@ namespace pip3D
     {
         if (!bb.visible || !bb.texture)
         {
-#if defined(PIP3D_DEBUG_BILLBOARD)
+#if PIP3D_DEBUG_BILLBOARD
             LOGW(::pip3D::Debug::LOG_MODULE_RENDER,
                  "[BB-draw] early-out: visible=%d tex=%p",
                  (int)bb.visible, static_cast<const void *>(bb.texture));
@@ -359,7 +359,7 @@ namespace pip3D
             const float zView = (bb.position - camPos).dot(camFwd);
             if (zView <= cam.nearPlane || zView >= cam.farPlane)
             {
-#if defined(PIP3D_DEBUG_BILLBOARD)
+#if PIP3D_DEBUG_BILLBOARD
                 LOGW(::pip3D::Debug::LOG_MODULE_RENDER,
                      "[BB-draw] culled zView=%.3f near=%.3f far=%.3f",
                      zView, cam.nearPlane, cam.farPlane);
@@ -391,7 +391,7 @@ namespace pip3D
 
             if (!isfinite(p[i].x) || !isfinite(p[i].y) || !isfinite(p[i].z))
             {
-#if defined(PIP3D_DEBUG_BILLBOARD)
+#if PIP3D_DEBUG_BILLBOARD
                 LOGW(::pip3D::Debug::LOG_MODULE_RENDER,
                      "[BB-draw] NaN in project v%d: (%.1f,%.1f,%.3f)",
                      i, p[i].x, p[i].y, p[i].z);
@@ -412,7 +412,7 @@ namespace pip3D
         }
         if (!anyValid)
         {
-#if defined(PIP3D_DEBUG_BILLBOARD)
+#if PIP3D_DEBUG_BILLBOARD
             LOGW(::pip3D::Debug::LOG_MODULE_RENDER, "[BB-draw] no valid projected verts");
 #endif
             return;
@@ -451,7 +451,7 @@ namespace pip3D
             litB = static_cast<float>(bb.tint.rgb565 & 0x1F) * (1.0f / 31.0f);
         }
 
-#if defined(PIP3D_DEBUG_BILLBOARD)
+#if PIP3D_DEBUG_BILLBOARD
         const int16_t dbgBand = bandTop;
         LOGI(::pip3D::Debug::LOG_MODULE_RENDER,
              "[BB-draw band=%d] AABB x=[%.0f..%.0f] y=[%.0f..%.0f] band=[%d..%d] "

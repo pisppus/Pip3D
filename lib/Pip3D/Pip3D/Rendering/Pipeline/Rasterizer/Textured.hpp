@@ -396,7 +396,7 @@ namespace pip3D
                             if (d < curr)
                             {
                                 *zb = d;
-#if defined(PIP3D_DEBUG_MIPMAP)
+#if PIP3D_DEBUG_MIPMAP
                                 const uint16_t texColor = kDebugMipColors[chunkLod < 7 ? chunkLod : 7];
 #else
                                 const uint32_t tu = (static_cast<uint32_t>(u_fixed >> (16 + cush))) & cmaskU;
@@ -484,7 +484,7 @@ namespace pip3D
                                 const uint8_t bayer = static_cast<uint8_t>(detail::kBayerMatrix10Bit[baseY & 3][px_x & 3] >> 2);
                                 const bool useHi = (chunkFracLod > bayer);
 
-#if defined(PIP3D_DEBUG_MIPMAP)
+#if PIP3D_DEBUG_MIPMAP
                                 const int32_t vizLod = useHi ? chunkUVShiftHi : chunkLod;
                                 const uint16_t texColor = kDebugMipColors[vizLod < 7 ? vizLod : 7];
 #else

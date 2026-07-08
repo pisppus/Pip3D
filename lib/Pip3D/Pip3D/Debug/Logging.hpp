@@ -1,14 +1,12 @@
 #pragma once
 
-#include "Flags.hpp"
-#include <stdarg.h>
 #include <stdint.h>
+#include "Debug/Flags.hpp"
 
 namespace pip3D
 {
     namespace Debug
     {
-
         enum LogLevel : uint8_t
         {
             LOG_LEVEL_OFF = 0,
@@ -35,7 +33,9 @@ namespace pip3D
         class Logger
         {
         public:
-            static void init(LogLevel level = LOG_LEVEL_INFO, uint16_t modulesMask = LOG_MODULE_ALL, bool timestamps = true);
+            static void init(LogLevel level = LOG_LEVEL_INFO,
+                             uint16_t modulesMask = LOG_MODULE_ALL,
+                             bool timestamps = true);
             static void setLevel(LogLevel level);
             static LogLevel getLevel();
 
@@ -54,21 +54,16 @@ namespace pip3D
 
             static void setTimestampsEnabled(bool enabled);
             static bool getTimestampsEnabled();
+
             static bool isEnabled(uint16_t module, LogLevel level);
             static void log(uint16_t module, LogLevel level, const char *fmt, ...);
         };
-
     }
 }
 
-#if ENABLE_LOGGING
+#if PIP3D_ENABLE_LOGGING
 
-#define LOG(module, level, fmt, ...)                                    \
-    do                                                                  \
-    {                                                                   \
-        ::pip3D::Debug::Logger::log(module, level, fmt, ##__VA_ARGS__); \
-    } while (0)
-
+#define LOG(module, level, fmt, ...) ::pip3D::Debug::Logger::log(module, level, fmt, ##__VA_ARGS__)
 #define LOGE(module, fmt, ...) LOG(module, ::pip3D::Debug::LOG_LEVEL_ERROR, fmt, ##__VA_ARGS__)
 #define LOGW(module, fmt, ...) LOG(module, ::pip3D::Debug::LOG_LEVEL_WARNING, fmt, ##__VA_ARGS__)
 #define LOGI(module, fmt, ...) LOG(module, ::pip3D::Debug::LOG_LEVEL_INFO, fmt, ##__VA_ARGS__)
@@ -87,71 +82,21 @@ namespace pip3D
 
 #else
 
-#define LOG(module, level, fmt, ...) \
-    do                               \
-    {                                \
-        (void)(module);              \
-        (void)(level);               \
-    } while (0)
-#define LOGE(module, fmt, ...) \
-    do                         \
-    {                          \
-        (void)(module);        \
-    } while (0)
-#define LOGW(module, fmt, ...) \
-    do                         \
-    {                          \
-        (void)(module);        \
-    } while (0)
-#define LOGI(module, fmt, ...) \
-    do                         \
-    {                          \
-        (void)(module);        \
-    } while (0)
-#define LOGD(module, fmt, ...) \
-    do                         \
-    {                          \
-        (void)(module);        \
-    } while (0)
-#define LOGT(module, fmt, ...) \
-    do                         \
-    {                          \
-        (void)(module);        \
-    } while (0)
+#define LOG(module, level, fmt, ...) ((void)0)
+#define LOGE(module, fmt, ...) ((void)0)
+#define LOGW(module, fmt, ...) ((void)0)
+#define LOGI(module, fmt, ...) ((void)0)
+#define LOGD(module, fmt, ...) ((void)0)
+#define LOGT(module, fmt, ...) ((void)0)
 
-#define LOG_SET_ERROR() \
-    do                  \
-    {                   \
-    } while (0)
-#define LOG_SET_WARN() \
-    do                 \
-    {                  \
-    } while (0)
-#define LOG_SET_INFO() \
-    do                 \
-    {                  \
-    } while (0)
-#define LOG_SET_DEBUG() \
-    do                  \
-    {                   \
-    } while (0)
-#define LOG_SET_TRACE() \
-    do                  \
-    {                   \
-    } while (0)
+#define LOG_SET_ERROR() ((void)0)
+#define LOG_SET_WARN() ((void)0)
+#define LOG_SET_INFO() ((void)0)
+#define LOG_SET_DEBUG() ((void)0)
+#define LOG_SET_TRACE() ((void)0)
 
-#define LOG_PROFILE_SILENT() \
-    do                       \
-    {                        \
-    } while (0)
-#define LOG_PROFILE_PERF() \
-    do                     \
-    {                      \
-    } while (0)
-#define LOG_PROFILE_VERBOSE() \
-    do                        \
-    {                         \
-    } while (0)
+#define LOG_PROFILE_SILENT() ((void)0)
+#define LOG_PROFILE_PERF() ((void)0)
+#define LOG_PROFILE_VERBOSE() ((void)0)
 
 #endif
-
