@@ -30,18 +30,6 @@
 #include "Rendering/Pipeline/MeshDraw.hpp"
 #include <vector>
 
-#ifndef TFT_MOSI
-#define TFT_MOSI 11
-#endif
-
-#ifndef TFT_SCLK
-#define TFT_SCLK 12
-#endif
-
-#ifndef PIP3D_DISPLAY_ROTATION
-#define PIP3D_DISPLAY_ROTATION 1
-#endif
-
 namespace pip3D
 {
     class PhysicsWorld;
@@ -219,6 +207,7 @@ namespace pip3D
         uint16_t *getFrameBuffer() const { return const_cast<uint16_t *>(framebuffer.getBuffer()); }
         ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *getZBuffer() const { return zBuffer; }
         const Frustum &getFrustum() const { return frustum; }
+        const Matrix4x4 &getViewProjMatrix() const { return viewProjMatrix; }
 
         uint32_t getStatsTrianglesTotal() const { return statsTrianglesTotal; }
         uint32_t getStatsTrianglesBackfaceCulled() const { return statsTrianglesBackfaceCulled; }

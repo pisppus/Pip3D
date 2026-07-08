@@ -2,10 +2,7 @@
 
 #include <stdint.h>
 #include "Math/Algebra.hpp"
-
-#ifndef PIP3D_DEBUG_DRAW
-#define PIP3D_DEBUG_DRAW 1
-#endif
+#include "Debug/Flags.hpp"
 
 namespace pip3D
 {
@@ -53,7 +50,7 @@ namespace pip3D
         bool lastSkipPartiallyClipped;
         bool lastSkipTextured;
 
-#if PIP3D_DEBUG_DRAW
+#if PIP3D_ENABLE_DRAW_TELEMETRY
         void resetFrame()
         {
             facesTotal = 0;
@@ -172,7 +169,7 @@ namespace pip3D
 #endif
     };
 
-#if PIP3D_DEBUG_DRAW
+#if PIP3D_ENABLE_DRAW_TELEMETRY
     extern DrawTelemetry g_drawTelemetry;
 #else
     inline DrawTelemetry g_drawTelemetry{};

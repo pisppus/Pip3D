@@ -25,13 +25,7 @@ namespace pip3D
 
         PIP3D_FORCE_INLINE static void *allocData(size_t size, size_t align = 16)
         {
-#if defined(PIP3D_USE_PSRAM)
-            pipcore::AllocCaps caps = (size < 1024)
-                                          ? pipcore::AllocCaps::PreferInternal
-                                          : pipcore::AllocCaps::Default;
-#else
             pipcore::AllocCaps caps = pipcore::AllocCaps::PreferInternal;
-#endif
             return allocAligned(size, align, caps);
         }
 

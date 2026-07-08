@@ -3,13 +3,13 @@
 
 namespace pip3D
 {
-#if defined(PIP3D_DEBUG_BILLBOARD)
+#if PIP3D_DEBUG_BILLBOARD
     static uint32_t s_bbDiagFrame = 0;
 #endif
 
     void BillboardManager::render(Renderer &renderer)
     {
-#if defined(PIP3D_DEBUG_BILLBOARD)
+#if PIP3D_DEBUG_BILLBOARD
         if (billboards.empty())
         {
             static bool s_warnedEmpty = false;
@@ -47,7 +47,7 @@ namespace pip3D
         zwriteQueue.reserve(billboards.size());
         alphaQueue.reserve(billboards.size());
 
-#if defined(PIP3D_DEBUG_BILLBOARD)
+#if PIP3D_DEBUG_BILLBOARD
         if (doDiag)
         {
             LOGI(::pip3D::Debug::LOG_MODULE_RENDER,
@@ -61,7 +61,7 @@ namespace pip3D
         size_t idx = 0;
         for (auto *bb : billboards)
         {
-#if defined(PIP3D_DEBUG_BILLBOARD)
+#if PIP3D_DEBUG_BILLBOARD
             if (doDiag)
             {
                 LOGI(::pip3D::Debug::LOG_MODULE_RENDER,
@@ -89,7 +89,7 @@ namespace pip3D
                            projScale, halfViewportHeight, perspective,
                            worldQuad, centerDist))
             {
-#if defined(PIP3D_DEBUG_BILLBOARD)
+#if PIP3D_DEBUG_BILLBOARD
                 if (doDiag)
                     LOGW(::pip3D::Debug::LOG_MODULE_RENDER, "[BB] #%u: buildQuad false (degenerate/behind)", static_cast<unsigned>(idx));
 #endif
@@ -100,7 +100,7 @@ namespace pip3D
             if (perspective)
             {
                 const float zView = (bb->position - camPos).dot(camFwd);
-#if defined(PIP3D_DEBUG_BILLBOARD)
+#if PIP3D_DEBUG_BILLBOARD
                 if (doDiag)
                 {
                     LOGI(::pip3D::Debug::LOG_MODULE_RENDER,
@@ -123,7 +123,7 @@ namespace pip3D
             ++idx;
         }
 
-#if defined(PIP3D_DEBUG_BILLBOARD)
+#if PIP3D_DEBUG_BILLBOARD
         if (doDiag)
         {
             LOGI(::pip3D::Debug::LOG_MODULE_RENDER,

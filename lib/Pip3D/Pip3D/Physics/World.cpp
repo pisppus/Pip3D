@@ -1236,34 +1236,17 @@ namespace pip3D
             else if (b->isSleeping)
                 color = Color::GRAY;
 
-            DBG_AABB(renderer, b->bounds, color, ::pip3D::Debug::DEBUG_CATEGORY_PHYSICS);
+            DBG_AABB(b->bounds, color, ::pip3D::Debug::DEBUG_CATEGORY_PHYSICS);
 
             if (b->shape == BODY_SHAPE_SPHERE)
             {
-                DBG_SPHERE(renderer, b->position, b->radius, color, ::pip3D::Debug::DEBUG_CATEGORY_PHYSICS);
+                DBG_SPHERE(b->position, b->radius, color,
+                           ::pip3D::Debug::DEBUG_CATEGORY_PHYSICS);
             }
             else
             {
-                Vector3 half = b->size * 0.5f;
-                Vector3 local[8] = {
-                    Vector3(-half.x, -half.y, -half.z), Vector3(half.x, -half.y, -half.z),
-                    Vector3(half.x, half.y, -half.z), Vector3(-half.x, half.y, -half.z),
-                    Vector3(-half.x, -half.y, half.z), Vector3(half.x, -half.y, half.z),
-                    Vector3(half.x, half.y, half.z), Vector3(-half.x, half.y, half.z)};
-
-                Vector3 corners[8];
-                for (int c = 0; c < 8; ++c)
-                {
-                    corners[c] = b->orientation.rotate(local[c]) + b->position;
-                }
-
-                static const int edges[12][2] = {
-                    {0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6}, {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
-
-                for (int e = 0; e < 12; ++e)
-                {
-                    DBG_LINE(renderer, corners[edges[e][0]], corners[edges[e][1]], color, ::pip3D::Debug::DEBUG_CATEGORY_PHYSICS);
-                }
+                DBG_OBB(b->position, b->size * 0.5f, b->orientation, color,
+                        ::pip3D::Debug::DEBUG_CATEGORY_PHYSICS);
             }
         }
 
@@ -1278,15 +1261,16 @@ namespace pip3D
             float nLenSq = n.lengthSquared();
             if (nLenSq > 1e-8f)
             {
-                float invLen = 1.0f / sqrtf(nLenSq);
-                n *= invLen;
+                n *= FastMath::fastReciprocal(sqrtf(nLenSq));
             }
 
             for (int j = 0; j < info.contactCount; ++j)
             {
                 Contact &c = info.contacts[j];
-                DBG_SPHERE(renderer, c.pos, 0.08f, Color::RED, ::pip3D::Debug::DEBUG_CATEGORY_PHYSICS);
-                DBG_RAY(renderer, c.pos, n, 0.2f, Color::YELLOW, ::pip3D::Debug::DEBUG_CATEGORY_PHYSICS);
+                DBG_SPHERE(c.pos, 0.08f, Color::RED,
+                           ::pip3D::Debug::DEBUG_CATEGORY_PHYSICS);
+                DBG_ARROW(c.pos, n, 0.2f, 0.04f, Color::YELLOW,
+                          ::pip3D::Debug::DEBUG_CATEGORY_PHYSICS);
             }
         }
     }

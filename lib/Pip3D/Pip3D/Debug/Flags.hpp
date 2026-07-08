@@ -1,20 +1,51 @@
 #pragma once
 
-#if defined(PIP3D_DEBUG) || !defined(NDEBUG)
-#define PIP3D_ENABLE_DEBUG 1
-#else
-#define PIP3D_ENABLE_DEBUG 0
+#ifndef PIP3D_ENABLE_LOGGING
+#define PIP3D_ENABLE_LOGGING 1
+#endif
+#ifndef PIP3D_LOG_DEFAULT_LEVEL
+#define PIP3D_LOG_DEFAULT_LEVEL 1
 #endif
 
-#ifndef ENABLE_LOGGING
-#define ENABLE_LOGGING 1
+#ifndef PIP3D_ENABLE_GIZMOS
+#define PIP3D_ENABLE_GIZMOS 1
 #endif
 
-#ifndef LOG_DEFAULT_LEVEL
-#define LOG_DEFAULT_LEVEL 1
+#ifndef PIP3D_ENABLE_DRAW_TELEMETRY
+#define PIP3D_ENABLE_DRAW_TELEMETRY 0
 #endif
 
-#ifndef ENABLE_DEBUG_DRAW
-#define ENABLE_DEBUG_DRAW 0
+#ifndef PIP3D_DEBUG_BILLBOARD
+#define PIP3D_DEBUG_BILLBOARD 0
+#endif
+#ifndef PIP3D_DEBUG_MIPMAP
+#define PIP3D_DEBUG_MIPMAP 0
 #endif
 
+#ifndef PIP3D_SCREEN_WIDTH
+#define PIP3D_SCREEN_WIDTH 320
+#endif
+#ifndef PIP3D_SCREEN_HEIGHT
+#define PIP3D_SCREEN_HEIGHT 240
+#endif
+#ifndef PIP3D_SCREEN_BAND_COUNT
+#define PIP3D_SCREEN_BAND_COUNT 2
+#endif
+#ifndef PIP3D_DISPLAY_ROTATION
+#define PIP3D_DISPLAY_ROTATION 1
+#endif
+#ifndef PIP3D_DISPLAY_ORDER
+#define PIP3D_DISPLAY_ORDER 1
+#endif
+#ifndef PIP3D_DISPLAY_INVERT
+#define PIP3D_DISPLAY_INVERT true
+#endif
+#ifndef PIP3D_DISPLAY_SWAP
+#define PIP3D_DISPLAY_SWAP true
+#endif
+#ifndef TFT_MOSI
+#define TFT_MOSI 11
+#endif
+#ifndef TFT_SCLK
+#define TFT_SCLK 12
+#endif

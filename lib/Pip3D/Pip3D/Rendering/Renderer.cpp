@@ -6,18 +6,6 @@
 #include "Rendering/Pipeline/Telemetry.hpp"
 #include "Rendering/Lighting/Deferred.hpp"
 
-#ifndef PIP3D_DISPLAY_ORDER
-#define PIP3D_DISPLAY_ORDER 0
-#endif
-
-#ifndef PIP3D_DISPLAY_INVERT
-#define PIP3D_DISPLAY_INVERT true
-#endif
-
-#ifndef PIP3D_DISPLAY_SWAP
-#define PIP3D_DISPLAY_SWAP true
-#endif
-
 namespace pip3D
 {
     Renderer::Renderer() : zBuffer(nullptr),
@@ -225,7 +213,7 @@ namespace pip3D
     {
         if (!isInitialized())
             return;
-#if ENABLE_DEBUG_DRAW
+#if PIP3D_ENABLE_GIZMOS
         ::pip3D::Debug::Gizmos::render(*this);
 #endif
 
@@ -343,8 +331,9 @@ namespace pip3D
         if (zBuffer)
             zBuffer->clear();
 
-#if ENABLE_DEBUG_DRAW
-        ::pip3D::Debug::Gizmos::beginFrame();
+#if PIP3D_ENABLE_GIZMOS
+        if (bandIndex == 0)
+            ::pip3D::Debug::Gizmos::beginFrame();
 #endif
     }
 

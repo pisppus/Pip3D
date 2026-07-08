@@ -10,7 +10,7 @@
 #include "Rendering/Display/Texture.hpp"
 #include "Rendering/Pipeline/Rasterizer/Common.hpp"
 
-#if defined(PIP3D_DEBUG_BILLBOARD)
+#if PIP3D_DEBUG_BILLBOARD
 #include "Debug/Logging.hpp"
 #endif
 
@@ -51,7 +51,7 @@ namespace pip3D
 
             if (unlikely(!frameBuffer || !zBuffer))
             {
-#if defined(PIP3D_DEBUG_BILLBOARD)
+#if PIP3D_DEBUG_BILLBOARD
                 LOGW(::pip3D::Debug::LOG_MODULE_RENDER,
                      "[BB-rast] null buffer fb=%p zb=%p",
                      static_cast<void *>(frameBuffer), static_cast<void *>(zBuffer));
@@ -191,7 +191,7 @@ namespace pip3D
 
             int16_t *__restrict__ zbBase = const_cast<int16_t *>(zBuffer->getBufferPtr());
 
-#if defined(PIP3D_DEBUG_BILLBOARD)
+#if PIP3D_DEBUG_BILLBOARD
             uint32_t dbgSpan = 0, dbgCutout = 0, dbgZFail = 0, dbgWritten = 0;
 #endif
 
@@ -225,7 +225,7 @@ namespace pip3D
 
                 for (int16_t x = x_start; x <= x_end; ++x)
                 {
-#if defined(PIP3D_DEBUG_BILLBOARD)
+#if PIP3D_DEBUG_BILLBOARD
                     ++dbgSpan;
 #endif
                     const float inv_q = FastMath::fastReciprocal(q);
@@ -237,7 +237,7 @@ namespace pip3D
 
                     if (blendMode == BB_CUTOUT && texel == chromaKey)
                     {
-#if defined(PIP3D_DEBUG_BILLBOARD)
+#if PIP3D_DEBUG_BILLBOARD
                         ++dbgCutout;
 #endif
                         q += dq_dx;
@@ -262,7 +262,7 @@ namespace pip3D
                     {
                         if (d >= cur)
                         {
-#if defined(PIP3D_DEBUG_BILLBOARD)
+#if PIP3D_DEBUG_BILLBOARD
                             ++dbgZFail;
 #endif
                             q += dq_dx;
@@ -328,7 +328,7 @@ namespace pip3D
                         const uint32_t rb = (((dst & 0xF81F) * invAlpha5 + (lit & 0xF81F) * alpha5) >> 5) & 0xF81F;
                         const uint32_t gg = (((dst & 0x07E0) * invAlpha5 + (lit & 0x07E0) * alpha5) >> 5) & 0x07E0;
                         *fb = static_cast<uint16_t>(rb | gg);
-#if defined(PIP3D_DEBUG_BILLBOARD)
+#if PIP3D_DEBUG_BILLBOARD
                         ++dbgWritten;
 #endif
                     }
@@ -336,7 +336,7 @@ namespace pip3D
                     {
                         if (texel == 0u)
                         {
-#if defined(PIP3D_DEBUG_BILLBOARD)
+#if PIP3D_DEBUG_BILLBOARD
                             ++dbgCutout;
 #endif
                             q += dq_dx;
@@ -356,7 +356,7 @@ namespace pip3D
 
                         if (d >= cur)
                         {
-#if defined(PIP3D_DEBUG_BILLBOARD)
+#if PIP3D_DEBUG_BILLBOARD
                             ++dbgZFail;
 #endif
                             q += dq_dx;
@@ -425,7 +425,7 @@ namespace pip3D
                         const uint32_t outRb = (sumRb > 0xF81Fu) ? 0xF81Fu : (sumRb & 0xF81F);
                         const uint32_t outG = (sumG > 0x07E0u) ? 0x07E0u : (sumG & 0x07E0);
                         *fb = static_cast<uint16_t>(outRb | outG);
-#if defined(PIP3D_DEBUG_BILLBOARD)
+#if PIP3D_DEBUG_BILLBOARD
                         ++dbgWritten;
 #endif
                     }
@@ -477,11 +477,11 @@ namespace pip3D
                             }
 
                             *fb = lit;
-#if defined(PIP3D_DEBUG_BILLBOARD)
+#if PIP3D_DEBUG_BILLBOARD
                             ++dbgWritten;
 #endif
                         }
-#if defined(PIP3D_DEBUG_BILLBOARD)
+#if PIP3D_DEBUG_BILLBOARD
                         else
                             ++dbgZFail;
 #endif
@@ -569,7 +569,7 @@ namespace pip3D
                 }
             }
 
-#if defined(PIP3D_DEBUG_BILLBOARD)
+#if PIP3D_DEBUG_BILLBOARD
             LOGI(::pip3D::Debug::LOG_MODULE_RENDER,
                  "[BB-rast] y=[%d..%d..%d] span=%u cutout=%u zfail=%u written=%u mode=%d",
                  static_cast<int>(y0), static_cast<int>(y1), static_cast<int>(y2),

@@ -21,6 +21,7 @@ namespace pip3D
         constexpr Color(uint16_t c) : rgb565(c) {}
         constexpr Color(uint8_t r, uint8_t g, uint8_t b)
             : rgb565(static_cast<uint16_t>(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3))) {}
+        constexpr operator uint16_t() const { return rgb565; }
 
         static constexpr Color rgb(uint8_t r, uint8_t g, uint8_t b)
         {
