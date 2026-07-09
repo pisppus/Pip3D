@@ -28,12 +28,12 @@
 #include "UI/HUD.hpp"
 #include "Pipeline/Culling.hpp"
 #include "Rendering/Pipeline/MeshDraw.hpp"
+#include "Rendering/Pipeline/Billboard.hpp"
 #include <vector>
 
 namespace pip3D
 {
     class PhysicsWorld;
-    struct Billboard;
 
     struct FlushJob
     {
@@ -341,17 +341,21 @@ namespace pip3D
         void drawMeshInstance(MeshInstance *instance, ShadingMode mode);
         void drawMeshInstanceStatic(MeshInstance *instance);
         void drawInstances(InstanceManager &manager);
+
         void drawMeshShadow(Mesh *mesh);
         void drawMeshInstanceShadow(MeshInstance *instance);
         void drawMesh(Mesh *mesh);
         void drawMesh(Mesh *mesh, ShadingMode mode);
+
         void drawTriangle3D(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2, uint16_t color);
         void drawBlobShadow(const Vector3 &position, float radius, float opacity);
+
         void drawWaterMesh(Mesh *mesh, float time);
         void drawWater(float yLevel, float size, Color color, float alpha, float time);
         static constexpr uint16_t reflectWidth() { return REFLECT_WIDTH; }
         static constexpr uint16_t reflectHeight() { return REFLECT_HEIGHT; }
         uint16_t *getReflectBuffer() const { return reflectBuffer; }
+
         void drawSunSprite(const Vector3 &worldPos, const Color &color, float glow, float sizeScale = 1.0f);
         void setSunEnabled(bool enabled) { sunEnabled = enabled; }
         bool isSunEnabled() const { return sunEnabled; }
@@ -364,7 +368,8 @@ namespace pip3D
         }
         bool isSunVisible() const { return sunVisible; }
         void drawSky();
-        void drawBillboard(const Billboard &bb);
+        void drawBillboardQuads(const BillboardQuad *quads, size_t count);
+
         void drawText(int16_t x, int16_t y, const char *text, uint16_t color = 0xFFFF);
         void drawText(int16_t x, int16_t y, const char *text, Color color);
         void drawTextAdaptive(int16_t x, int16_t y, const char *text);
