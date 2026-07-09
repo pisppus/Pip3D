@@ -6,6 +6,7 @@
 #include "Math/Algebra.hpp"
 #include "Rendering/Renderer.hpp"
 #include "Geometry/Billboard.hpp"
+#include "Rendering/Pipeline/Billboard.hpp"
 #include "Physics/Physics.hpp"
 #include <vector>
 #include <cmath>
@@ -256,6 +257,12 @@ namespace pip3D
             const float fovRad = cam.fov * kDegToRad;
             const float projScale = 1.0f / tanf(fovRad * 0.5f);
             const float halfViewportHeight = renderer.getViewport().height * 0.5f;
+            BillboardFrameContext bbCtx = makeBillboardFrameContext(
+                cam, vp, renderer.getViewProjMatrix(), renderer.getFrustum());
+
+            static constexpr size_t MAX_TEXTURED_QUADS = 64;
+            static BillboardQuad texturedQuads[MAX_TEXTURED_QUADS];
+            size_t texturedQuadCount = 0;
 
             for (size_t i = 0; i < particles.size(); ++i)
             {
@@ -296,21 +303,27 @@ namespace pip3D
 
                 if (config.type == PARTICLE_TEXTURED && config.texture != nullptr)
                 {
-                    const float size_world = (p.startSize + (p.endSize - p.startSize) * t) * 0.04f;
+                    if (texturedQuadCount < MAX_TEXTURED_QUADS)
+                    {
+                        const float size_world = (p.startSize + (p.endSize - p.startSize) * t) * 0.04f;
 
-                    Billboard bb;
-                    bb.position = p.position;
-                    bb.width = size_world;
-                    bb.height = size_world;
-                    bb.texture = config.texture;
-                    bb.tint = col;
-                    bb.chromaKey = config.chromaKey;
-                    bb.orientation = BB_SCREEN_ALIGNED;
-                    bb.blend = config.cutout ? BB_BLEND_CUTOUT : BB_BLEND_ALPHA;
-                    bb.alpha = alpha;
-                    bb.screenSpaceSize = false;
-                    bb.visible = true;
-                    renderer.drawBillboard(bb);
+                        Billboard bb;
+                        bb.position = p.position;
+                        bb.width = size_world;
+                        bb.height = size_world;
+                        bb.texture = config.texture;
+                        bb.tint = col;
+                        bb.chromaKey = config.chromaKey;
+                        bb.orientation = BB_SCREEN_ALIGNED;
+                        bb.blend = config.cutout ? BB_BLEND_CUTOUT : BB_BLEND_ALPHA;
+                        bb.alpha = alpha;
+                        bb.screenSpaceSize = false;
+                        bb.visible = true;
+
+                        BillboardQuad q;
+                        if (buildBillboardQuadScreen(bb, bbCtx, q))
+                            texturedQuads[texturedQuadCount++] = q;
+                    }
                     continue;
                 }
 
@@ -427,6 +440,17 @@ namespace pip3D
                         }
                     }
                 }
+            }
+
+            if (texturedQuadCount > 0)
+            {
+                if (texturedQuadCount > 1 && !config.cutout)
+                {
+                    std::sort(texturedQuads, texturedQuads + texturedQuadCount,
+                              [](const BillboardQuad &a, const BillboardQuad &b)
+                              { return a.distSq > b.distSq; });
+                }
+                renderer.drawBillboardQuads(texturedQuads, texturedQuadCount);
             }
 #endif
         }

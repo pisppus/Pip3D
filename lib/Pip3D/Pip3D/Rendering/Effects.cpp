@@ -107,6 +107,25 @@ namespace pip3D
         drawSunSprite(sunPos, sunColor, sunIntensity, 1.0f);
     }
 
+    void Renderer::drawBillboardQuads(const BillboardQuad *quads, size_t count)
+    {
+        if (!quads || count == 0)
+            return;
+
+        const int16_t bandTop = g_bandOffsetY;
+        const int16_t bandHeight = g_bandHeight;
+
+        drawBillboardQuadsRaw(
+            quads, count,
+            framebuffer.getBuffer(),
+            zBuffer,
+            framebuffer,
+            bandTop, bandHeight,
+            static_cast<int16_t>(viewport.width),
+            static_cast<int16_t>(viewport.height),
+            /*writeZForAlpha=*/true);
+    }
+
     void Renderer::drawSunSprite(const Vector3 &worldPos, const Color &color, float glow, float sizeScale)
     {
         const int16_t minDim = viewport.width < viewport.height ? viewport.width : viewport.height;
@@ -145,7 +164,16 @@ namespace pip3D
         bb.screenSpaceSize = true;
         bb.visible = true;
         bb.lit = false;
-        drawBillboard(bb);
+
+        const Camera &cam = cameras[activeCameraIndex];
+        BillboardFrameContext ctx = makeBillboardFrameContext(
+            cam, viewport, viewProjMatrix, frustum);
+
+        BillboardQuad q;
+        if (!buildBillboardQuadScreen(bb, ctx, q))
+            return;
+
+        drawBillboardQuads(&q, 1);
     }
 
     void Renderer::drawWaterTriangleInternal(const Vector3 &v0,
@@ -258,235 +286,5 @@ namespace pip3D
 
             row += stride;
         }
-    }
-
-    static void buildBillboardQuad(const Billboard &bb,
-                                   const Vector3 &camPos,
-                                   const Vector3 &camRight,
-                                   const Vector3 &camUp,
-                                   const Vector3 &camForward,
-                                   float projScale,
-                                   float halfViewportHeight,
-                                   bool perspective,
-                                   Vector3 outWorld[4],
-                                   Vector3 &outNormal)
-    {
-        float halfW, halfH;
-        if (bb.screenSpaceSize)
-        {
-            const float zView = (bb.position - camPos).dot(camForward);
-            if (perspective && zView > 0.01f)
-            {
-                halfW = (bb.width * 0.5f) * zView * FastMath::fastReciprocal(projScale * halfViewportHeight);
-                halfH = (bb.height * 0.5f) * zView * FastMath::fastReciprocal(projScale * halfViewportHeight);
-            }
-            else
-            {
-                halfW = bb.width * 0.5f;
-                halfH = bb.height * 0.5f;
-            }
-        }
-        else
-        {
-            halfW = bb.width * 0.5f;
-            halfH = bb.height * 0.5f;
-        }
-
-        Vector3 right, up;
-        switch (bb.orientation)
-        {
-        case BB_SCREEN_ALIGNED:
-            right = camRight;
-            up = camUp - camForward * camUp.dot(camForward);
-            up.normalize();
-            break;
-        case BB_AXIAL_Y:
-        {
-            right = Vector3(camRight.x, 0.0f, camRight.z);
-            if (right.lengthSquared() < 1e-6f)
-                right = Vector3(camForward.x, 0.0f, camForward.z);
-            right.normalize();
-            up = Vector3(0.0f, 1.0f, 0.0f);
-            break;
-        }
-        case BB_FIXED_YAW:
-        default:
-        {
-            const float yr = bb.yawDeg * kDegToRad;
-            float s, c;
-            FastMath::fastSinCos(yr, s, c);
-            right = Vector3(c, 0.0f, -s);
-            up = Vector3(0.0f, 1.0f, 0.0f);
-            break;
-        }
-        }
-
-        const Vector3 &c = bb.position;
-        outWorld[0] = c - right * halfW - up * halfH;
-        outWorld[1] = c + right * halfW - up * halfH;
-        outWorld[2] = c + right * halfW + up * halfH;
-        outWorld[3] = c - right * halfW + up * halfH;
-
-        outNormal = right.cross(up);
-        outNormal.normalize();
-    }
-
-    void Renderer::drawBillboard(const Billboard &bb)
-    {
-        if (!bb.visible || !bb.texture)
-        {
-#if PIP3D_DEBUG_BILLBOARD
-            LOGW(::pip3D::Debug::LOG_MODULE_RENDER,
-                 "[BB-draw] early-out: visible=%d tex=%p",
-                 (int)bb.visible, static_cast<const void *>(bb.texture));
-#endif
-            return;
-        }
-
-        const Camera &cam = cameras[activeCameraIndex];
-        const Vector3 camPos = cam.position;
-        const Vector3 camFwd = cam.forward();
-        const Vector3 camRight = cam.right();
-        const Vector3 camUp = cam.upVec();
-        const bool perspective = (cam.projectionType == PERSPECTIVE);
-
-        const float fovRad = cam.fov * kDegToRad;
-        const float projScale = perspective ? FastMath::fastReciprocal(tanf(fovRad * 0.5f)) : 1.0f;
-        const float halfViewportHeight = viewport.height * 0.5f;
-
-        if (perspective)
-        {
-            const float zView = (bb.position - camPos).dot(camFwd);
-            if (zView <= cam.nearPlane || zView >= cam.farPlane)
-            {
-#if PIP3D_DEBUG_BILLBOARD
-                LOGW(::pip3D::Debug::LOG_MODULE_RENDER,
-                     "[BB-draw] culled zView=%.3f near=%.3f far=%.3f",
-                     zView, cam.nearPlane, cam.farPlane);
-#endif
-                return;
-            }
-        }
-
-        Vector3 worldQuad[4];
-        Vector3 quadNormal;
-        buildBillboardQuad(bb, camPos, camRight, camUp, camFwd,
-                           projScale, halfViewportHeight, perspective, worldQuad, quadNormal);
-
-        const float halfWidthF = viewport.width * 0.5f;
-        const float halfHeightF = viewport.height * 0.5f;
-
-        Vector3 p[4];
-        float camW[4];
-        float minSx = 1e30f, maxSx = -1e30f, minSy = 1e30f, maxSy = -1e30f;
-        bool anyValid = false;
-        for (int i = 0; i < 4; ++i)
-        {
-            p[i] = CameraController::project(worldQuad[i], viewProjMatrix,
-                                             halfWidthF, halfHeightF,
-                                             viewport.x, viewport.y);
-            camW[i] = (worldQuad[i] - camPos).dot(camFwd);
-            if (camW[i] < 0.01f)
-                camW[i] = 0.01f;
-
-            if (!isfinite(p[i].x) || !isfinite(p[i].y) || !isfinite(p[i].z))
-            {
-#if PIP3D_DEBUG_BILLBOARD
-                LOGW(::pip3D::Debug::LOG_MODULE_RENDER,
-                     "[BB-draw] NaN in project v%d: (%.1f,%.1f,%.3f)",
-                     i, p[i].x, p[i].y, p[i].z);
-#endif
-                return;
-            }
-            if (p[i].z <= 0.0f || p[i].z >= 1.0f)
-                continue;
-            anyValid = true;
-            if (p[i].x < minSx)
-                minSx = p[i].x;
-            if (p[i].x > maxSx)
-                maxSx = p[i].x;
-            if (p[i].y < minSy)
-                minSy = p[i].y;
-            if (p[i].y > maxSy)
-                maxSy = p[i].y;
-        }
-        if (!anyValid)
-        {
-#if PIP3D_DEBUG_BILLBOARD
-            LOGW(::pip3D::Debug::LOG_MODULE_RENDER, "[BB-draw] no valid projected verts");
-#endif
-            return;
-        }
-
-        const int16_t bandTop = g_bandOffsetY;
-        const int16_t bandBottom = static_cast<int16_t>(bandTop + g_bandHeight);
-        if (maxSy < bandTop || minSy >= bandBottom)
-            return;
-        if (maxSx < 0.0f || minSx >= viewport.width)
-            return;
-
-        float litR = 1.0f, litG = 1.0f, litB = 1.0f;
-        if (bb.lit)
-        {
-            const float baseR = static_cast<float>((bb.tint.rgb565 >> 11) & 0x1F) * (1.0f / 31.0f);
-            const float baseG = static_cast<float>((bb.tint.rgb565 >> 5) & 0x3F) * (1.0f / 63.0f);
-            const float baseB = static_cast<float>(bb.tint.rgb565 & 0x1F) * (1.0f / 31.0f);
-
-            Vector3 viewDir = camPos - bb.position;
-            viewDir.normalize();
-
-            Vector3 faceNormal = quadNormal;
-            if (faceNormal.dot(viewDir) < 0.0f)
-                faceNormal = -faceNormal;
-
-            Shading::calculateLighting(bb.position, faceNormal, viewDir,
-                                       lights.data(), activeLightCount,
-                                       baseR, baseG, baseB,
-                                       litR, litG, litB, true);
-        }
-        else
-        {
-            litR = static_cast<float>((bb.tint.rgb565 >> 11) & 0x1F) * (1.0f / 31.0f);
-            litG = static_cast<float>((bb.tint.rgb565 >> 5) & 0x3F) * (1.0f / 63.0f);
-            litB = static_cast<float>(bb.tint.rgb565 & 0x1F) * (1.0f / 31.0f);
-        }
-
-#if PIP3D_DEBUG_BILLBOARD
-        const int16_t dbgBand = bandTop;
-        LOGI(::pip3D::Debug::LOG_MODULE_RENDER,
-             "[BB-draw band=%d] AABB x=[%.0f..%.0f] y=[%.0f..%.0f] band=[%d..%d] "
-             "lit=%d tint=(%.2f,%.2f,%.2f) mode=%d chroma=0x%04X w=[%.2f,%.2f,%.2f,%.2f]",
-             (int)dbgBand, minSx, maxSx, minSy, maxSy, (int)bandTop, (int)bandBottom,
-             (int)bb.lit, litR, litG, litB, (int)bb.blend, bb.chromaKey,
-             camW[0], camW[1], camW[2], camW[3]);
-#endif
-
-        const DisplayConfig &cfg = framebuffer.getConfig();
-        const BillboardBlendMode mode = static_cast<BillboardBlendMode>(bb.blend);
-
-        auto drawTri = [&](int a, int b, int c,
-                           float ua, float va, float ub, float vb, float uc, float vc,
-                           bool writeZ)
-        {
-            Rasterizer::fillTriangleBillboard(
-                p[a].x, p[a].y - (float)bandTop, p[a].z,
-                p[b].x, p[b].y - (float)bandTop, p[b].z,
-                p[c].x, p[c].y - (float)bandTop, p[c].z,
-                ua, va, ub, vb, uc, vc,
-                camW[a], camW[b], camW[c],
-                litR, litG, litB, litR, litG, litB, litR, litG, litB,
-                *bb.texture,
-                mode,
-                bb.chromaKey,
-                bb.alpha,
-                writeZ,
-                framebuffer.getBuffer(),
-                zBuffer,
-                cfg);
-        };
-
-        const bool firstWritesZ = (mode == BB_ALPHA);
-        drawTri(0, 1, 2, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f, firstWritesZ);
-        drawTri(0, 2, 3, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, false);
     }
 }

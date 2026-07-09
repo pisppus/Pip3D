@@ -5,12 +5,9 @@
 #include "Rendering/Display/Texture.hpp"
 #include "Debug/Logging.hpp"
 #include <vector>
-#include <algorithm>
-#include <cmath>
 
 namespace pip3D
 {
-    class Renderer;
 
     enum BillboardOrientation : uint8_t
     {
@@ -127,37 +124,6 @@ namespace pip3D
             visible = false;
             return this;
         }
-
-        Billboard *asCutout()
-        {
-            blend = BB_BLEND_CUTOUT;
-            return this;
-        }
-        Billboard *asAlpha()
-        {
-            blend = BB_BLEND_ALPHA;
-            return this;
-        }
-        Billboard *asOpaque()
-        {
-            blend = BB_BLEND_OPAQUE;
-            return this;
-        }
-        Billboard *asAdditive()
-        {
-            blend = BB_BLEND_ADDITIVE;
-            return this;
-        }
-        Billboard *asScreenAligned()
-        {
-            orientation = BB_SCREEN_ALIGNED;
-            return this;
-        }
-        Billboard *asAxialY()
-        {
-            orientation = BB_AXIAL_Y;
-            return this;
-        }
     };
 
     class BillboardManager
@@ -165,101 +131,6 @@ namespace pip3D
     private:
         std::vector<Billboard *> billboards;
         std::vector<Billboard *> pool;
-
-        struct SortedBillboard
-        {
-            float distanceSq;
-            Billboard *billboard;
-            bool operator<(const SortedBillboard &other) const
-            {
-                return distanceSq > other.distanceSq;
-            }
-        };
-
-        static bool buildQuad(const Billboard &bb,
-                              const Vector3 &camPos,
-                              const Vector3 &camRight,
-                              const Vector3 &camUp,
-                              const Vector3 &camForward,
-                              float projScale,
-                              float halfViewportHeight,
-                              bool perspective,
-                              Vector3 outWorld[4],
-                              float &outCenterDist)
-        {
-            const Vector3 toObj = bb.position - camPos;
-            const float distSq = toObj.lengthSquared();
-            if (unlikely(distSq < 1e-6f))
-                return false;
-            const float dist = sqrtf(distSq);
-            outCenterDist = dist;
-
-            const float zView = toObj.dot(camForward);
-            if (perspective && zView <= 0.01f)
-                return false;
-
-            float halfW, halfH;
-            if (bb.screenSpaceSize)
-            {
-                if (perspective && zView > 0.01f)
-                {
-                    const float invZ = FastMath::fastReciprocal(zView);
-                    halfW = (bb.width * 0.5f) * zView * FastMath::fastReciprocal(projScale * halfViewportHeight);
-                    halfH = (bb.height * 0.5f) * zView * FastMath::fastReciprocal(projScale * halfViewportHeight);
-                }
-                else
-                {
-                    halfW = bb.width * 0.5f;
-                    halfH = bb.height * 0.5f;
-                }
-            }
-            else
-            {
-                halfW = bb.width * 0.5f;
-                halfH = bb.height * 0.5f;
-            }
-
-            Vector3 right, up;
-            switch (bb.orientation)
-            {
-            case BB_SCREEN_ALIGNED:
-                right = camRight;
-                up = camUp - camForward * camUp.dot(camForward);
-                up.normalize();
-                break;
-            case BB_AXIAL_Y:
-            {
-                right = Vector3(camRight.x, 0.0f, camRight.z);
-                if (unlikely(right.lengthSquared() < 1e-6f))
-                {
-                    right = Vector3(camForward.x, 0.0f, camForward.z);
-                }
-                right.normalize();
-                up = Vector3(0.0f, 1.0f, 0.0f);
-                break;
-            }
-            case BB_FIXED_YAW:
-            {
-                const float yr = bb.yawDeg * kDegToRad;
-                float s, c;
-                FastMath::fastSinCos(yr, s, c);
-                right = Vector3(c, 0.0f, -s);
-                up = Vector3(0.0f, 1.0f, 0.0f);
-                break;
-            }
-            default:
-                right = camRight;
-                up = camUp;
-                break;
-            }
-
-            const Vector3 c = bb.position;
-            outWorld[0] = c - right * halfW - up * halfH;
-            outWorld[1] = c + right * halfW - up * halfH;
-            outWorld[2] = c + right * halfW + up * halfH;
-            outWorld[3] = c - right * halfW + up * halfH;
-            return true;
-        }
 
     public:
         BillboardManager() = default;
@@ -280,7 +151,8 @@ namespace pip3D
             pool.shrink_to_fit();
         }
 
-        Billboard *create(const Texture *texture = nullptr, const Vector3 &pos = Vector3())
+        Billboard *create(const Texture *texture = nullptr,
+                          const Vector3 &pos = Vector3())
         {
             Billboard *b;
             if (!pool.empty())
@@ -350,7 +222,5 @@ namespace pip3D
 
         size_t count() const { return billboards.size(); }
         const std::vector<Billboard *> &all() const { return billboards; }
-
-        void render(Renderer &renderer);
     };
 }
