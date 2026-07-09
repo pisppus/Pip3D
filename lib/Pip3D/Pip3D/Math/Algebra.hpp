@@ -291,7 +291,7 @@ namespace pip3D
         }
     };
 
-    struct __attribute__((aligned(16))) Matrix4x4
+    struct Matrix4x4
     {
         float m[16];
 
@@ -579,7 +579,7 @@ namespace pip3D
         }
     };
 
-    struct __attribute__((aligned(16))) Quaternion
+    struct Quaternion
     {
         float x, y, z, w;
 

@@ -12,16 +12,7 @@ namespace pip3D
         if (!visible || !enabled || !mesh || !instance)
             return;
 
-        const Matrix4x4 &world = getWorldTransform();
-        Vector3 worldPos;
-        Vector3 worldScale;
-        Matrix4x4 basis;
-        decomposeWorldTransform(world, worldPos, worldScale, basis);
-        Vector3 worldEuler = basisToEulerDegrees(basis);
-
-        instance->setPosition(worldPos);
-        instance->setEuler(worldEuler.x, worldEuler.y, worldEuler.z);
-        instance->setScale(worldScale);
+        instance->setWorldMatrix(getWorldTransform());
 
         renderer->draw(instance);
 

@@ -6,42 +6,28 @@
 
 namespace pip3D
 {
-    class Renderer;
-    class ShadowRenderer;
-
+    class DrawCache;
     class MeshInstance
     {
     public:
         explicit MeshInstance(Mesh *mesh = nullptr)
             : sourceMesh(mesh),
-              visible(true),
-              blobShadow(false),
-              transformDirty(true),
-              boundsDirty(true),
               instanceColor(Color::WHITE),
-              cachedWorldCenter(0, 0, 0),
+              cacheFlags(kFlagTransformDirty | kFlagBoundsDirty),
+              stateFlags(kFlagVisible),
+              position(0.0f, 0.0f, 0.0f),
+              transformVersion(1),
               cachedWorldRadius(0.0f),
-              localTransform(),
-              rotation(),
-              position(0, 0, 0),
-              scale(1, 1, 1),
-              cachedWorldVertices(nullptr),
-              cachedScreenVertices(nullptr),
-              cachedShadowVerts(nullptr),
-              cachedProjectionCapacity(0),
-              cachedShadowVertCapacity(0),
-              cachedScreenVertsFrameStamp(0),
-              cachedShadowGen(0),
-              cachedWorldVertsValid(false)
+              cachedMaxAbsScale(1.0f),
+              cachedWorldCenter(0.0f, 0.0f, 0.0f),
+              scale(1.0f, 1.0f, 1.0f),
+              rotation(0.0f, 0.0f, 0.0f, 1.0f),
+              rotationValid(true)
         {
+            localTransform.identity();
         }
 
-        ~MeshInstance()
-        {
-            freeSafe(cachedWorldVertices);
-            freeSafe(cachedScreenVertices);
-            freeSafe(cachedShadowVerts);
-        }
+        ~MeshInstance() = default;
 
         MeshInstance(const MeshInstance &) = delete;
         MeshInstance &operator=(const MeshInstance &) = delete;
@@ -51,7 +37,7 @@ namespace pip3D
         void setMesh(Mesh *mesh)
         {
             sourceMesh = mesh;
-            invalidateTransformCaches();
+            invalidateTransform();
         }
 
         PIP3D_FORCE_INLINE Mesh *getMesh() const { return sourceMesh; }
@@ -59,7 +45,7 @@ namespace pip3D
         void setPosition(const Vector3 &pos)
         {
             position = pos;
-            invalidateTransformCaches();
+            invalidateTransform();
         }
 
         PIP3D_FORCE_INLINE void setPosition(float x, float y, float z)
@@ -70,7 +56,8 @@ namespace pip3D
         void setRotation(const Quaternion &rot)
         {
             rotation = rot;
-            invalidateTransformCaches();
+            rotationValid = true;
+            invalidateTransform();
         }
 
         void setEuler(float pitchDeg, float yawDeg, float rollDeg)
@@ -78,106 +65,156 @@ namespace pip3D
             rotation = Quaternion::fromEuler(pitchDeg * kDegToRad,
                                              yawDeg * kDegToRad,
                                              rollDeg * kDegToRad);
-            invalidateTransformCaches();
+            rotationValid = true;
+            invalidateTransform();
         }
 
         void setScale(const Vector3 &scl)
         {
             scale = scl;
-            invalidateTransformCaches();
+            cachedMaxAbsScale = computeMaxAbsScale(scl);
+            invalidateTransform();
+        }
+
+        PIP3D_FORCE_INLINE void setTransform(const Vector3 &pos,
+                                             const Quaternion &rot,
+                                             const Vector3 &scl)
+        {
+            position = pos;
+            rotation = rot;
+            rotationValid = true;
+            scale = scl;
+            cachedMaxAbsScale = computeMaxAbsScale(scl);
+            invalidateTransform();
+        }
+
+        PIP3D_FORCE_INLINE void setTransformPRS(const Vector3 &pos,
+                                                float pitchDeg,
+                                                float yawDeg,
+                                                float rollDeg,
+                                                const Vector3 &scl)
+        {
+            position = pos;
+            rotation = Quaternion::fromEuler(pitchDeg * kDegToRad,
+                                             yawDeg * kDegToRad,
+                                             rollDeg * kDegToRad);
+            rotationValid = true;
+            scale = scl;
+            cachedMaxAbsScale = computeMaxAbsScale(scl);
+            invalidateTransform();
+        }
+
+        void setWorldMatrix(const Matrix4x4 &m)
+        {
+            localTransform = m;
+            position = Vector3(m.m[12], m.m[13], m.m[14]);
+
+            const float sx = sqrtf(m.m[0] * m.m[0] + m.m[1] * m.m[1] + m.m[2] * m.m[2]);
+            const float sy = sqrtf(m.m[4] * m.m[4] + m.m[5] * m.m[5] + m.m[6] * m.m[6]);
+            const float sz = sqrtf(m.m[8] * m.m[8] + m.m[9] * m.m[9] + m.m[10] * m.m[10]);
+            scale = Vector3(sx, sy, sz);
+            cachedMaxAbsScale = fmaxf(fmaxf(sx, sy), sz);
+
+            rotationValid = false;
+            cacheFlags = (cacheFlags & ~kFlagTransformDirty) | kFlagBoundsDirty;
+            ++transformVersion;
         }
 
         PIP3D_FORCE_INLINE void setColor(const Color &c) { instanceColor = c; }
         PIP3D_FORCE_INLINE Color color() const { return instanceColor; }
 
-        PIP3D_FORCE_INLINE void setBlobShadow(bool enabled) { blobShadow = enabled; }
-        PIP3D_FORCE_INLINE bool getBlobShadow() const { return blobShadow; }
+        PIP3D_FORCE_INLINE void setBlobShadow(bool enabled)
+        {
+            if (enabled)
+                stateFlags |= kFlagBlobShadow;
+            else
+                stateFlags &= ~kFlagBlobShadow;
+        }
+        PIP3D_FORCE_INLINE bool getBlobShadow() const { return (stateFlags & kFlagBlobShadow) != 0; }
 
-        PIP3D_FORCE_INLINE void setVisible(bool v) { visible = v; }
-        PIP3D_FORCE_INLINE bool isVisible() const { return visible && sourceMesh; }
+        PIP3D_FORCE_INLINE void setVisible(bool v)
+        {
+            if (v)
+                stateFlags |= kFlagVisible;
+            else
+                stateFlags &= ~kFlagVisible;
+        }
+        PIP3D_FORCE_INLINE bool isVisible() const
+        {
+            return (stateFlags & kFlagVisible) != 0 && sourceMesh;
+        }
 
         PIP3D_FORCE_INLINE const Vector3 &pos() const { return position; }
+        PIP3D_FORCE_INLINE const Vector3 &getScale() const { return scale; }
 
-        PIP3D_FORCE_INLINE const Matrix4x4 &transform()
+        PIP3D_FORCE_INLINE const Quaternion &getRotation() const { return rotation; }
+        PIP3D_FORCE_INLINE bool isRotationValid() const { return rotationValid; }
+
+        PIP3D_FORCE_INLINE uint32_t version() const { return transformVersion; }
+
+        PIP3D_FORCE_INLINE const Matrix4x4 &transform() const
         {
-            updateTransform();
+            if (unlikely(cacheFlags & kFlagTransformDirty))
+                updateTransform();
             return localTransform;
         }
 
-        Vector3 center()
+        PIP3D_FORCE_INLINE const Vector3 &center() const
         {
-            if (unlikely(boundsDirty))
+            if (unlikely(cacheFlags & kFlagBoundsDirty))
                 updateBounds();
             return cachedWorldCenter;
         }
 
-        float radius()
+        PIP3D_FORCE_INLINE float radius() const
         {
-            if (unlikely(boundsDirty))
+            if (unlikely(cacheFlags & kFlagBoundsDirty))
                 updateBounds();
             return cachedWorldRadius;
         }
 
     private:
+        static constexpr uint8_t kFlagTransformDirty = 0x01;
+        static constexpr uint8_t kFlagBoundsDirty = 0x02;
+        static constexpr uint8_t kFlagVisible = 0x10;
+        static constexpr uint8_t kFlagBlobShadow = 0x20;
+
         Mesh *sourceMesh;
-        bool visible;
-        bool blobShadow;
-        bool transformDirty;
-        bool boundsDirty;
         Color instanceColor;
-        mutable Vector3 cachedWorldCenter;
-        mutable float cachedWorldRadius;
-        Matrix4x4 localTransform;
-        Quaternion rotation;
+        mutable uint8_t cacheFlags;
+        uint8_t stateFlags;
         Vector3 position;
+        uint32_t transformVersion;
+        mutable float cachedWorldRadius;
+        mutable float cachedMaxAbsScale;
+        mutable Vector3 cachedWorldCenter;
         Vector3 scale;
-        mutable Vector3 *cachedWorldVertices;
-        mutable Vector3 *cachedScreenVertices;
-        mutable Vector3 *cachedShadowVerts;
-        mutable uint16_t cachedProjectionCapacity;
-        mutable uint16_t cachedShadowVertCapacity;
-        mutable uint32_t cachedScreenVertsFrameStamp;
-        mutable uint32_t cachedShadowGen;
-        mutable bool cachedWorldVertsValid;
+        Quaternion rotation;
+        bool rotationValid;
+        mutable Matrix4x4 localTransform;
 
-        friend class Renderer;
-        friend class ShadowRenderer;
-
-        PIP3D_FORCE_INLINE void invalidateTransformCaches()
+        PIP3D_FORCE_INLINE void invalidateTransform()
         {
-            transformDirty = true;
-            boundsDirty = true;
-            cachedWorldVertsValid = false;
-            cachedScreenVertsFrameStamp = 0;
-            cachedShadowGen = 0;
+            cacheFlags |= (kFlagTransformDirty | kFlagBoundsDirty);
+            ++transformVersion;
         }
 
-        PIP3D_FORCE_INLINE static void freeSafe(void *p)
+        PIP3D_FORCE_INLINE static float computeMaxAbsScale(const Vector3 &scl)
         {
-            if (p)
-                MemUtils::freeData(p);
+            return fmaxf(fmaxf(fabsf(scl.x), fabsf(scl.y)), fabsf(scl.z));
         }
 
-        PIP3D_FORCE_INLINE void updateTransform()
+        PIP3D_HOT PIP3D_FORCE_INLINE void updateTransform() const
         {
-            if (likely(!transformDirty))
-                return;
-            transformDirty = false;
+            cacheFlags &= ~kFlagTransformDirty;
 
-            const float qx2 = rotation.x + rotation.x;
-            const float qy2 = rotation.y + rotation.y;
-            const float qz2 = rotation.z + rotation.z;
-            const float qxx = rotation.x * qx2;
-            const float qyy = rotation.y * qy2;
-            const float qzz = rotation.z * qz2;
-            const float qxy = rotation.x * qy2;
-            const float qxz = rotation.x * qz2;
-            const float qyz = rotation.y * qz2;
-            const float qwx = rotation.w * qx2;
-            const float qwy = rotation.w * qy2;
-            const float qwz = rotation.w * qz2;
-
+            const float x = rotation.x, y = rotation.y, z = rotation.z, w = rotation.w;
             const float sx = scale.x, sy = scale.y, sz = scale.z;
+
+            const float qx = x + x, qy = y + y, qz = z + z;
+            const float qxx = x * qx, qyy = y * qy, qzz = z * qz;
+            const float qxy = x * qy, qxz = x * qz, qyz = y * qz;
+            const float qwx = w * qx, qwy = w * qy, qwz = w * qz;
 
             float *PIP3D_RESTRICT m = localTransform.m;
             m[0] = (1.0f - qyy - qzz) * sx;
@@ -198,88 +235,25 @@ namespace pip3D
             m[15] = 1.0f;
         }
 
-        void updateBounds()
+        PIP3D_COLD void updateBounds() const
         {
+            cacheFlags &= ~kFlagBoundsDirty;
+
             if (!sourceMesh)
             {
                 cachedWorldCenter = position;
                 cachedWorldRadius = 0.0f;
-                boundsDirty = false;
                 return;
             }
 
-            updateTransform();
+            if (cacheFlags & kFlagTransformDirty)
+                updateTransform();
 
             const Vector3 localMeshCenter = sourceMesh->center();
             const float localMeshRadius = sourceMesh->radius();
             cachedWorldCenter = localTransform.transformNoDiv(localMeshCenter);
-
-            const float maxAbsScale = fmaxf(fmaxf(fabsf(scale.x), fabsf(scale.y)), fabsf(scale.z));
-            cachedWorldRadius = localMeshRadius * maxAbsScale;
-            boundsDirty = false;
+            cachedWorldRadius = localMeshRadius * cachedMaxAbsScale;
         }
-
-        bool ensureProjectionCache(uint16_t required) const
-        {
-            if (required == 0)
-                return false;
-
-            if (likely(cachedProjectionCapacity >= required &&
-                       cachedWorldVertices && cachedScreenVertices))
-                return true;
-
-            freeSafe(cachedWorldVertices);
-            cachedWorldVertices = nullptr;
-            freeSafe(cachedScreenVertices);
-            cachedScreenVertices = nullptr;
-
-            cachedWorldVertices = static_cast<Vector3 *>(
-                MemUtils::allocData(static_cast<size_t>(required) * sizeof(Vector3), 16));
-            cachedScreenVertices = static_cast<Vector3 *>(
-                MemUtils::allocData(static_cast<size_t>(required) * sizeof(Vector3), 16));
-
-            if (!cachedWorldVertices || !cachedScreenVertices)
-            {
-                freeSafe(cachedWorldVertices);
-                cachedWorldVertices = nullptr;
-                freeSafe(cachedScreenVertices);
-                cachedScreenVertices = nullptr;
-                cachedProjectionCapacity = 0;
-                return false;
-            }
-
-            cachedProjectionCapacity = required;
-            cachedWorldVertsValid = false;
-            cachedScreenVertsFrameStamp = 0;
-            return true;
-        }
-
-        PIP3D_FORCE_INLINE Vector3 *getCachedWorldVertices() const { return cachedWorldVertices; }
-        PIP3D_FORCE_INLINE bool areWorldVertsValid() const { return cachedWorldVertsValid; }
-        PIP3D_FORCE_INLINE void markWorldVertsValid() const { cachedWorldVertsValid = true; }
-
-        PIP3D_FORCE_INLINE Vector3 *getCachedScreenVertices() const { return cachedScreenVertices; }
-        PIP3D_FORCE_INLINE uint32_t getCachedScreenVertsFrameStamp() const { return cachedScreenVertsFrameStamp; }
-        PIP3D_FORCE_INLINE void setCachedScreenVertsFrameStamp(uint32_t stamp) const { cachedScreenVertsFrameStamp = stamp; }
-
-        PIP3D_FORCE_INLINE Vector3 *getCachedShadowVerts(uint32_t expectedGen, uint16_t expectedCount) const
-        {
-            if (cachedShadowGen != expectedGen || cachedShadowVertCapacity < expectedCount)
-                return nullptr;
-            return cachedShadowVerts;
-        }
-
-        Vector3 *ensureShadowVertCapacity(uint16_t count) const
-        {
-            if (likely(cachedShadowVertCapacity >= count))
-                return cachedShadowVerts;
-            freeSafe(cachedShadowVerts);
-            cachedShadowVerts = static_cast<Vector3 *>(
-                MemUtils::allocData(static_cast<size_t>(count) * sizeof(Vector3), 16));
-            cachedShadowVertCapacity = cachedShadowVerts ? count : 0;
-            return cachedShadowVerts;
-        }
-
-        PIP3D_FORCE_INLINE void storeCachedShadowVerts(uint32_t gen) const { cachedShadowGen = gen; }
     };
+
 }
