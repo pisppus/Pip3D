@@ -66,15 +66,8 @@ namespace pip3D
         size_t shadowQueueCount = 0;
         size_t opaqueQueueCount = 0;
 
-        Mesh *meshShadowQueue[MAX_QUEUE_ELEMENTS];
-        Mesh *meshOpaqueQueue[MAX_QUEUE_ELEMENTS];
-        size_t meshShadowQueueCount = 0;
-        size_t meshOpaqueQueueCount = 0;
-
         MeshInstance *blobShadowQueue[MAX_QUEUE_ELEMENTS];
-        Mesh *meshBlobShadowQueue[MAX_QUEUE_ELEMENTS];
         size_t blobShadowQueueCount = 0;
-        size_t meshBlobShadowQueueCount = 0;
 
         PhysicsWorld *physicsWorld = nullptr;
 #if defined(PIP3D_PC)
@@ -136,7 +129,11 @@ namespace pip3D
         Vector3 sunWorldDir = Vector3(0.0f, 1.0f, 0.0f);
 
         bool shouldRenderShadowForBounds(const Vector3 &center, float radius) const;
-        void drawWaterTriangleInternal(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2, const Color &waterColor, uint8_t alphaByte, const DisplayConfig &cfg, uint16_t *frameBufferPtr);
+        void drawWaterTriangleInternal(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2,
+                                       const Color &waterColor, uint8_t alphaByte, const DisplayConfig &cfg,
+                                       uint16_t *frameBufferPtr);
+        void drawMeshInstanceInternal(MeshInstance *instance, bool performFrustumCull);
+        void drawMeshInstanceShadow(MeshInstance *instance);
 
         __attribute__((always_inline)) inline float ensureHfovCached()
         {
@@ -321,9 +318,7 @@ namespace pip3D
         float getFogFar() const { return fogFar; }
 
         void draw(MeshInstance *instance);
-        void draw(Mesh *mesh);
         void flushQueue();
-        void drawMeshInstanceInternal(MeshInstance *instance, bool performFrustumCull);
 
         bool clipAndDrawNearTextured(const DrawTelemetryClipVert inVerts[3],
                                      float nearD,
@@ -337,20 +332,10 @@ namespace pip3D
                                      uint16_t faceIdxForTelemetry,
                                      uint32_t frameForTelemetry);
 
-        void drawMeshInstance(MeshInstance *instance);
-        void drawMeshInstance(MeshInstance *instance, ShadingMode mode);
-        void drawMeshInstanceStatic(MeshInstance *instance);
-        void drawInstances(InstanceManager &manager);
-
-        void drawMeshShadow(Mesh *mesh);
-        void drawMeshInstanceShadow(MeshInstance *instance);
-        void drawMesh(Mesh *mesh);
-        void drawMesh(Mesh *mesh, ShadingMode mode);
-
         void drawTriangle3D(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2, uint16_t color);
         void drawBlobShadow(const Vector3 &position, float radius, float opacity);
 
-        void drawWaterMesh(Mesh *mesh, float time);
+        void drawWaterMesh(MeshInstance *instance, float time);
         void drawWater(float yLevel, float size, Color color, float alpha, float time);
         static constexpr uint16_t reflectWidth() { return REFLECT_WIDTH; }
         static constexpr uint16_t reflectHeight() { return REFLECT_HEIGHT; }

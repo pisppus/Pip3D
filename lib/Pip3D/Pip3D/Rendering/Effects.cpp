@@ -8,22 +8,120 @@
 
 namespace pip3D
 {
-    void Renderer::drawWaterMesh(Mesh *mesh, float time)
+    void Renderer::drawWaterMesh(MeshInstance *instance, float time)
     {
+        if (!instance || !instance->isVisible())
+            return;
+
+        Mesh *mesh = instance->getMesh();
         if (!mesh)
             return;
 
-        MeshRenderer::drawWaterMesh(mesh,
-                                    cameras[activeCameraIndex],
-                                    viewport,
-                                    frustum,
-                                    viewProjMatrix,
-                                    framebuffer,
-                                    zBuffer,
-                                    time,
-                                    reflectBuffer,
-                                    REFLECT_WIDTH,
-                                    REFLECT_HEIGHT);
+        const Vector3 center = instance->center();
+        const float radius = instance->radius();
+        if (!frustum.testSphere(center, radius))
+            return;
+
+        const uint16_t faceCount = mesh->numFaces();
+        if (faceCount == 0)
+            return;
+
+        const uint16_t vertexCountUsed = mesh->numVertices();
+        if (!instance->ensureProjectionCache(vertexCountUsed))
+            return;
+
+        Vector3 *worldVerts = instance->getCachedWorldVertices();
+        Vector3 *screenVerts = instance->getCachedScreenVertices();
+
+        const Matrix4x4 &worldTransform = instance->transform();
+
+        const Vector3 *localVerts = nullptr;
+        if (mesh->ensureDecodedVertexCache())
+            localVerts = mesh->getCachedLocalVertices();
+
+        const uint32_t frameStamp = g_frameStamp;
+        const int16_t bandTop = g_bandOffsetY;
+        const int16_t bandBottom = static_cast<int16_t>(bandTop + g_bandHeight);
+        const float viewportWidth = static_cast<float>(viewport.width);
+        const float viewportHalfWidth = viewportWidth * 0.5f;
+        const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
+
+        if (!instance->areWorldVertsValid())
+        {
+            for (uint16_t i = 0; i < vertexCountUsed; ++i)
+            {
+                Vector3 local = localVerts ? localVerts[i] : mesh->decodePosition(mesh->vert(i));
+                Vector3 world = worldTransform.transformNoDiv(local);
+                worldVerts[i] = world;
+                screenVerts[i] = CameraController::project(world, viewProjMatrix,
+                                                           viewportHalfWidth, viewportHalfHeight,
+                                                           viewport.x, viewport.y);
+            }
+            instance->markWorldVertsValid();
+            instance->setCachedScreenVertsFrameStamp(frameStamp);
+        }
+        else if (instance->getCachedScreenVertsFrameStamp() != frameStamp)
+        {
+            for (uint16_t i = 0; i < vertexCountUsed; ++i)
+            {
+                screenVerts[i] = CameraController::project(worldVerts[i], viewProjMatrix,
+                                                           viewportHalfWidth, viewportHalfHeight,
+                                                           viewport.x, viewport.y);
+            }
+            instance->setCachedScreenVertsFrameStamp(frameStamp);
+        }
+
+        float waterYGlobal = screenVerts[0].y;
+        for (uint16_t i = 1; i < vertexCountUsed; ++i)
+        {
+            if (screenVerts[i].y < waterYGlobal)
+                waterYGlobal = screenVerts[i].y;
+        }
+
+        const DisplayConfig &framebufferConfig = framebuffer.getConfig();
+
+        for (uint16_t i = 0; i < faceCount; ++i)
+        {
+            const Face &face = mesh->face(i);
+            const uint16_t i0 = face.v0;
+            const uint16_t i1 = face.v1;
+            const uint16_t i2 = face.v2;
+
+            const Vector3 &p0 = screenVerts[i0];
+            const Vector3 &p1 = screenVerts[i1];
+            const Vector3 &p2 = screenVerts[i2];
+
+            const float minY = fminf(p0.y, fminf(p1.y, p2.y));
+            const float maxY = fmaxf(p0.y, fmaxf(p1.y, p2.y));
+            if (maxY < bandTop || minY >= bandBottom)
+                continue;
+
+            const float minX = fminf(p0.x, fminf(p1.x, p2.x));
+            const float maxX = fmaxf(p0.x, fmaxf(p1.x, p2.x));
+            if (maxX < 0.0f || minX >= viewportWidth)
+                continue;
+
+            Vector3 lp0 = p0;
+            Vector3 lp1 = p1;
+            Vector3 lp2 = p2;
+            lp0.y -= static_cast<float>(bandTop);
+            lp1.y -= static_cast<float>(bandTop);
+            lp2.y -= static_cast<float>(bandTop);
+
+            Rasterizer::fillTriangleWater(lp0.x, lp0.y, lp0.z,
+                                          lp1.x, lp1.y, lp1.z,
+                                          lp2.x, lp2.y, lp2.z,
+                                          time,
+                                          waterYGlobal,
+                                          framebuffer.getSkybox(),
+                                          framebuffer.getBuffer(),
+                                          zBuffer,
+                                          framebufferConfig,
+                                          bandTop,
+                                          reflectBuffer,
+                                          REFLECT_WIDTH,
+                                          REFLECT_HEIGHT);
+        }
     }
 
     void Renderer::drawWater(float yLevel, float size, Color color, float alpha, float time)

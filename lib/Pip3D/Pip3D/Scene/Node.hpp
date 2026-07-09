@@ -386,34 +386,53 @@ namespace pip3D
     protected:
         Mesh *mesh;
         bool ownsMesh;
+        MeshInstance *instance;
         bool castShadows;
 
     public:
         MeshNode(const String &nodeName = "MeshNode")
-            : Node(nodeName), mesh(nullptr), ownsMesh(false), castShadows(true) {}
+            : Node(nodeName), mesh(nullptr), ownsMesh(false),
+              instance(nullptr), castShadows(true) {}
 
         MeshNode(Mesh *meshPtr, const String &nodeName = "MeshNode", bool owns = false)
-            : Node(nodeName), mesh(meshPtr), ownsMesh(owns), castShadows(true) {}
+            : Node(nodeName), mesh(nullptr), ownsMesh(false),
+              instance(nullptr), castShadows(true)
+        {
+            setMesh(meshPtr, owns);
+        }
 
         ~MeshNode() override
         {
+            delete instance;
+            instance = nullptr;
             if (ownsMesh && mesh)
             {
                 delete mesh;
+                mesh = nullptr;
             }
         }
 
         void setMesh(Mesh *meshPtr, bool owns = false)
         {
-            if (ownsMesh && mesh)
+            if (ownsMesh && mesh && mesh != meshPtr)
             {
                 delete mesh;
             }
             mesh = meshPtr;
             ownsMesh = owns;
+
+            if (!instance)
+            {
+                instance = new MeshInstance(mesh);
+            }
+            else
+            {
+                instance->setMesh(mesh);
+            }
         }
 
         Mesh *getMesh() const { return mesh; }
+        MeshInstance *getInstance() const { return instance; }
 
         void setCastShadows(bool cast) { castShadows = cast; }
         bool getCastShadows() const { return castShadows; }
@@ -525,4 +544,3 @@ namespace pip3D
     };
 
 }
-
