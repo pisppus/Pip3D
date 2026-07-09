@@ -1,7 +1,7 @@
 #include "Renderer.hpp"
 #include "Rendering/Pipeline/MeshDraw.hpp"
 #include "Rendering/Pipeline/Shading.hpp"
-#include "Geometry/Billboard.hpp"
+#include "Rendering/Pipeline/Billboard.hpp"
 #include "Rendering/Display/Textures/Sun.hpp"
 #include "Math/Algebra.hpp"
 #include "Debug/Logging.hpp"
@@ -42,7 +42,7 @@ namespace pip3D
 
         const Vector3 center(0.0f, yLevel, 0.0f);
         const float radius = size * 0.75f;
-        if (!frustum.sphere(center, radius))
+        if (!frustum.testSphere(center, radius))
             return;
 
         constexpr int GRID = 32;
@@ -151,26 +151,22 @@ namespace pip3D
         if (intensityByte == 0)
             return;
 
-        Billboard bb;
-        bb.position = worldPos;
-        bb.width = diameter;
-        bb.height = diameter;
-        bb.texture = &g_sunTexture;
-        bb.tint = color;
-        bb.chromaKey = 0x0000;
-        bb.orientation = BB_SCREEN_ALIGNED;
-        bb.blend = BB_BLEND_ADDITIVE;
-        bb.alpha = intensityByte;
-        bb.screenSpaceSize = true;
-        bb.visible = true;
-        bb.lit = false;
-
         const Camera &cam = cameras[activeCameraIndex];
         BillboardFrameContext ctx = makeBillboardFrameContext(
             cam, viewport, viewProjMatrix, frustum);
 
-        BillboardQuad q;
-        if (!buildBillboardQuadScreen(bb, ctx, q))
+        BillboardQuad q = {};
+        q.texture = &g_sunTexture;
+        q.chromaKey = 0x0000;
+        q.alpha = intensityByte;
+        q.blend = static_cast<uint8_t>(BB_BLEND_ADDITIVE);
+        q.lit = false;
+
+        if (!buildBillboardQuadGeometry(
+                worldPos, diameter, diameter,
+                BB_SCREEN_ALIGNED, /*yawDeg=*/0.0f,
+                /*screenSpaceSize=*/true, color,
+                ctx, q))
             return;
 
         drawBillboardQuads(&q, 1);

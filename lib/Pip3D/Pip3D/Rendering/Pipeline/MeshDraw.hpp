@@ -115,7 +115,7 @@ namespace pip3D
 
             Vector3 center = mesh->center();
             float radius = mesh->radius();
-            if (!frustum.sphere(center, radius))
+            if (!frustum.testSphere(center, radius))
                 return;
 
             const uint16_t meshColor565 = mesh->color().rgb565;
@@ -456,7 +456,7 @@ namespace pip3D
 
             Vector3 center = mesh->center();
             float radius = mesh->radius();
-            if (!frustum.sphere(center, radius))
+            if (!frustum.testSphere(center, radius))
                 return;
 
             const uint16_t faceCount = mesh->numFaces();

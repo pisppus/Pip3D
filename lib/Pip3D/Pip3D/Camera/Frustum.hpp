@@ -104,42 +104,6 @@ namespace pip3D
             return true;
         }
 
-        PIP3D_FORCE_INLINE CullingResult testSphereDetailed(const Vector3 &center, float radius) const
-        {
-            int insideCount = 0;
-            for (int i = 0; i < 6; ++i)
-            {
-                const float dist = planes[i].distanceToPoint(center);
-                if (unlikely(dist < -radius))
-                    return CULLED;
-                if (dist > radius)
-                    ++insideCount;
-            }
-            return (insideCount == 6) ? VISIBLE : PARTIAL;
-        }
-
-        PIP3D_FORCE_INLINE float getVisibilityFactor(const Vector3 &center, float radius) const
-        {
-            const CullingResult result = testSphereDetailed(center, radius);
-            if (result == CULLED)
-                return 0.0f;
-            if (result == VISIBLE)
-                return 1.0f;
-
-            float minDist = radius;
-            for (int i = 0; i < 6; ++i)
-            {
-                const float dist = planes[i].distanceToPoint(center);
-                if (dist < radius)
-                {
-                    const float d = dist + radius;
-                    if (d < minDist)
-                        minDist = d;
-                }
-            }
-            return fminf(fmaxf(minDist * FastMath::fastReciprocal(radius), 0.0f), 1.0f);
-        }
-
         PIP3D_FORCE_INLINE bool testAABB(const Vector3 &min, const Vector3 &max) const
         {
             for (int i = 0; i < 6; ++i)
@@ -165,14 +129,6 @@ namespace pip3D
         }
 
         PIP3D_FORCE_INLINE const FrustumPlane &getPlane(int i) const { return planes[i]; }
-
-        PIP3D_FORCE_INLINE void extract(const Matrix4x4 &vp) { extractFromViewProjection(vp); }
-
-        PIP3D_FORCE_INLINE bool sphere(const Vector3 &center, float radius) const { return testSphere(center, radius); }
-        PIP3D_FORCE_INLINE bool box(const Vector3 &min, const Vector3 &max) const { return testAABB(min, max); }
-        PIP3D_FORCE_INLINE bool point(const Vector3 &p) const { return testPoint(p); }
-        PIP3D_FORCE_INLINE CullingResult cull(const Vector3 &center, float radius) const { return testSphereDetailed(center, radius); }
-        PIP3D_FORCE_INLINE float factor(const Vector3 &center, float radius) const { return getVisibilityFactor(center, radius); }
     };
 
     using Frustum = CameraFrustum;

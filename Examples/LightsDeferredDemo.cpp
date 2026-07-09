@@ -18,7 +18,6 @@
 #include "Rendering/Display/Textures/Barrier.hpp"
 #include "Rendering/Display/Textures/Gravel.hpp"
 #include "Rendering/Display/Textures/Sun.hpp"
-#include "Geometry/Billboard.hpp"
 
 using namespace pip3D;
 

@@ -16,16 +16,6 @@ namespace pip3D
     ORTHOGRAPHIC
   };
 
-  struct CameraDirty
-  {
-    static constexpr uint8_t VIEW = 0x01;
-    static constexpr uint8_t PROJ = 0x02;
-    static constexpr uint8_t VP = 0x04;
-    static constexpr uint8_t ORTHO = 0x08;
-    static constexpr uint8_t VECTORS = 0x10;
-    static constexpr uint8_t ALL = VIEW | PROJ | VP | ORTHO | VECTORS;
-  };
-
   struct Camera
   {
     Vector3 position;
@@ -160,18 +150,29 @@ namespace pip3D
       if (cache.flags & CameraDirty::VECTORS)
         updateVectors();
 
-      Quaternion pitchQ = Quaternion::fromAxisAngle(cache.cachedRight, pitchRad);
-      Vector3 tempFwd = pitchQ.rotate(cache.cachedForward);
+      const Vector3 &fwd = cache.cachedForward;
 
-      Quaternion yawQ = Quaternion::fromAxisAngle(Vector3(0, 1, 0), yawRad);
-      Vector3 finalFwd = yawQ.rotate(tempFwd);
-      finalFwd.normalize();
+      float yaw = atan2f(fwd.x, fwd.z) + yawRad;
+      float pitch = asinf(clamp(fwd.y, -1.0f, 1.0f)) + pitchRad;
+
+      constexpr float kPitchLimit = 1.5533f;
+      if (pitch > kPitchLimit)
+        pitch = kPitchLimit;
+      if (pitch < -kPitchLimit)
+        pitch = -kPitchLimit;
+
+      float sp, cp;
+      FastMath::fastSinCos(pitch, sp, cp);
+      float sy, cy;
+      FastMath::fastSinCos(yaw, sy, cy);
+
+      const Vector3 finalFwd(sy * cp, sp, cy * cp);
 
       const Vector3 d = target - position;
       const float distSq = d.lengthSquared();
       const float dist = (distSq > 1e-12f)
                              ? distSq * FastMath::fastInvSqrt(distSq)
-                             : 0.0f;
+                             : 1.0f;
 
       target = position + finalFwd * dist;
       invalidateView();
@@ -319,32 +320,15 @@ namespace pip3D
     {
       if (shakeState.trauma > 0.0f)
       {
+        if (cache.flags & CameraDirty::VECTORS)
+          updateVectors();
+
         float pitch, yaw, roll;
         Vector3 offset;
         shakeState.getOffsets(pitch, yaw, roll, offset);
 
-        Vector3 fwd, rightVec;
-        if (cache.flags & CameraDirty::VECTORS)
-        {
-          fwd = target - position;
-          float lenSq = fwd.lengthSquared();
-          if (likely(lenSq > 1e-12f))
-            fwd *= FastMath::fastInvSqrt(lenSq);
-
-          rightVec = fwd.cross(up);
-          lenSq = rightVec.lengthSquared();
-          if (likely(lenSq > 1e-12f))
-            rightVec *= FastMath::fastInvSqrt(lenSq);
-
-          cache.cachedForward = fwd;
-          cache.cachedRight = rightVec;
-          cache.flags &= ~CameraDirty::VECTORS;
-        }
-        else
-        {
-          fwd = cache.cachedForward;
-          rightVec = cache.cachedRight;
-        }
+        Vector3 fwd = cache.cachedForward;
+        const Vector3 &rightVec = cache.cachedRight;
 
         Vector3 effPos = position + rightVec * offset.x + up * offset.y + fwd * offset.z;
         Vector3 effUp = up;

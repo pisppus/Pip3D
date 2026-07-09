@@ -339,7 +339,7 @@ namespace pip3D
 
         if (performFrustumCull)
         {
-            if (!frustum.sphere(center, radius))
+            if (!frustum.testSphere(center, radius))
             {
                 statsInstancesFrustumCulled++;
                 return;
