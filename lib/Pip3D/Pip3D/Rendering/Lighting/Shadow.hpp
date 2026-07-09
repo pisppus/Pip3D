@@ -60,50 +60,6 @@ namespace pip3D
     class ShadowRenderer
     {
     public:
-        static void drawMeshShadow(Mesh *mesh,
-                                   Mesh *shadowMesh,
-                                   bool shadowsEnabled,
-                                   const ShadowSettings &shadowSettings,
-                                   const Camera &camera,
-                                   const Light *lights,
-                                   int activeLightCount,
-                                   const Matrix4x4 &viewProjMatrix,
-                                   const Viewport &viewport,
-                                   FrameBuffer &framebuffer,
-                                   ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
-                                   bool &backfaceCullingEnabled,
-                                   uint32_t shadowCacheGen)
-        {
-            if (!mesh || !shadowMesh || !shadowsEnabled || !shadowSettings.enabled)
-                return;
-            if (activeLightCount == 0)
-                return;
-            const Light &light = lights[0];
-            if (light.type != LIGHT_DIRECTIONAL && light.type != LIGHT_POINT)
-                return;
-
-            const ShadowProjector::ShadowPlane &plane = shadowSettings.plane;
-            const Vector3 meshCenter = mesh->center();
-            const float meshRadius = mesh->radius();
-            const float centerDist = plane.normal.x * meshCenter.x + plane.normal.y * meshCenter.y + plane.normal.z * meshCenter.z + plane.d;
-            if (centerDist + meshRadius <= 0.0f)
-                return;
-
-            uint16_t shadowColor;
-            uint8_t baseAlpha;
-            computeShadowColorAndAlpha(shadowSettings, shadowColor, baseAlpha);
-
-            const int16_t bandTop = g_bandOffsetY;
-            const int16_t bandBottom = static_cast<int16_t>(bandTop + g_bandHeight);
-
-            renderShadowGeometry(meshCenter, meshRadius, mesh->getTransform(), shadowMesh,
-                                 light, shadowSettings, camera, viewProjMatrix, viewport,
-                                 bandTop, bandBottom, shadowColor, baseAlpha,
-                                 framebuffer.getBuffer(), zBuffer, framebuffer.getConfig(),
-                                 backfaceCullingEnabled,
-                                 mesh, shadowCacheGen);
-        }
-
         static void drawMeshInstanceShadow(MeshInstance *instance,
                                            Mesh *shadowMesh,
                                            bool shadowsEnabled,
@@ -384,7 +340,6 @@ namespace pip3D
             return ((projCenter.y + rScr) < bandTop || (projCenter.y - rScr) >= bandBottom);
         }
 
-        template <typename CacheOwner>
         static void renderShadowGeometry(
             const Vector3 &objectCenter, float objectRadius,
             const Matrix4x4 &worldTransform,
@@ -400,7 +355,7 @@ namespace pip3D
             ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
             const DisplayConfig &framebufferConfig,
             bool &backfaceCullingEnabled,
-            CacheOwner *cacheOwner,
+            MeshInstance *cacheOwner,
             uint32_t shadowCacheGen)
         {
             const ShadowProjector::ShadowPlane &plane = shadowSettings.plane;

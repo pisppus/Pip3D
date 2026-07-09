@@ -25,30 +25,6 @@ namespace pip3D
         return true;
     }
 
-    void Renderer::drawMeshShadow(Mesh *mesh)
-    {
-        if (!mesh || !mesh->getCastShadows())
-            return;
-        if (!shouldRenderShadowForBounds(mesh->center(), mesh->radius()))
-            return;
-
-        Mesh *shadowMesh = mesh->getShadowProxy() ? mesh->getShadowProxy() : mesh;
-
-        ShadowRenderer::drawMeshShadow(mesh,
-                                       shadowMesh,
-                                       shadowsEnabled,
-                                       shadowSettings,
-                                       cameras[activeCameraIndex],
-                                       lights.data(),
-                                       activeLightCount,
-                                       viewProjMatrix,
-                                       viewport,
-                                       framebuffer,
-                                       zBuffer,
-                                       backfaceCullingEnabled,
-                                       shadowCacheGeneration);
-    }
-
     void Renderer::drawMeshInstanceShadow(MeshInstance *instance)
     {
         if (!instance || !instance->isVisible())

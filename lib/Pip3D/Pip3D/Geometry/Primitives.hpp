@@ -1515,7 +1515,6 @@ namespace pip3D
         {
             finalizeNormals();
             calculateBoundingSphere();
-            finalizeTransform();
         }
     };
 }

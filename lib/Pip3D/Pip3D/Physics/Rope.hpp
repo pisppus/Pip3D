@@ -295,7 +295,7 @@ namespace pip3D
                 linkInstance->setPosition(mid);
                 linkInstance->setRotation(rot);
 
-                renderer.drawMeshInstance(linkInstance);
+                renderer.draw(linkInstance);
             }
         }
 

@@ -237,10 +237,7 @@ namespace pip3D
 
         shadowQueueCount = 0;
         opaqueQueueCount = 0;
-        meshShadowQueueCount = 0;
-        meshOpaqueQueueCount = 0;
         blobShadowQueueCount = 0;
-        meshBlobShadowQueueCount = 0;
 
         if (bandIndex < 0)
             bandIndex = 0;

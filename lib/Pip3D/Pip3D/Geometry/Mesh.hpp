@@ -100,14 +100,9 @@ namespace pip3D
     {
         Vector3 boundingCenter;
         float boundingRadius;
-        Matrix4x4 transform;
-        float maxScale;
-        uint32_t transformHash;
-        bool transformValid;
         bool boundsValid;
 
-        MESH_FORCE_INLINE MeshCache() : boundingRadius(0), maxScale(1), transformHash(0),
-                                        transformValid(false), boundsValid(false) {}
+        MESH_FORCE_INLINE MeshCache() : boundingRadius(0), boundsValid(false) {}
     };
 
     class MESH_SIMD_ALIGN Mesh
@@ -121,50 +116,43 @@ namespace pip3D
         uint16_t maxVertices;
         uint16_t maxFaces;
 
-        Vector3 position;
-        Vector3 rotation;
-        Vector3 scale;
-
-        Color meshColor;
-        bool visible;
+        Color defaultColor;
         bool castShadows;
-        bool blobShadow;
-        mutable bool transformDirty;
-
         bool singleColorLighting;
         bool isStaticStorage;
         float qScale;
-        const Texture *meshTexture = nullptr;
-
-        Mesh *shadowProxy = nullptr;
+        const Texture *meshTexture;
+        Mesh *shadowProxy;
 
         mutable MeshCache cache;
+
         mutable Vector3 *cachedLocalVertices;
         mutable uint16_t cachedLocalVertexCapacity;
         mutable bool cachedLocalVerticesValid;
-        mutable Vector3 *cachedWorldVertices;
-        mutable Vector3 *cachedScreenVertices;
-        mutable uint16_t cachedProjectionCapacity;
-        mutable uint32_t cachedProjectionFrameStamp;
 
-        mutable Vector3 *cachedShadowVerts;
-        mutable uint16_t cachedShadowVertCapacity;
-        mutable uint32_t cachedShadowGen;
+        void freeLocalVertexCache()
+        {
+            if (cachedLocalVertices)
+            {
+                MemUtils::freeData(cachedLocalVertices);
+                cachedLocalVertices = nullptr;
+            }
+            cachedLocalVertexCapacity = 0;
+            cachedLocalVerticesValid = false;
+        }
 
     public:
         MESH_HOT_PATH Mesh(uint16_t maxVerts = 64, uint16_t maxFcs = 128, const Color &color = Color::WHITE)
-            : vertexCount(0), faceCount(0), maxVertices(maxVerts), maxFaces(maxFcs),
-              position(0, 0, 0), rotation(0, 0, 0), scale(1, 1, 1),
-              meshColor(color), visible(true), castShadows(true), blobShadow(false), transformDirty(true),
-              isStaticStorage(false), qScale(1.0f),
-              cachedLocalVertices(nullptr), singleColorLighting(false), cachedLocalVertexCapacity(0),
-              cachedLocalVerticesValid(false), cachedWorldVertices(nullptr),
-              cachedScreenVertices(nullptr), cachedProjectionCapacity(0), cachedProjectionFrameStamp(0),
-              cachedShadowVerts(nullptr), cachedShadowVertCapacity(0), cachedShadowGen(0)
+            : vertices(nullptr), faces(nullptr),
+              vertexCount(0), faceCount(0), maxVertices(maxVerts), maxFaces(maxFcs),
+              defaultColor(color), castShadows(true),
+              singleColorLighting(false), isStaticStorage(false), qScale(1.0f),
+              meshTexture(nullptr), shadowProxy(nullptr),
+              cachedLocalVertices(nullptr), cachedLocalVertexCapacity(0),
+              cachedLocalVerticesValid(false)
         {
-
-            const size_t vertexSize = maxVertices * sizeof(Vertex);
-            const size_t faceSize = maxFaces * sizeof(Face);
+            const size_t vertexSize = static_cast<size_t>(maxVertices) * sizeof(Vertex);
+            const size_t faceSize = static_cast<size_t>(maxFaces) * sizeof(Face);
 
             vertices = (Vertex *)MemUtils::allocData(vertexSize, 16);
             faces = (Face *)MemUtils::allocData(faceSize, 16);
@@ -180,8 +168,6 @@ namespace pip3D
                 cleanup();
                 return;
             }
-
-            cache.transform.identity();
         }
 
         MESH_HOT_PATH Mesh(const Vertex *externalVertices,
@@ -194,16 +180,44 @@ namespace pip3D
               faces(const_cast<Face *>(externalFaces)),
               vertexCount(vertCount), faceCount(faceCountIn),
               maxVertices(vertCount), maxFaces(faceCountIn),
-              position(0, 0, 0), rotation(0, 0, 0), scale(1, 1, 1),
-              meshColor(color), visible(true), castShadows(true), blobShadow(false), transformDirty(true),
-              isStaticStorage(staticStorage), qScale(1.0f), singleColorLighting(false),
-              cachedLocalVertices(nullptr), cachedLocalVertexCapacity(0), cachedLocalVerticesValid(false),
-              cachedWorldVertices(nullptr), cachedScreenVertices(nullptr),
-              cachedProjectionCapacity(0), cachedProjectionFrameStamp(0),
-              cachedShadowVerts(nullptr), cachedShadowVertCapacity(0), cachedShadowGen(0)
+              defaultColor(color), castShadows(true),
+              singleColorLighting(false), isStaticStorage(staticStorage), qScale(1.0f),
+              meshTexture(nullptr), shadowProxy(nullptr),
+              cachedLocalVertices(nullptr), cachedLocalVertexCapacity(0),
+              cachedLocalVerticesValid(false)
         {
-            cache.transform.identity();
         }
+
+        MESH_COLD_PATH void cleanup()
+        {
+            if (!isStaticStorage)
+            {
+                if (vertices)
+                {
+                    MemUtils::freeData(vertices);
+                    vertices = nullptr;
+                }
+                if (faces)
+                {
+                    MemUtils::freeData(faces);
+                    faces = nullptr;
+                }
+            }
+            freeLocalVertexCache();
+            vertexCount = 0;
+            faceCount = 0;
+            maxVertices = 0;
+            maxFaces = 0;
+            cache.boundsValid = false;
+        }
+
+        MESH_COLD_PATH virtual ~Mesh()
+        {
+            cleanup();
+        }
+
+        Mesh(const Mesh &) = delete;
+        Mesh &operator=(const Mesh &) = delete;
 
         MESH_FORCE_INLINE void autoScale(float size)
         {
@@ -222,9 +236,7 @@ namespace pip3D
         MESH_FORCE_INLINE int16_t quantizeCoord(float x) const
         {
             if (qScale <= 0.0f)
-            {
                 return 0;
-            }
             float q = x / qScale;
             float clamped = fminf(fmaxf(q, -32768.0f), 32767.0f);
             if (clamped >= 0.0f)
@@ -236,64 +248,10 @@ namespace pip3D
 
         MESH_PURE MESH_FORCE_INLINE Vector3 decodePosition(const Vertex &v) const
         {
-            return Vector3(
-                static_cast<float>(v.px) * qScale,
-                static_cast<float>(v.py) * qScale,
-                static_cast<float>(v.pz) * qScale);
+            return Vector3(static_cast<float>(v.px) * qScale,
+                           static_cast<float>(v.py) * qScale,
+                           static_cast<float>(v.pz) * qScale);
         }
-
-        MESH_COLD_PATH void cleanup()
-        {
-            if (vertices && !isStaticStorage)
-            {
-                MemUtils::freeData(vertices);
-                vertices = nullptr;
-            }
-            if (faces && !isStaticStorage)
-            {
-                MemUtils::freeData(faces);
-                faces = nullptr;
-            }
-            if (cachedLocalVertices)
-            {
-                MemUtils::freeData(cachedLocalVertices);
-                cachedLocalVertices = nullptr;
-            }
-            if (cachedWorldVertices)
-            {
-                MemUtils::freeData(cachedWorldVertices);
-                cachedWorldVertices = nullptr;
-            }
-            if (cachedScreenVertices)
-            {
-                MemUtils::freeData(cachedScreenVertices);
-                cachedScreenVertices = nullptr;
-            }
-            if (cachedShadowVerts)
-            {
-                MemUtils::freeData(cachedShadowVerts);
-                cachedShadowVerts = nullptr;
-            }
-            vertexCount = 0;
-            faceCount = 0;
-            maxVertices = 0;
-            maxFaces = 0;
-            cache.boundsValid = false;
-            cachedLocalVertexCapacity = 0;
-            cachedLocalVerticesValid = false;
-            cachedProjectionCapacity = 0;
-            cachedProjectionFrameStamp = 0;
-            cachedShadowVertCapacity = 0;
-            cachedShadowGen = 0;
-        }
-
-        MESH_COLD_PATH virtual ~Mesh()
-        {
-            cleanup();
-        }
-
-        Mesh(const Mesh &) = delete;
-        Mesh &operator=(const Mesh &) = delete;
 
         MESH_HOT_PATH MESH_FORCE_INLINE uint16_t addVertex(const Vector3 &pos)
         {
@@ -381,157 +339,55 @@ namespace pip3D
                      static_cast<unsigned int>(faceCount));
                 return;
             }
-            if (unlikely(vertexCount == 0))
-            {
-                return;
-            }
 
-            const size_t normalSize = vertexCount * sizeof(Vector3);
-            Vector3 *vertexNormals = (Vector3 *)pip3D::MemUtils::allocAligned(normalSize, 16, pipcore::AllocCaps::PreferInternal);
-
+            const size_t scratchBytes = static_cast<size_t>(vertexCount) * sizeof(Vector3);
+            Vector3 *vertexNormals = static_cast<Vector3 *>(MemUtils::allocData(scratchBytes, 16));
             if (unlikely(!vertexNormals))
             {
                 LOGE(::pip3D::Debug::LOG_MODULE_RESOURCES,
-                     "Mesh::finalizeNormals: failed to allocate %u bytes for temporary normals (vertexCount=%u)",
-                     static_cast<unsigned int>(normalSize),
+                     "Mesh::finalizeNormals: alloc failed (vertexCount=%u)",
                      static_cast<unsigned int>(vertexCount));
                 return;
             }
+            memset(vertexNormals, 0, scratchBytes);
 
-            const Vertex *__restrict vertPtr = vertices;
-            const Face *__restrict facePtr = faces;
-            const Vector3 *vertexPositions = nullptr;
-            if (ensureDecodedVertexCache())
+            for (uint16_t i = 0; i < faceCount; ++i)
             {
-                for (uint16_t i = 0; i < vertexCount; i++)
-                {
-                    vertexNormals[i] = Vector3(0.0f, 0.0f, 0.0f);
-                }
-                vertexPositions = getCachedLocalVertices();
+                const Face &f = faces[i];
+                if (f.v0 >= vertexCount || f.v1 >= vertexCount || f.v2 >= vertexCount)
+                    continue;
 
-                for (uint16_t f = 0; f < faceCount; f++)
-                {
-                    const Face &face = facePtr[f];
+                Vector3 v0 = decodePosition(vertices[f.v0]);
+                Vector3 v1 = decodePosition(vertices[f.v1]);
+                Vector3 v2 = decodePosition(vertices[f.v2]);
 
-                    const Vector3 &v0 = vertexPositions[face.v0];
-                    const Vector3 &v1 = vertexPositions[face.v1];
-                    const Vector3 &v2 = vertexPositions[face.v2];
+                Vector3 edge1 = v1 - v0;
+                Vector3 edge2 = v2 - v0;
+                Vector3 faceNormal = edge1.cross(edge2);
 
-                    Vector3 edge1 = v1 - v0;
-                    Vector3 edge2 = v2 - v0;
-                    Vector3 normal = edge1.cross(edge2);
-
-                    float lenSq = normal.lengthSquared();
-                    if (likely(lenSq > EPSILON_SQ))
-                    {
-                        vertexNormals[face.v0] += normal;
-                        vertexNormals[face.v1] += normal;
-                        vertexNormals[face.v2] += normal;
-                    }
-                }
-            }
-            else
-            {
-                memset(vertexNormals, 0, normalSize);
-
-                for (uint16_t f = 0; f < faceCount; f++)
-                {
-                    const Face &face = facePtr[f];
-
-                    Vector3 v0 = decodePosition(vertPtr[face.v0]);
-                    Vector3 v1 = decodePosition(vertPtr[face.v1]);
-                    Vector3 v2 = decodePosition(vertPtr[face.v2]);
-
-                    Vector3 edge1 = v1 - v0;
-                    Vector3 edge2 = v2 - v0;
-                    Vector3 normal = edge1.cross(edge2);
-
-                    float lenSq = normal.lengthSquared();
-                    if (likely(lenSq > EPSILON_SQ))
-                    {
-                        vertexNormals[face.v0] += normal;
-                        vertexNormals[face.v1] += normal;
-                        vertexNormals[face.v2] += normal;
-                    }
-                }
+                vertexNormals[f.v0] += faceNormal;
+                vertexNormals[f.v1] += faceNormal;
+                vertexNormals[f.v2] += faceNormal;
             }
 
-            for (uint16_t i = 0; i < vertexCount; i++)
+            for (uint16_t i = 0; i < vertexCount; ++i)
             {
                 vertexNormals[i].normalize();
                 vertices[i].normal.set(vertexNormals[i]);
             }
 
-            pip3D::MemUtils::freeAligned(vertexNormals);
+            MemUtils::freeData(vertexNormals);
         }
 
-        MESH_HOT_PATH MESH_FORCE_INLINE void setPosition(float x, float y, float z)
-        {
-            position.x = x;
-            position.y = y;
-            position.z = z;
-            invalidateTransform();
-        }
-
-        MESH_HOT_PATH MESH_FORCE_INLINE void setRotation(float x, float y, float z)
-        {
-            rotation.x = x;
-            rotation.y = y;
-            rotation.z = z;
-            invalidateTransform();
-        }
-
-        MESH_HOT_PATH MESH_FORCE_INLINE void setScale(float x, float y, float z)
-        {
-            scale.x = x;
-            scale.y = y;
-            scale.z = z;
-            invalidateTransform();
-        }
-
-        MESH_HOT_PATH MESH_FORCE_INLINE void rotate(float x, float y, float z)
-        {
-            rotation.x += x;
-            rotation.y += y;
-            rotation.z += z;
-            invalidateTransform();
-        }
-
-        MESH_HOT_PATH MESH_FORCE_INLINE void translate(float x, float y, float z)
-        {
-            position.x += x;
-            position.y += y;
-            position.z += z;
-            invalidateTransform();
-        }
-
-        MESH_FORCE_INLINE void invalidateTransform()
-        {
-            transformDirty = true;
-            cache.transformValid = false;
-        }
-
-        MESH_FORCE_INLINE void finalizeTransform()
-        {
-            cache.transform.identity();
-            cache.maxScale = 1.0f;
-            cache.transformValid = true;
-            transformDirty = false;
-            cache.transformHash = computeTransformHash();
-        }
-
-        MESH_FORCE_INLINE void finalizeGeometry(uint16_t vCount, uint16_t fCount, const Vector3 &boundCenter, float boundRadius)
+        MESH_FORCE_INLINE void finalizeGeometry(uint16_t vCount, uint16_t fCount,
+                                                const Vector3 &boundCenter, float boundRadius)
         {
             vertexCount = vCount;
             faceCount = fCount;
             cache.boundingCenter = boundCenter;
             cache.boundingRadius = boundRadius;
             cache.boundsValid = true;
-            finalizeTransform();
         }
-
-        MESH_PURE MESH_FORCE_INLINE Vector3 pos() const { return position; }
-        MESH_PURE MESH_FORCE_INLINE Vector3 rot() const { return rotation; }
 
         MESH_HOT_PATH void calculateBoundingSphere()
         {
@@ -548,16 +404,14 @@ namespace pip3D
             if (ensureDecodedVertexCache())
                 localVerts = getCachedLocalVertices();
 
-            for (uint16_t i = 0; i < vertexCount; i++)
-            {
+            for (uint16_t i = 0; i < vertexCount; ++i)
                 center += localVerts ? localVerts[i] : decodePosition(vertices[i]);
-            }
 
-            float invCount = 1.0f / vertexCount;
+            const float invCount = 1.0f / static_cast<float>(vertexCount);
             center *= invCount;
 
             float maxDistSq = 0;
-            for (uint16_t i = 0; i < vertexCount; i++)
+            for (uint16_t i = 0; i < vertexCount; ++i)
             {
                 Vector3 diff = (localVerts ? localVerts[i] : decodePosition(vertices[i])) - center;
                 float distSq = diff.lengthSquared();
@@ -570,84 +424,58 @@ namespace pip3D
             cache.boundsValid = true;
         }
 
-        MESH_HOT_PATH void updateTransform() const
+        bool ensureDecodedVertexCache() const
         {
-            if (likely(!transformDirty && cache.transformValid))
-                return;
+            if (vertexCount == 0)
+                return false;
 
-            uint32_t newHash = computeTransformHash();
-            if (cache.transformHash == newHash && cache.transformValid)
-                return;
-
-            float radX = rotation.x * kDegToRad;
-            float radY = rotation.y * kDegToRad;
-            float radZ = rotation.z * kDegToRad;
-
-            float cx = FastMath::fastCos(radX), sx = FastMath::fastSin(radX);
-            float cy = FastMath::fastCos(radY), sy = FastMath::fastSin(radY);
-            float cz = FastMath::fastCos(radZ), sz = FastMath::fastSin(radZ);
-
-            cache.transform.identity();
-
-            const float scaleX = scale.x;
-            const float scaleY = scale.y;
-            const float scaleZ = scale.z;
-
-            cache.transform.m[0] = cy * cz * scaleX;
-            cache.transform.m[1] = cy * sz * scaleX;
-            cache.transform.m[2] = -sy * scaleX;
-
-            cache.transform.m[4] = (sx * sy * cz - cx * sz) * scaleY;
-            cache.transform.m[5] = (sx * sy * sz + cx * cz) * scaleY;
-            cache.transform.m[6] = sx * cy * scaleY;
-
-            cache.transform.m[8] = (cx * sy * cz + sx * sz) * scaleZ;
-            cache.transform.m[9] = (cx * sy * sz - sx * cz) * scaleZ;
-            cache.transform.m[10] = cx * cy * scaleZ;
-
-            cache.transform.m[12] = position.x;
-            cache.transform.m[13] = position.y;
-            cache.transform.m[14] = position.z;
-
-            cache.maxScale = fmaxf(fmaxf(scaleX, scaleY), scaleZ);
-            cache.transformHash = newHash;
-            cache.transformValid = true;
-
-            transformDirty = false;
-        }
-
-        MESH_PURE MESH_FORCE_INLINE uint32_t computeTransformHash() const
-        {
-            uint32_t hash = 2166136261u;
-            const float *data = &position.x;
-            for (int i = 0; i < 9; i++)
+            if (!cachedLocalVertices || cachedLocalVertexCapacity < vertexCount)
             {
-                uint32_t val;
-                memcpy(&val, &data[i], sizeof(uint32_t));
-                hash ^= val;
-                hash *= 16777619u;
+                if (cachedLocalVertices)
+                {
+                    MemUtils::freeData(cachedLocalVertices);
+                    cachedLocalVertices = nullptr;
+                }
+
+                cachedLocalVertices = static_cast<Vector3 *>(
+                    MemUtils::allocData(static_cast<size_t>(vertexCount) * sizeof(Vector3), 16));
+                if (!cachedLocalVertices)
+                {
+                    cachedLocalVertexCapacity = 0;
+                    cachedLocalVerticesValid = false;
+                    return false;
+                }
+                cachedLocalVertexCapacity = vertexCount;
+                cachedLocalVerticesValid = false;
             }
-            return hash;
+
+            if (!cachedLocalVerticesValid)
+            {
+                for (uint16_t i = 0; i < vertexCount; ++i)
+                    cachedLocalVertices[i] = decodePosition(vertices[i]);
+                cachedLocalVerticesValid = true;
+            }
+            return true;
         }
+
+        MESH_FORCE_INLINE const Vector3 *getCachedLocalVertices() const { return cachedLocalVertices; }
+
+        MESH_PURE MESH_FORCE_INLINE uint16_t numFaces() const { return faceCount; }
+        MESH_PURE MESH_FORCE_INLINE uint16_t numVertices() const { return vertexCount; }
+        MESH_PURE MESH_FORCE_INLINE const Face &face(uint16_t i) const { return faces[i]; }
+        MESH_PURE MESH_FORCE_INLINE const Vertex &vert(uint16_t i) const { return vertices[i]; }
 
         MESH_HOT_PATH Vector3 center() const
         {
-            updateTransform();
             if (unlikely(!cache.boundsValid))
-            {
                 const_cast<Mesh *>(this)->calculateBoundingSphere();
-            }
-            return cache.transform.transformNoDiv(cache.boundingCenter);
+            return cache.boundingCenter;
         }
-
         MESH_HOT_PATH float radius() const
         {
-            updateTransform();
             if (unlikely(!cache.boundsValid))
-            {
                 const_cast<Mesh *>(this)->calculateBoundingSphere();
-            }
-            return cache.boundingRadius * cache.maxScale * 1.2f;
+            return cache.boundingRadius;
         }
 
         MESH_HOT_PATH Vector3 vertex(uint16_t index) const
@@ -660,12 +488,10 @@ namespace pip3D
                      static_cast<unsigned int>(vertexCount));
                 return Vector3();
             }
-            updateTransform();
             const Vector3 *localVerts = nullptr;
             if (ensureDecodedVertexCache())
                 localVerts = getCachedLocalVertices();
-            Vector3 local = localVerts ? localVerts[index] : decodePosition(vertices[index]);
-            return cache.transform.transformNoDiv(local);
+            return localVerts ? localVerts[index] : decodePosition(vertices[index]);
         }
 
         MESH_HOT_PATH Vector3 normal(uint16_t index) const
@@ -678,9 +504,7 @@ namespace pip3D
                      static_cast<unsigned int>(vertexCount));
                 return Vector3(0.0f, 1.0f, 0.0f);
             }
-            updateTransform();
-            Vector3 n = vertices[index].normal.get();
-            return cache.transform.transformNormal(n);
+            return vertices[index].normal.get();
         }
 
         MESH_HOT_PATH MESH_FORCE_INLINE void clear()
@@ -690,136 +514,16 @@ namespace pip3D
             cachedLocalVerticesValid = false;
         }
 
-        MESH_PURE MESH_FORCE_INLINE uint16_t numFaces() const { return faceCount; }
-        MESH_PURE MESH_FORCE_INLINE uint16_t numVertices() const { return vertexCount; }
-        MESH_PURE MESH_FORCE_INLINE const Face &face(uint16_t i) const { return faces[i]; }
-        MESH_PURE MESH_FORCE_INLINE const Vertex &vert(uint16_t i) const { return vertices[i]; }
-        MESH_PURE MESH_FORCE_INLINE Color color() const { return meshColor; }
-        MESH_FORCE_INLINE void color(const Color &c) { meshColor = c; }
-        MESH_FORCE_INLINE void show() { visible = true; }
-        MESH_FORCE_INLINE void hide() { visible = false; }
-        MESH_PURE MESH_FORCE_INLINE bool isVisible() const { return visible; }
-        MESH_FORCE_INLINE void setCastShadows(bool enabled) { castShadows = enabled; }
+        MESH_PURE MESH_FORCE_INLINE Color color() const { return defaultColor; }
         MESH_PURE MESH_FORCE_INLINE bool getCastShadows() const { return castShadows; }
-        MESH_FORCE_INLINE void setBlobShadow(bool enabled) { blobShadow = enabled; if (enabled) castShadows = false; }
-        MESH_PURE MESH_FORCE_INLINE bool getBlobShadow() const { return blobShadow; }
-        MESH_FORCE_INLINE Vector3 *getCachedShadowVerts(uint32_t expectedGen, uint16_t expectedCount) const
-        {
-            if (cachedShadowGen != expectedGen || cachedShadowVertCapacity < expectedCount)
-                return nullptr;
-            return cachedShadowVerts;
-        }
-        Vector3 *ensureShadowVertCapacity(uint16_t count) const
-        {
-            if (cachedShadowVertCapacity >= count)
-                return cachedShadowVerts;
-            if (cachedShadowVerts)
-                MemUtils::freeData(cachedShadowVerts);
-            cachedShadowVerts = (Vector3 *)MemUtils::allocData(count * sizeof(Vector3), 16);
-            cachedShadowVertCapacity = cachedShadowVerts ? count : 0;
-            return cachedShadowVerts;
-        }
-        MESH_FORCE_INLINE void storeCachedShadowVerts(uint32_t gen) const { cachedShadowGen = gen; }
-        MESH_FORCE_INLINE void invalidateShadowCache() const { cachedShadowGen = 0; }
-        MESH_FORCE_INLINE void setSingleColorLighting(bool enabled) { singleColorLighting = enabled; }
+        MESH_FORCE_INLINE void setCastShadows(bool e) { castShadows = e; }
         MESH_PURE MESH_FORCE_INLINE bool getSingleColorLighting() const { return singleColorLighting; }
-        MESH_FORCE_INLINE void setTexture(const Texture *tex) { meshTexture = tex; }
+        MESH_FORCE_INLINE void setSingleColorLighting(bool e) { singleColorLighting = e; }
         MESH_PURE MESH_FORCE_INLINE const Texture *getTexture() const { return meshTexture; }
+        MESH_FORCE_INLINE void setTexture(const Texture *t) { meshTexture = t; }
         MESH_PURE MESH_FORCE_INLINE bool isTextured() const { return meshTexture != nullptr; }
-        MESH_FORCE_INLINE void setShadowProxy(Mesh *proxy) { shadowProxy = proxy; }
-        MESH_PURE MESH_FORCE_INLINE Mesh* getShadowProxy() const { return shadowProxy; }
-
-        MESH_HOT_PATH const Matrix4x4 &getTransform() const
-        {
-            updateTransform();
-            return cache.transform;
-        }
-
-        bool ensureProjectionCache(uint16_t required) const
-        {
-            if (required == 0)
-                return false;
-
-            if (cachedProjectionCapacity >= required && cachedWorldVertices && cachedScreenVertices)
-                return true;
-
-            if (cachedWorldVertices)
-            {
-                MemUtils::freeData(cachedWorldVertices);
-                cachedWorldVertices = nullptr;
-            }
-            if (cachedScreenVertices)
-            {
-                MemUtils::freeData(cachedScreenVertices);
-                cachedScreenVertices = nullptr;
-            }
-
-            cachedWorldVertices = static_cast<Vector3 *>(MemUtils::allocData(static_cast<size_t>(required) * sizeof(Vector3), 16));
-            cachedScreenVertices = static_cast<Vector3 *>(MemUtils::allocData(static_cast<size_t>(required) * sizeof(Vector3), 16));
-
-            if (!cachedWorldVertices || !cachedScreenVertices)
-            {
-                if (cachedWorldVertices)
-                {
-                    MemUtils::freeData(cachedWorldVertices);
-                    cachedWorldVertices = nullptr;
-                }
-                if (cachedScreenVertices)
-                {
-                    MemUtils::freeData(cachedScreenVertices);
-                    cachedScreenVertices = nullptr;
-                }
-                cachedProjectionCapacity = 0;
-                return false;
-            }
-
-            cachedProjectionCapacity = required;
-            cachedProjectionFrameStamp = 0;
-            return true;
-        }
-
-        bool ensureDecodedVertexCache() const
-        {
-            if (vertexCount == 0)
-                return false;
-
-            if ((!cachedLocalVertices || cachedLocalVertexCapacity < vertexCount))
-            {
-                if (cachedLocalVertices)
-                {
-                    MemUtils::freeData(cachedLocalVertices);
-                    cachedLocalVertices = nullptr;
-                }
-
-                cachedLocalVertices = static_cast<Vector3 *>(MemUtils::allocData(static_cast<size_t>(vertexCount) * sizeof(Vector3), 16));
-                if (!cachedLocalVertices)
-                {
-                    cachedLocalVertexCapacity = 0;
-                    cachedLocalVerticesValid = false;
-                    return false;
-                }
-
-                cachedLocalVertexCapacity = vertexCount;
-                cachedLocalVerticesValid = false;
-            }
-
-            if (!cachedLocalVerticesValid)
-            {
-                for (uint16_t i = 0; i < vertexCount; ++i)
-                {
-                    cachedLocalVertices[i] = decodePosition(vertices[i]);
-                }
-                cachedLocalVerticesValid = true;
-            }
-
-            return true;
-        }
-
-        MESH_FORCE_INLINE const Vector3 *getCachedLocalVertices() const { return cachedLocalVertices; }
-        MESH_FORCE_INLINE Vector3 *getCachedWorldVertices() const { return cachedWorldVertices; }
-        MESH_FORCE_INLINE Vector3 *getCachedScreenVertices() const { return cachedScreenVertices; }
-        MESH_FORCE_INLINE uint32_t getCachedProjectionFrameStamp() const { return cachedProjectionFrameStamp; }
-        MESH_FORCE_INLINE void setCachedProjectionFrameStamp(uint32_t stamp) const { cachedProjectionFrameStamp = stamp; }
+        MESH_FORCE_INLINE void setShadowProxy(Mesh *p) { shadowProxy = p; }
+        MESH_PURE MESH_FORCE_INLINE Mesh *getShadowProxy() const { return shadowProxy; }
     };
 
 }

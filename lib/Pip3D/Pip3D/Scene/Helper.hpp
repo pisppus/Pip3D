@@ -16,12 +16,34 @@ namespace pip3D
         Color groundColor;
         bool hasSun;
         float sunIntensity;
-        Plane *groundPlane;
+        Plane *groundMesh;
+        MeshInstance *groundInstance;
 
     public:
-        SceneHelper(Renderer *r) : renderer(r), groundSize(15.0f), groundY(-1.5f),
-                                   groundColor(Color::fromRGB888(100, 100, 100)),
-                                   hasSun(false), sunIntensity(0.6f), groundPlane(nullptr) {}
+        SceneHelper(Renderer *r)
+            : renderer(r), groundSize(15.0f), groundY(-1.5f),
+              groundColor(Color::fromRGB888(100, 100, 100)),
+              hasSun(false), sunIntensity(0.6f),
+              groundMesh(nullptr), groundInstance(nullptr) {}
+
+        ~SceneHelper()
+        {
+            if (groundInstance)
+            {
+                delete groundInstance;
+                groundInstance = nullptr;
+            }
+            if (groundMesh)
+            {
+                delete groundMesh;
+                groundMesh = nullptr;
+            }
+        }
+
+        SceneHelper(const SceneHelper &) = delete;
+        SceneHelper &operator=(const SceneHelper &) = delete;
+        SceneHelper(SceneHelper &&) = delete;
+        SceneHelper &operator=(SceneHelper &&) = delete;
 
         void addGround(float size, float y, Color color)
         {
@@ -29,15 +51,19 @@ namespace pip3D
             groundY = y;
             groundColor = color;
 
-            if (!groundPlane)
+            if (!groundMesh)
             {
-                groundPlane = new Plane(size, size, 1, color);
-                groundPlane->setPosition(0, y, 0);
+                groundMesh = new Plane(size, size, 1, color);
+                groundInstance = new MeshInstance(groundMesh);
             }
             else
             {
-                groundPlane->color(color);
-                groundPlane->setPosition(0, y, 0);
+            }
+
+            if (groundInstance)
+            {
+                groundInstance->setPosition(0.0f, y, 0.0f);
+                groundInstance->setColor(color);
             }
         }
 
@@ -49,17 +75,14 @@ namespace pip3D
 
         void renderGround()
         {
-            if (groundPlane && renderer)
+            if (groundInstance && renderer)
             {
-                renderer->drawMesh(groundPlane);
+                renderer->draw(groundInstance);
             }
         }
 
-        ~SceneHelper()
-        {
-            if (groundPlane)
-                delete groundPlane;
-        }
+        MeshInstance *getGroundInstance() const { return groundInstance; }
+        Plane *getGroundMesh() const { return groundMesh; }
 
         void renderSun(float glowIntensity, float temperature)
         {
@@ -105,4 +128,3 @@ namespace pip3D
     };
 
 }
-

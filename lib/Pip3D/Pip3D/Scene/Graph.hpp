@@ -9,7 +9,7 @@ namespace pip3D
 
     __attribute__((always_inline, hot)) inline void MeshNode::render(Renderer *renderer)
     {
-        if (!visible || !enabled || !mesh)
+        if (!visible || !enabled || !mesh || !instance)
             return;
 
         const Matrix4x4 &world = getWorldTransform();
@@ -19,11 +19,11 @@ namespace pip3D
         decomposeWorldTransform(world, worldPos, worldScale, basis);
         Vector3 worldEuler = basisToEulerDegrees(basis);
 
-        mesh->setPosition(worldPos.x, worldPos.y, worldPos.z);
-        mesh->setRotation(worldEuler.x, worldEuler.y, worldEuler.z);
-        mesh->setScale(worldScale.x, worldScale.y, worldScale.z);
+        instance->setPosition(worldPos);
+        instance->setEuler(worldEuler.x, worldEuler.y, worldEuler.z);
+        instance->setScale(worldScale);
 
-        renderer->draw(mesh);
+        renderer->draw(instance);
 
         Node::render(renderer);
     }
@@ -122,7 +122,7 @@ namespace pip3D
             {
                 renderer->beginFrameBand(band);
                 root->render(renderer);
-                
+
                 renderer->flushQueue();
                 renderer->drawSkyboxBackground();
                 renderer->endFrameBand(band);

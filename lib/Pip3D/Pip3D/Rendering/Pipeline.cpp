@@ -86,7 +86,7 @@ namespace pip3D
 
         if (shadowsEnabled)
         {
-            if (instance->getBlobShadow() || mesh->getBlobShadow())
+            if (instance->getBlobShadow())
             {
                 if (blobShadowQueueCount < MAX_QUEUE_ELEMENTS)
                     blobShadowQueue[blobShadowQueueCount++] = instance;
@@ -106,33 +106,6 @@ namespace pip3D
         }
     }
 
-    void Renderer::draw(Mesh *mesh)
-    {
-        if (unlikely(!mesh || !mesh->isVisible()))
-            return;
-
-        if (shadowsEnabled)
-        {
-            if (mesh->getBlobShadow())
-            {
-                if (meshBlobShadowQueueCount < MAX_QUEUE_ELEMENTS)
-                    meshBlobShadowQueue[meshBlobShadowQueueCount++] = mesh;
-            }
-            else if (mesh->getCastShadows())
-            {
-                if (meshShadowQueueCount < MAX_QUEUE_ELEMENTS)
-                {
-                    meshShadowQueue[meshShadowQueueCount++] = mesh;
-                }
-            }
-        }
-
-        if (meshOpaqueQueueCount < MAX_QUEUE_ELEMENTS)
-        {
-            meshOpaqueQueue[meshOpaqueQueueCount++] = mesh;
-        }
-    }
-
     void Renderer::flushQueue()
     {
         const float blobOpacity = shadowSettings.shadowOpacity;
@@ -143,30 +116,14 @@ namespace pip3D
             drawBlobShadow(inst->pos(), inst->radius(), blobOpacity);
         }
 
-        for (size_t i = 0; i < meshBlobShadowQueueCount; ++i)
-        {
-            Mesh *m = meshBlobShadowQueue[i];
-            drawBlobShadow(m->center(), m->radius(), blobOpacity);
-        }
-
         for (size_t i = 0; i < shadowQueueCount; ++i)
         {
             drawMeshInstanceShadow(shadowQueue[i]);
         }
 
-        for (size_t i = 0; i < meshShadowQueueCount; ++i)
-        {
-            drawMeshShadow(meshShadowQueue[i]);
-        }
-
         for (size_t i = 0; i < opaqueQueueCount; ++i)
         {
             drawMeshInstanceInternal(opaqueQueue[i], false);
-        }
-
-        for (size_t i = 0; i < meshOpaqueQueueCount; ++i)
-        {
-            drawMesh(meshOpaqueQueue[i]);
         }
     }
 
@@ -453,17 +410,32 @@ namespace pip3D
         const float viewportHalfWidth = viewportWidth * 0.5f;
         const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
 
-        if (!useFallbackPath && instance->getCachedProjectionFrameStamp() != frameStamp)
+        if (!useFallbackPath)
         {
-            for (uint16_t i = 0; i < vertexCountUsed; ++i)
+            if (!instance->areWorldVertsValid())
             {
-                Vector3 local = localVerts ? localVerts[i] : mesh->decodePosition(mesh->vert(i));
-                Vector3 world = worldTransform.transformNoDiv(local);
-                worldVerts[i] = world;
-                screenVerts[i] = CameraController::project(world, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, viewport.x, viewport.y);
+                for (uint16_t i = 0; i < vertexCountUsed; ++i)
+                {
+                    Vector3 local = localVerts ? localVerts[i] : mesh->decodePosition(mesh->vert(i));
+                    Vector3 world = worldTransform.transformNoDiv(local);
+                    worldVerts[i] = world;
+                    screenVerts[i] = CameraController::project(world, viewProjMatrix,
+                                                               viewportHalfWidth, viewportHalfHeight,
+                                                               viewport.x, viewport.y);
+                }
+                instance->markWorldVertsValid();
+                instance->setCachedScreenVertsFrameStamp(frameStamp);
             }
-
-            instance->setCachedProjectionFrameStamp(frameStamp);
+            else if (instance->getCachedScreenVertsFrameStamp() != frameStamp)
+            {
+                for (uint16_t i = 0; i < vertexCountUsed; ++i)
+                {
+                    screenVerts[i] = CameraController::project(worldVerts[i], viewProjMatrix,
+                                                               viewportHalfWidth, viewportHalfHeight,
+                                                               viewport.x, viewport.y);
+                }
+                instance->setCachedScreenVertsFrameStamp(frameStamp);
+            }
         }
 
         thread_local static std::vector<Vector3> vertexColors;
@@ -758,61 +730,6 @@ namespace pip3D
 
             MeshRenderer::drawTriangle3D_Preprojected(v0, v1, v2, p0, p1, p2, instColor565, cam, viewport, viewProjMatrix, framebuffer, zBuffer, activeLights, actualLightCount, backfaceCullingEnabled, statsTrianglesTotal, statsTrianglesBackfaceCulled, useUniformColor, uniformColor);
         }
-    }
-
-    void Renderer::drawMeshInstance(MeshInstance *instance)
-    {
-        drawMeshInstanceInternal(instance, true);
-    }
-
-    void Renderer::drawMeshInstance(MeshInstance *instance, ShadingMode mode)
-    {
-        ShadingMode prev = shadingMode;
-        shadingMode = mode;
-        drawMeshInstance(instance);
-        shadingMode = prev;
-    }
-
-    void Renderer::drawMeshInstanceStatic(MeshInstance *instance)
-    {
-        drawMeshInstanceInternal(instance, true);
-    }
-
-    void Renderer::drawInstances(InstanceManager &manager)
-    {
-        static std::vector<MeshInstance *> visibleInstances;
-        visibleInstances.clear();
-        visibleInstances.reserve(manager.count());
-        manager.cull(frustum, visibleInstances);
-
-        manager.sort(cameras[activeCameraIndex].position, visibleInstances);
-
-        for (auto *instance : visibleInstances)
-        {
-            drawMeshInstanceInternal(instance, false);
-        }
-    }
-
-    void Renderer::drawMesh(Mesh *mesh)
-    {
-        if (!mesh || !mesh->isVisible())
-            return;
-
-        Vector3 center = mesh->center();
-        float radius = mesh->radius();
-
-        Light localLights[4];
-        int localLightCount = collectActiveLightsForBounds(center, radius, lights.data(), activeLightCount, localLights, 4);
-
-        MeshRenderer::drawMesh(mesh, cameras[activeCameraIndex], viewport, frustum, viewProjMatrix, framebuffer, zBuffer, localLights, localLightCount, backfaceCullingEnabled, statsTrianglesTotal, statsTrianglesBackfaceCulled, shadingMode);
-    }
-
-    void Renderer::drawMesh(Mesh *mesh, ShadingMode mode)
-    {
-        ShadingMode prev = shadingMode;
-        shadingMode = mode;
-        drawMesh(mesh);
-        shadingMode = prev;
     }
 
     void Renderer::drawTriangle3D(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2, uint16_t color)
