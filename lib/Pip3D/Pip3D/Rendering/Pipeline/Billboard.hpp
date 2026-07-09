@@ -12,7 +12,6 @@
 #include "Rendering/Pipeline/Rasterizer.hpp"
 #include "Rendering/Pipeline/Shading.hpp"
 #include "Rendering/Pipeline/Rasterizer/Billboard.hpp"
-#include "Geometry/Billboard.hpp"
 
 #if PIP3D_DEBUG_BILLBOARD
 #include "Debug/Logging.hpp"
@@ -24,6 +23,13 @@
 
 namespace pip3D
 {
+    enum BillboardOrientation : uint8_t
+    {
+        BB_SCREEN_ALIGNED = 0,
+        BB_AXIAL_Y = 1,
+        BB_FIXED_YAW = 2
+    };
+
     struct alignas(16) BillboardQuad
     {
         Vector3 screen[4];
@@ -107,14 +113,19 @@ namespace pip3D
     }
 
     PIP3D_FORCE_INLINE bool
-    buildBillboardQuadScreen(const Billboard &bb,
-                             const BillboardFrameContext &ctx,
-                             BillboardQuad &outQuad)
+    buildBillboardQuadGeometry(const Vector3 &position,
+                               float width, float height,
+                               BillboardOrientation orientation,
+                               float yawDeg,
+                               bool screenSpaceSize,
+                               Color tint,
+                               const BillboardFrameContext &ctx,
+                               BillboardQuad &outQuad)
     {
-        if (!bb.visible || !bb.texture)
+        if (!outQuad.texture)
             return false;
 
-        const Vector3 toObj = bb.position - ctx.camPos;
+        const Vector3 toObj = position - ctx.camPos;
         const float distSq = toObj.lengthSquared();
         if (unlikely(distSq < 1e-6f))
             return false;
@@ -127,9 +138,9 @@ namespace pip3D
         }
         outQuad.distSq = zView * zView;
 
-        float halfW = bb.width * 0.5f;
-        float halfH = bb.height * 0.5f;
-        if (bb.screenSpaceSize && ctx.perspective)
+        float halfW = width * 0.5f;
+        float halfH = height * 0.5f;
+        if (screenSpaceSize && ctx.perspective)
         {
             const float scale = zView * ctx.invHalfVPHeight *
                                 FastMath::fastReciprocal(ctx.projScale);
@@ -138,7 +149,7 @@ namespace pip3D
         }
 
         Vector3 right, up;
-        switch (bb.orientation)
+        switch (orientation)
         {
         case BB_SCREEN_ALIGNED:
             right = ctx.camRight;
@@ -153,7 +164,7 @@ namespace pip3D
         case BB_FIXED_YAW:
         default:
         {
-            const float yr = bb.yawDeg * kDegToRad;
+            const float yr = yawDeg * kDegToRad;
             float s, c;
             FastMath::fastSinCos(yr, s, c);
             right = Vector3(c, 0.0f, -s);
@@ -162,7 +173,7 @@ namespace pip3D
         }
         }
 
-        const Vector3 c = bb.position;
+        const Vector3 c = position;
         const Vector3 extX = right * halfW;
         const Vector3 extY = up * halfH;
         Vector3 worldCorners[4] = {
@@ -173,7 +184,7 @@ namespace pip3D
 
         {
             const float maxExt = (halfW > halfH) ? halfW : halfH;
-            if (unlikely(!ctx.frustum->testSphere(bb.position, maxExt)))
+            if (unlikely(!ctx.frustum->testSphere(position, maxExt)))
                 return false;
         }
 
@@ -200,13 +211,13 @@ namespace pip3D
         if (!anyValid)
             return false;
 
-        if (bb.lit)
+        if (outQuad.lit)
         {
-            const float baseR = static_cast<float>((bb.tint.rgb565 >> 11) & 0x1F) * (1.0f / 31.0f);
-            const float baseG = static_cast<float>((bb.tint.rgb565 >> 5) & 0x3F) * (1.0f / 63.0f);
-            const float baseB = static_cast<float>(bb.tint.rgb565 & 0x1F) * (1.0f / 31.0f);
+            const float baseR = static_cast<float>((tint.rgb565 >> 11) & 0x1F) * (1.0f / 31.0f);
+            const float baseG = static_cast<float>((tint.rgb565 >> 5) & 0x3F) * (1.0f / 63.0f);
+            const float baseB = static_cast<float>(tint.rgb565 & 0x1F) * (1.0f / 31.0f);
 
-            Vector3 viewDir = ctx.camPos - bb.position;
+            Vector3 viewDir = ctx.camPos - position;
             viewDir.normalize();
 
             Vector3 faceNormal = right.cross(up);
@@ -215,69 +226,18 @@ namespace pip3D
                 faceNormal = -faceNormal;
 
             Shading::calculateLighting(
-                bb.position, faceNormal, viewDir,
+                position, faceNormal, viewDir,
                 nullptr, 0,
                 baseR, baseG, baseB,
                 outQuad.litR, outQuad.litG, outQuad.litB, true);
         }
         else
         {
-            outQuad.litR = static_cast<float>((bb.tint.rgb565 >> 11) & 0x1F) * (1.0f / 31.0f);
-            outQuad.litG = static_cast<float>((bb.tint.rgb565 >> 5) & 0x3F) * (1.0f / 63.0f);
-            outQuad.litB = static_cast<float>(bb.tint.rgb565 & 0x1F) * (1.0f / 31.0f);
+            outQuad.litR = static_cast<float>((tint.rgb565 >> 11) & 0x1F) * (1.0f / 31.0f);
+            outQuad.litG = static_cast<float>((tint.rgb565 >> 5) & 0x3F) * (1.0f / 63.0f);
+            outQuad.litB = static_cast<float>(tint.rgb565 & 0x1F) * (1.0f / 31.0f);
         }
-
-        outQuad.texture = bb.texture;
-        outQuad.chromaKey = bb.chromaKey;
-        outQuad.alpha = bb.alpha;
-        outQuad.blend = static_cast<uint8_t>(bb.blend);
-        outQuad.lit = bb.lit;
         return true;
-    }
-
-    inline void prepareBillboardQuads(
-        const Billboard *const *billboards, size_t count,
-        const BillboardFrameContext &ctx,
-        BillboardQuad *outOpaqueQuads, size_t &outOpaqueCount,
-        BillboardQuad *outAlphaQuads, size_t &outAlphaCount,
-        size_t maxOpaque, size_t maxAlpha)
-    {
-        size_t opaqueIdx = 0;
-        size_t alphaIdx = 0;
-
-        for (size_t i = 0; i < count; ++i)
-        {
-            const Billboard *bb = billboards[i];
-            if (!bb)
-                continue;
-
-            BillboardQuad q;
-            if (!buildBillboardQuadScreen(*bb, ctx, q))
-                continue;
-
-            const bool isAlpha = (bb->blend == BB_BLEND_ALPHA ||
-                                  bb->blend == BB_BLEND_ADDITIVE);
-            if (isAlpha)
-            {
-                if (likely(alphaIdx < maxAlpha))
-                    outAlphaQuads[alphaIdx++] = q;
-            }
-            else
-            {
-                if (likely(opaqueIdx < maxOpaque))
-                    outOpaqueQuads[opaqueIdx++] = q;
-            }
-        }
-
-        outOpaqueCount = opaqueIdx;
-        outAlphaCount = alphaIdx;
-
-        if (alphaIdx > 1)
-        {
-            std::sort(outAlphaQuads, outAlphaQuads + alphaIdx,
-                      [](const BillboardQuad &a, const BillboardQuad &b)
-                      { return a.distSq > b.distSq; });
-        }
     }
 
     inline void drawBillboardQuadsRaw(
@@ -317,7 +277,7 @@ namespace pip3D
             if (maxSx < 0.0f || minSx >= viewportWidth)
                 continue;
 
-            const BillboardBlendMode mode = static_cast<BillboardBlendMode>(q.blend);
+            const BillboardBlend mode = static_cast<BillboardBlend>(q.blend);
 
             auto drawTri = [&](int a, int b, int c,
                                float ua, float va,
@@ -344,7 +304,7 @@ namespace pip3D
                     cfg);
             };
 
-            const bool firstWritesZ = (mode == BB_ALPHA) && writeZForAlpha;
+            const bool firstWritesZ = (mode == BB_BLEND_ALPHA) && writeZForAlpha;
             drawTri(0, 1, 2, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f, firstWritesZ);
             drawTri(0, 2, 3, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, false);
         }

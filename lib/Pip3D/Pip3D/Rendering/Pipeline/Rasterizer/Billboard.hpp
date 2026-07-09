@@ -16,12 +16,12 @@
 
 namespace pip3D
 {
-    enum BillboardBlendMode : uint8_t
+    enum BillboardBlend : uint8_t
     {
-        BB_OPAQUE = 0,
-        BB_CUTOUT = 1,
-        BB_ALPHA = 2,
-        BB_ADDITIVE = 3
+        BB_BLEND_OPAQUE = 0,
+        BB_BLEND_CUTOUT = 1,
+        BB_BLEND_ALPHA = 2,
+        BB_BLEND_ADDITIVE = 3
     };
 
     namespace Rasterizer
@@ -38,7 +38,7 @@ namespace pip3D
             float lr1, float lg1, float lb1,
             float lr2, float lg2, float lb2,
             const Texture &tex,
-            BillboardBlendMode blendMode,
+            BillboardBlend blendMode,
             uint16_t chromaKey,
             uint8_t alphaByte,
             bool writeZ,
@@ -173,11 +173,11 @@ namespace pip3D
             const uint32_t texMaskU = tex.widthMask;
             const uint32_t texMaskV = tex.heightMask;
 
-            const bool doBlend = (blendMode == BB_ALPHA) && (alphaByte > 0) && (alphaByte < 255);
+            const bool doBlend = (blendMode == BB_BLEND_ALPHA) && (alphaByte > 0) && (alphaByte < 255);
             const uint32_t alpha5 = doBlend ? static_cast<uint32_t>(alphaByte >> 3) : 0u;
             const uint32_t invAlpha5 = doBlend ? (32u - alpha5) : 0u;
 
-            const bool isAdditive = (blendMode == BB_ADDITIVE);
+            const bool isAdditive = (blendMode == BB_BLEND_ADDITIVE);
             const uint32_t addI5 = isAdditive ? static_cast<uint32_t>(alphaByte >> 3) : 0u;
 
             const bool fogEnabled = g_fogState.enabled;
@@ -235,7 +235,7 @@ namespace pip3D
                     const uint32_t tv = static_cast<uint32_t>(v) & texMaskV;
                     const uint16_t texel = texData[(tv << texShiftU) | tu];
 
-                    if (blendMode == BB_CUTOUT && texel == chromaKey)
+                    if (blendMode == BB_BLEND_CUTOUT && texel == chromaKey)
                     {
 #if PIP3D_DEBUG_BILLBOARD
                         ++dbgCutout;
@@ -258,7 +258,7 @@ namespace pip3D
                     const int16_t d = static_cast<int16_t>(z_val >> 14);
                     const int16_t cur = *zb & 0x7FFF;
 
-                    if (blendMode == BB_ALPHA && doBlend)
+                    if (blendMode == BB_BLEND_ALPHA && doBlend)
                     {
                         if (d >= cur)
                         {

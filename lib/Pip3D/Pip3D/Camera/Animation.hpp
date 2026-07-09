@@ -4,6 +4,16 @@
 
 namespace pip3D
 {
+  struct CameraDirty
+  {
+    static constexpr uint8_t VIEW = 0x01;
+    static constexpr uint8_t PROJ = 0x02;
+    static constexpr uint8_t VP = 0x04;
+    static constexpr uint8_t ORTHO = 0x08;
+    static constexpr uint8_t VECTORS = 0x10;
+    static constexpr uint8_t ALL = VIEW | PROJ | VP | ORTHO | VECTORS;
+  };
+
   struct CameraAnimation
   {
     Vector3 startPos, startTgt, startUp;
@@ -46,14 +56,14 @@ namespace pip3D
       type = t;
       active = true;
 
-      dirtyMask = 0x04;
+      dirtyMask = CameraDirty::VP;
       if (deltaPos.lengthSquared() + deltaTgt.lengthSquared() + deltaUp.lengthSquared() > 0.0f)
       {
-        dirtyMask |= 0x01;
-        dirtyMask |= 0x10;
+        dirtyMask |= CameraDirty::VIEW;
+        dirtyMask |= CameraDirty::VECTORS;
       }
       if (deltaFov != 0.0f)
-        dirtyMask |= 0x02;
+        dirtyMask |= CameraDirty::PROJ;
     }
 
     PIP3D_FORCE_INLINE float tick(float dt)

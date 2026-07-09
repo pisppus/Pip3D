@@ -5,7 +5,6 @@
 #include "Debug/Logging.hpp"
 #include "Math/Algebra.hpp"
 #include "Rendering/Renderer.hpp"
-#include "Geometry/Billboard.hpp"
 #include "Rendering/Pipeline/Billboard.hpp"
 #include "Physics/Physics.hpp"
 #include <vector>
@@ -307,21 +306,18 @@ namespace pip3D
                     {
                         const float size_world = (p.startSize + (p.endSize - p.startSize) * t) * 0.04f;
 
-                        Billboard bb;
-                        bb.position = p.position;
-                        bb.width = size_world;
-                        bb.height = size_world;
-                        bb.texture = config.texture;
-                        bb.tint = col;
-                        bb.chromaKey = config.chromaKey;
-                        bb.orientation = BB_SCREEN_ALIGNED;
-                        bb.blend = config.cutout ? BB_BLEND_CUTOUT : BB_BLEND_ALPHA;
-                        bb.alpha = alpha;
-                        bb.screenSpaceSize = false;
-                        bb.visible = true;
+                        BillboardQuad q = {};
+                        q.texture = config.texture;
+                        q.chromaKey = config.chromaKey;
+                        q.alpha = alpha;
+                        q.blend = static_cast<uint8_t>(config.cutout ? BB_BLEND_CUTOUT : BB_BLEND_ALPHA);
+                        q.lit = false;
 
-                        BillboardQuad q;
-                        if (buildBillboardQuadScreen(bb, bbCtx, q))
+                        if (buildBillboardQuadGeometry(
+                                p.position, size_world, size_world,
+                                BB_SCREEN_ALIGNED, /*yawDeg=*/0.0f,
+                                /*screenSpaceSize=*/false, col,
+                                bbCtx, q))
                             texturedQuads[texturedQuadCount++] = q;
                     }
                     continue;

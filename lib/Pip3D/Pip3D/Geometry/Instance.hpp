@@ -485,7 +485,7 @@ namespace pip3D
 
             for (auto *inst : instances)
             {
-                if (likely(inst->isVisible() && frustum.sphere(inst->center(), inst->radius())))
+                if (likely(inst->isVisible() && frustum.testSphere(inst->center(), inst->radius())))
                 {
                     result.push_back(inst);
                 }
