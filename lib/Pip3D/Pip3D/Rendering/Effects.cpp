@@ -8,7 +8,7 @@
 
 namespace pip3D
 {
-    void Renderer::drawWaterMesh(MeshInstance *instance, float time)
+    IRAM_ATTR void Renderer::drawWaterMesh(MeshInstance *instance, float time)
     {
         if (!instance || !instance->isVisible())
             return;
@@ -27,11 +27,13 @@ namespace pip3D
             return;
 
         const uint16_t vertexCountUsed = mesh->numVertices();
-        if (!instance->ensureProjectionCache(vertexCountUsed))
+
+        DrawCache *cache = getDrawCache(instance);
+        if (!cache || !cache->ensureProjectionCapacity(vertexCountUsed))
             return;
 
-        Vector3 *worldVerts = instance->getCachedWorldVertices();
-        Vector3 *screenVerts = instance->getCachedScreenVertices();
+        Vector3 *worldVerts = cache->worldVerts();
+        Vector3 *screenVerts = cache->screenVerts();
 
         const Matrix4x4 &worldTransform = instance->transform();
 
@@ -40,13 +42,15 @@ namespace pip3D
             localVerts = mesh->getCachedLocalVertices();
 
         const uint32_t frameStamp = g_frameStamp;
+        const uint32_t instanceVersion = instance->version();
         const int16_t bandTop = g_bandOffsetY;
         const int16_t bandBottom = static_cast<int16_t>(bandTop + g_bandHeight);
         const float viewportWidth = static_cast<float>(viewport.width);
         const float viewportHalfWidth = viewportWidth * 0.5f;
         const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
 
-        if (!instance->areWorldVertsValid())
+        const int projState = cache->beginProjection(frameStamp, instanceVersion);
+        if (projState == 2)
         {
             for (uint16_t i = 0; i < vertexCountUsed; ++i)
             {
@@ -57,10 +61,9 @@ namespace pip3D
                                                            viewportHalfWidth, viewportHalfHeight,
                                                            viewport.x, viewport.y);
             }
-            instance->markWorldVertsValid();
-            instance->setCachedScreenVertsFrameStamp(frameStamp);
+            cache->commitProjection(frameStamp, instanceVersion);
         }
-        else if (instance->getCachedScreenVertsFrameStamp() != frameStamp)
+        else if (projState == 1)
         {
             for (uint16_t i = 0; i < vertexCountUsed; ++i)
             {
@@ -68,7 +71,7 @@ namespace pip3D
                                                            viewportHalfWidth, viewportHalfHeight,
                                                            viewport.x, viewport.y);
             }
-            instance->setCachedScreenVertsFrameStamp(frameStamp);
+            cache->commitProjection(frameStamp, instanceVersion);
         }
 
         float waterYGlobal = screenVerts[0].y;

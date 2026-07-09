@@ -25,7 +25,7 @@ namespace pip3D
         return true;
     }
 
-    void Renderer::drawMeshInstanceShadow(MeshInstance *instance)
+    IRAM_ATTR void Renderer::drawMeshInstanceShadow(MeshInstance *instance)
     {
         if (!instance || !instance->isVisible())
             return;
@@ -51,6 +51,8 @@ namespace pip3D
             }
         }
 
+        DrawCache *cache = getDrawCache(instance);
+
         ShadowRenderer::drawMeshInstanceShadow(instance,
                                                shadowMesh,
                                                shadowsEnabled,
@@ -63,6 +65,7 @@ namespace pip3D
                                                framebuffer,
                                                zBuffer,
                                                backfaceCullingEnabled,
+                                               cache,
                                                cacheGen);
     }
 

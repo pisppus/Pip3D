@@ -127,6 +127,24 @@ namespace pip3D
         }
     }
 
+    DrawCache *Renderer::getDrawCache(MeshInstance *inst)
+    {
+        if (!inst)
+            return nullptr;
+
+        for (size_t i = 0; i < drawCacheCount; ++i)
+        {
+            if (drawCacheKeys[i] == inst)
+                return &drawCaches[i];
+        }
+
+        if (drawCacheCount >= MAX_QUEUE_ELEMENTS)
+            return nullptr;
+
+        drawCacheKeys[drawCacheCount] = inst;
+        return &drawCaches[drawCacheCount++];
+    }
+
     bool Renderer::clipAndDrawNearTextured(const DrawTelemetryClipVert inVerts[3],
                                            float nearD,
                                            const Camera &camera,
@@ -282,7 +300,7 @@ namespace pip3D
         return drew;
     }
 
-    void Renderer::drawMeshInstanceInternal(MeshInstance *instance, bool performFrustumCull)
+    IRAM_ATTR void Renderer::drawMeshInstanceInternal(MeshInstance *instance, bool performFrustumCull)
     {
         if (!instance || !instance->isVisible())
             return;
@@ -385,18 +403,20 @@ namespace pip3D
         const uint16_t vertexCountUsed = mesh->numVertices();
         const uint16_t faceCount = mesh->numFaces();
 
+        DrawCache *cache = getDrawCache(instance);
         bool useFallbackPath = false;
         Vector3 *worldVerts = nullptr;
         Vector3 *screenVerts = nullptr;
 
-        if (instance->ensureProjectionCache(vertexCountUsed))
+        if (cache && cache->ensureProjectionCapacity(vertexCountUsed))
         {
-            worldVerts = instance->getCachedWorldVertices();
-            screenVerts = instance->getCachedScreenVertices();
+            worldVerts = cache->worldVerts();
+            screenVerts = cache->screenVerts();
         }
         else
         {
             useFallbackPath = true;
+            cache = nullptr;
         }
 
         const Vector3 *localVerts = nullptr;
@@ -404,6 +424,7 @@ namespace pip3D
             localVerts = mesh->getCachedLocalVertices();
 
         const uint32_t frameStamp = g_frameStamp;
+        const uint32_t instanceVersion = instance->version();
         const int16_t bandTop = g_bandOffsetY;
         const int16_t bandBottom = static_cast<int16_t>(bandTop + g_bandHeight);
         const float viewportWidth = static_cast<float>(viewport.width);
@@ -412,7 +433,8 @@ namespace pip3D
 
         if (!useFallbackPath)
         {
-            if (!instance->areWorldVertsValid())
+            const int projState = cache->beginProjection(frameStamp, instanceVersion);
+            if (projState == 2)
             {
                 for (uint16_t i = 0; i < vertexCountUsed; ++i)
                 {
@@ -423,10 +445,9 @@ namespace pip3D
                                                                viewportHalfWidth, viewportHalfHeight,
                                                                viewport.x, viewport.y);
                 }
-                instance->markWorldVertsValid();
-                instance->setCachedScreenVertsFrameStamp(frameStamp);
+                cache->commitProjection(frameStamp, instanceVersion);
             }
-            else if (instance->getCachedScreenVertsFrameStamp() != frameStamp)
+            else if (projState == 1)
             {
                 for (uint16_t i = 0; i < vertexCountUsed; ++i)
                 {
@@ -434,7 +455,7 @@ namespace pip3D
                                                                viewportHalfWidth, viewportHalfHeight,
                                                                viewport.x, viewport.y);
                 }
-                instance->setCachedScreenVertsFrameStamp(frameStamp);
+                cache->commitProjection(frameStamp, instanceVersion);
             }
         }
 

@@ -11,6 +11,7 @@
 #include "Camera/Camera.hpp"
 #include "Geometry/Mesh.hpp"
 #include "Geometry/Instance.hpp"
+#include "Rendering/Pipeline/DrawCache.hpp"
 
 namespace pip3D
 {
@@ -72,6 +73,7 @@ namespace pip3D
                                            FrameBuffer &framebuffer,
                                            ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
                                            bool &backfaceCullingEnabled,
+                                           DrawCache *drawCache,
                                            uint32_t shadowCacheGen)
         {
             if (!instance || !shadowMesh || !instance->isVisible() || !shadowsEnabled || !shadowSettings.enabled)
@@ -105,7 +107,7 @@ namespace pip3D
                                  bandTop, bandBottom, shadowColor, baseAlpha,
                                  framebuffer.getBuffer(), zBuffer, framebuffer.getConfig(),
                                  backfaceCullingEnabled,
-                                 instance, shadowCacheGen);
+                                 drawCache, shadowCacheGen);
         }
 
     private:
@@ -355,7 +357,7 @@ namespace pip3D
             ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
             const DisplayConfig &framebufferConfig,
             bool &backfaceCullingEnabled,
-            MeshInstance *cacheOwner,
+            DrawCache *drawCache,
             uint32_t shadowCacheGen)
         {
             const ShadowProjector::ShadowPlane &plane = shadowSettings.plane;
@@ -434,28 +436,20 @@ namespace pip3D
             Vector3 *worldVerts = (Vector3 *)alloca(vertexCount * sizeof(Vector3));
 
             Vector3 *shadowVertsCache = nullptr;
-            bool cacheHit = false;
-            bool cacheStore = false;
-            if (cacheOwner && shadowCacheGen != 0)
+            bool needsCompute = false;
+            bool fromDrawCache = false;
+            if (drawCache && shadowCacheGen != 0)
             {
-                shadowVertsCache = cacheOwner->getCachedShadowVerts(shadowCacheGen, vertexCount);
-                if (shadowVertsCache)
-                {
-                    cacheHit = true;
-                }
-                else
-                {
-                    shadowVertsCache = cacheOwner->ensureShadowVertCapacity(vertexCount);
-                    if (shadowVertsCache)
-                        cacheStore = true;
-                }
+                shadowVertsCache = drawCache->acquireShadowVerts(shadowCacheGen, vertexCount, needsCompute);
+                fromDrawCache = (shadowVertsCache != nullptr);
             }
-            if (!shadowVertsCache)
+            if (!fromDrawCache)
             {
                 shadowVertsCache = (Vector3 *)alloca(vertexCount * sizeof(Vector3));
+                needsCompute = true;
             }
 
-            const bool recomputeShadow = !cacheHit;
+            const bool recomputeShadow = needsCompute;
             const bool isDirectional = (light.type == LIGHT_DIRECTIONAL);
             const Vector3 negDirNorm(-dirNorm.x, -dirNorm.y, -dirNorm.z);
             const float dirX = dirNorm.x;
@@ -499,8 +493,8 @@ namespace pip3D
                 shadowVertsCache[vi] = sv;
             }
 
-            if (cacheStore)
-                cacheOwner->storeCachedShadowVerts(shadowCacheGen);
+            if (fromDrawCache && needsCompute)
+                drawCache->commitShadowVerts(shadowCacheGen);
 
             const float pnX = plane.normal.x;
             const float pnY = plane.normal.y;

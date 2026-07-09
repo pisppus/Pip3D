@@ -7,6 +7,7 @@
 #include "Camera/Camera.hpp"
 #include "Camera/Frustum.hpp"
 #include "Geometry/Instance.hpp"
+#include "Rendering/Pipeline/DrawCache.hpp"
 #include "Core/Jobs.hpp"
 #include "Math/Algebra.hpp"
 #include "Geometry/Mesh.hpp"
@@ -68,6 +69,14 @@ namespace pip3D
 
         MeshInstance *blobShadowQueue[MAX_QUEUE_ELEMENTS];
         size_t blobShadowQueueCount = 0;
+        MeshInstance *drawCacheKeys[MAX_QUEUE_ELEMENTS] = {};
+        DrawCache drawCaches[MAX_QUEUE_ELEMENTS];
+        size_t drawCacheCount = 0;
+        DrawCache *getDrawCache(MeshInstance *inst);
+        void clearDrawCaches()
+        {
+            drawCacheCount = 0;
+        }
 
         PhysicsWorld *physicsWorld = nullptr;
 #if defined(PIP3D_PC)
@@ -132,8 +141,8 @@ namespace pip3D
         void drawWaterTriangleInternal(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2,
                                        const Color &waterColor, uint8_t alphaByte, const DisplayConfig &cfg,
                                        uint16_t *frameBufferPtr);
-        void drawMeshInstanceInternal(MeshInstance *instance, bool performFrustumCull);
-        void drawMeshInstanceShadow(MeshInstance *instance);
+        IRAM_ATTR void drawMeshInstanceInternal(MeshInstance *instance, bool performFrustumCull);
+        IRAM_ATTR void drawMeshInstanceShadow(MeshInstance *instance);
 
         __attribute__((always_inline)) inline float ensureHfovCached()
         {
@@ -335,7 +344,7 @@ namespace pip3D
         void drawTriangle3D(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2, uint16_t color);
         void drawBlobShadow(const Vector3 &position, float radius, float opacity);
 
-        void drawWaterMesh(MeshInstance *instance, float time);
+        IRAM_ATTR void drawWaterMesh(MeshInstance *instance, float time);
         void drawWater(float yLevel, float size, Color color, float alpha, float time);
         static constexpr uint16_t reflectWidth() { return REFLECT_WIDTH; }
         static constexpr uint16_t reflectHeight() { return REFLECT_HEIGHT; }
