@@ -2840,18 +2840,16 @@ namespace pip3D
     class Car : public Mesh
     {
     public:
-        Car(float size = 1.0f, const Color &color = Color::WHITE)
-            : Mesh(detail::s_carVertices, 951, detail::s_carFaces, 1874, color, true)
+        explicit Car(float size = 1.0f)
+            : Mesh(detail::s_carVertices, 951, detail::s_carFaces, 1874, true)
         {
             autoScale(size);
-            cache.boundingCenter = Vector3(size * 0.5f * (0.00000000f), size * 0.5f * (0.28153325f), size * 0.5f * (0.00000000f));
-            cache.boundingRadius = size * 0.5f * (1.03176730f);
-            cache.boundsValid = true;
-            cache.transform.identity();
-            cache.maxScale = 1.0f;
-            cache.transformValid = true;
-            transformDirty = false;
-            cache.transformHash = 4216742517u;
+            finalizeGeometry(951, 1874,
+                Vector3(size * 0.5f * (-0.00168972f),
+                         size * 0.5f * (0.12243072f),
+                         size * 0.5f * (0.00719450f)),
+                size * 0.5f * (1.01180651f));
+            bindDeleter<Car>();
         }
     };
 }

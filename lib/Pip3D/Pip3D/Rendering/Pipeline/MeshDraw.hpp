@@ -568,5 +568,4 @@ namespace pip3D
                                               uniformColor);
         }
     };
-
 }

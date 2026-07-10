@@ -4,6 +4,7 @@
 #include "Camera/Camera.hpp"
 #include "Math/Algebra.hpp"
 #include "Geometry/Mesh.hpp"
+#include "Geometry/Instance.hpp"
 #include "Rendering/Lighting/Lighting.hpp"
 #include <vector>
 #include <algorithm>
@@ -31,7 +32,9 @@ namespace pip3D
 
     public:
         Node(const String &nodeName = "Node")
-            : name(nodeName), visible(true), enabled(true), position(0, 0, 0), rotation(0, 0, 0), scale(1, 1, 1), parent(nullptr), transformDirty(true)
+            : name(nodeName), visible(true), enabled(true),
+              position(0, 0, 0), rotation(0, 0, 0), scale(1, 1, 1),
+              parent(nullptr), transformDirty(true)
         {
             localTransform.identity();
             worldTransform.identity();
@@ -40,9 +43,7 @@ namespace pip3D
         virtual ~Node()
         {
             for (Node *child : children)
-            {
                 delete child;
-            }
             children.clear();
         }
 
@@ -57,9 +58,7 @@ namespace pip3D
             }
 
             if (child->parent)
-            {
                 child->parent->removeChild(child);
-            }
 
             child->parent = this;
             children.push_back(child);
@@ -93,9 +92,7 @@ namespace pip3D
         Node *getChild(size_t index) const
         {
             if (index < children.size())
-            {
                 return children[index];
-            }
             LOGW(::pip3D::Debug::LOG_MODULE_SCENE,
                  "Node::getChild index out of range (index=%u, count=%u) for node '%s'",
                  static_cast<unsigned int>(index),
@@ -107,12 +104,8 @@ namespace pip3D
         Node *findChild(const String &childName) const
         {
             for (Node *child : children)
-            {
                 if (child->name == childName)
-                {
                     return child;
-                }
-            }
             return nullptr;
         }
 
@@ -210,13 +203,13 @@ namespace pip3D
             T.m[13] = position.y;
             T.m[14] = position.z;
 
-            float radX = rotation.x * DEG_TO_RAD;
-            float radY = rotation.y * DEG_TO_RAD;
-            float radZ = rotation.z * DEG_TO_RAD;
+            const float radX = rotation.x * kDegToRad;
+            const float radY = rotation.y * kDegToRad;
+            const float radZ = rotation.z * kDegToRad;
 
-            float cx = cos(radX), sx = sin(radX);
-            float cy = cos(radY), sy = sin(radY);
-            float cz = cos(radZ), sz = sin(radZ);
+            const float cx = cosf(radX), sx = sinf(radX);
+            const float cy = cosf(radY), sy = sinf(radY);
+            const float cz = cosf(radZ), sz = sinf(radZ);
 
             R.identity();
             R.m[0] = cy * cz;
@@ -268,20 +261,15 @@ namespace pip3D
         const Matrix4x4 &getLocalTransform()
         {
             if (transformDirty)
-            {
                 updateLocalTransform();
-            }
             return localTransform;
         }
 
         void markTransformDirty()
         {
             transformDirty = true;
-
             for (Node *child : children)
-            {
                 child->markTransformDirty();
-            }
         }
 
         void setVisible(bool vis) { visible = vis; }
@@ -297,22 +285,16 @@ namespace pip3D
         {
             if (!enabled)
                 return;
-
             for (Node *child : children)
-            {
                 child->update(deltaTime);
-            }
         }
 
         virtual void render(class Renderer *renderer)
         {
             if (!visible || !enabled)
                 return;
-
             for (Node *child : children)
-            {
                 child->render(renderer);
-            }
         }
     };
 
@@ -330,17 +312,17 @@ namespace pip3D
         scaleOut = Vector3(axisX.length(), axisY.length(), axisZ.length());
 
         if (scaleOut.x > 1e-6f)
-            axisX *= (1.0f / scaleOut.x);
+            axisX *= FastMath::fastReciprocal(scaleOut.x);
         else
             axisX = Vector3(1.0f, 0.0f, 0.0f);
 
         if (scaleOut.y > 1e-6f)
-            axisY *= (1.0f / scaleOut.y);
+            axisY *= FastMath::fastReciprocal(scaleOut.y);
         else
             axisY = Vector3(0.0f, 1.0f, 0.0f);
 
         if (scaleOut.z > 1e-6f)
-            axisZ *= (1.0f / scaleOut.z);
+            axisZ *= FastMath::fastReciprocal(scaleOut.z);
         else
             axisZ = Vector3(0.0f, 0.0f, 1.0f);
 
@@ -376,9 +358,7 @@ namespace pip3D
             roll = 0.0f;
         }
 
-        return Vector3(pitch * RAD_TO_DEG,
-                       yaw * RAD_TO_DEG,
-                       roll * RAD_TO_DEG);
+        return Vector3(pitch * kRadToDeg, yaw * kRadToDeg, roll * kRadToDeg);
     }
 
     class MeshNode : public Node
@@ -387,16 +367,13 @@ namespace pip3D
         Mesh *mesh;
         bool ownsMesh;
         MeshInstance *instance;
-        bool castShadows;
 
     public:
         MeshNode(const String &nodeName = "MeshNode")
-            : Node(nodeName), mesh(nullptr), ownsMesh(false),
-              instance(nullptr), castShadows(true) {}
+            : Node(nodeName), mesh(nullptr), ownsMesh(false), instance(nullptr) {}
 
         MeshNode(Mesh *meshPtr, const String &nodeName = "MeshNode", bool owns = false)
-            : Node(nodeName), mesh(nullptr), ownsMesh(false),
-              instance(nullptr), castShadows(true)
+            : Node(nodeName), mesh(nullptr), ownsMesh(false), instance(nullptr)
         {
             setMesh(meshPtr, owns);
         }
@@ -407,7 +384,7 @@ namespace pip3D
             instance = nullptr;
             if (ownsMesh && mesh)
             {
-                delete mesh;
+                Mesh::destroy(mesh);
                 mesh = nullptr;
             }
         }
@@ -415,27 +392,19 @@ namespace pip3D
         void setMesh(Mesh *meshPtr, bool owns = false)
         {
             if (ownsMesh && mesh && mesh != meshPtr)
-            {
-                delete mesh;
-            }
+                Mesh::destroy(mesh);
+
             mesh = meshPtr;
             ownsMesh = owns;
 
             if (!instance)
-            {
                 instance = new MeshInstance(mesh);
-            }
             else
-            {
                 instance->setMesh(mesh);
-            }
         }
 
         Mesh *getMesh() const { return mesh; }
         MeshInstance *getInstance() const { return instance; }
-
-        void setCastShadows(bool cast) { castShadows = cast; }
-        bool getCastShadows() const { return castShadows; }
 
         void render(class Renderer *renderer) override;
     };
@@ -450,7 +419,8 @@ namespace pip3D
 
     public:
         CameraNode(const String &nodeName = "Camera")
-            : Node(nodeName), fov(60.0f), nearPlane(0.1f), farPlane(100.0f), projectionType(PERSPECTIVE) {}
+            : Node(nodeName), fov(60.0f), nearPlane(0.1f), farPlane(100.0f),
+              projectionType(PERSPECTIVE) {}
 
         void setFOV(float fieldOfView) { fov = fieldOfView; }
         float getFOV() const { return fov; }
@@ -505,7 +475,8 @@ namespace pip3D
 
     public:
         LightNode(const String &nodeName = "Light")
-            : Node(nodeName), lightType(LIGHT_DIRECTIONAL), color(Color::WHITE), intensity(1.0f), direction(0, -1, 0), range(0.0f) {}
+            : Node(nodeName), lightType(LIGHT_DIRECTIONAL), color(Color::WHITE),
+              intensity(1.0f), direction(0, -1, 0), range(0.0f) {}
 
         void setLightType(LightType type) { lightType = type; }
         LightType getLightType() const { return lightType; }
@@ -537,8 +508,7 @@ namespace pip3D
             }
             else
             {
-                Vector3 worldPos = getWorldPosition();
-                light.position = worldPos;
+                light.position = getWorldPosition();
             }
         }
     };

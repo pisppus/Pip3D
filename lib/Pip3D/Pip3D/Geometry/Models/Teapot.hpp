@@ -3939,18 +3939,16 @@ namespace pip3D
     class Teapot : public Mesh
     {
     public:
-        Teapot(float size = 1.0f, const Color &color = Color::WHITE)
-            : Mesh(detail::s_teapotVertices, 1668, detail::s_teapotFaces, 2256, color, true)
+        explicit Teapot(float size = 1.0f)
+            : Mesh(detail::s_teapotVertices, 1668, detail::s_teapotFaces, 2256, true)
         {
             autoScale(size);
-            cache.boundingCenter = Vector3(size * 0.5f * (-0.08148442f), size * 0.5f * (0.41544847f), size * 0.5f * (0.00000000f));
-            cache.boundingRadius = size * 0.5f * (0.94815945f);
-            cache.boundsValid = true;
-            cache.transform.identity();
-            cache.maxScale = 1.0f;
-            cache.transformValid = true;
-            transformDirty = false;
-            cache.transformHash = 4216742517u;
+            finalizeGeometry(1668, 2256,
+                Vector3(size * 0.5f * (-0.08162175f),
+                         size * 0.5f * (0.48045289f),
+                         size * 0.5f * (0.01648000f)),
+                size * 0.5f * (0.93436289f));
+            bindDeleter<Teapot>();
         }
     };
 }

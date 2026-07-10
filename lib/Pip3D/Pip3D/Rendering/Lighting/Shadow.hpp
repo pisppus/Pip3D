@@ -373,7 +373,7 @@ namespace pip3D
             const float ly = dirNorm.y;
             const float signLy = (ly >= 0.0f) ? 1.0f : -1.0f;
             const float safeLy = (absLy < 0.22f) ? signLy * 0.22f : ly;
-            const float invSafeLy = 1.0f / safeLy;
+            const float invSafeLy = FastMath::fastReciprocal(safeLy);
 
             float fadeFactor = 1.0f;
             if (absLy < 0.35f)
@@ -429,9 +429,11 @@ namespace pip3D
             const float viewportHalfWidth = static_cast<float>(viewport.width) * 0.5f;
             const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
 
-            const Vector3 *localVerts = nullptr;
-            if (shadowMesh->ensureDecodedVertexCache())
-                localVerts = shadowMesh->getCachedLocalVertices();
+            const Vertex *PIP3D_RESTRICT vbaseS = shadowMesh->vertexData();
+            Vector3 *PIP3D_RESTRICT localVerts = static_cast<Vector3 *>(
+                alloca(vertexCount * sizeof(Vector3)));
+            for (uint16_t i = 0; i < vertexCount; ++i)
+                localVerts[i] = shadowMesh->decodePosition(vbaseS[i]);
 
             Vector3 *worldVerts = (Vector3 *)alloca(vertexCount * sizeof(Vector3));
 
@@ -461,8 +463,7 @@ namespace pip3D
 
             for (uint16_t vi = 0; vi < vertexCount; ++vi)
             {
-                const Vector3 localPos = localVerts ? localVerts[vi] : shadowMesh->decodePosition(shadowMesh->vert(vi));
-                const Vector3 v = worldTransform.transformNoDiv(localPos);
+                const Vector3 v = worldTransform.transformNoDiv(localVerts[vi]);
                 worldVerts[vi] = v;
 
                 if (!recomputeShadow)
@@ -501,9 +502,10 @@ namespace pip3D
             const float pnZ = plane.normal.z;
             const float pd = plane.d;
 
+            const Face *PIP3D_RESTRICT fbaseS = shadowMesh->faceData();
             for (uint16_t i = 0; i < faceCount; ++i)
             {
-                const Face &face = shadowMesh->face(i);
+                const Face &face = fbaseS[i];
                 const Vector3 v0 = worldVerts[face.v0];
                 const Vector3 v1 = worldVerts[face.v1];
                 const Vector3 v2 = worldVerts[face.v2];

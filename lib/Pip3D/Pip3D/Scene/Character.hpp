@@ -3,7 +3,7 @@
 #include "Math/Algebra.hpp"
 #include "Geometry/Instance.hpp"
 #include "Camera/Camera.hpp"
-#include "Geometry/Primitives.hpp"
+#include "Geometry/Primitives/Basic.hpp"
 #include "Node.hpp"
 
 namespace pip3D
@@ -141,12 +141,18 @@ namespace pip3D
 
             visualRoot = new Node("CharacterRoot");
 
-            MeshNode *bodyNode = new MeshNode(new Cube(1.0f, Color::fromRGB888(60, 110, 190)), "CharBody", true);
-            MeshNode *headNode = new MeshNode(new Cube(1.0f, Color::fromRGB888(235, 210, 185)), "CharHead", true);
-            MeshNode *armLNode = new MeshNode(new Cube(1.0f, Color::fromRGB888(50, 80, 170)), "CharArmL", true);
-            MeshNode *armRNode = new MeshNode(new Cube(1.0f, Color::fromRGB888(50, 80, 170)), "CharArmR", true);
-            MeshNode *legLNode = new MeshNode(new Cube(1.0f, Color::fromRGB888(30, 40, 90)), "CharLegL", true);
-            MeshNode *legRNode = new MeshNode(new Cube(1.0f, Color::fromRGB888(30, 40, 90)), "CharLegR", true);
+            MeshNode *bodyNode = new MeshNode(new Cube(1.0f), "CharBody", true);
+            bodyNode->getInstance()->setColor(Color::fromRGB888(60, 110, 190));
+            MeshNode *headNode = new MeshNode(new Cube(1.0f), "CharHead", true);
+            headNode->getInstance()->setColor(Color::fromRGB888(235, 210, 185));
+            MeshNode *armLNode = new MeshNode(new Cube(1.0f), "CharArmL", true);
+            armLNode->getInstance()->setColor(Color::fromRGB888(50, 80, 170));
+            MeshNode *armRNode = new MeshNode(new Cube(1.0f), "CharArmR", true);
+            armRNode->getInstance()->setColor(Color::fromRGB888(50, 80, 170));
+            MeshNode *legLNode = new MeshNode(new Cube(1.0f), "CharLegL", true);
+            legLNode->getInstance()->setColor(Color::fromRGB888(30, 40, 90));
+            MeshNode *legRNode = new MeshNode(new Cube(1.0f), "CharLegR", true);
+            legRNode->getInstance()->setColor(Color::fromRGB888(30, 40, 90));
 
             Node *armLPivot = new Node("CharArmL_Pivot");
             Node *armRPivot = new Node("CharArmR_Pivot");
