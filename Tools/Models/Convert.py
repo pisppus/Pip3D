@@ -11,6 +11,7 @@ if os.name == 'nt':
     kernel32 = ctypes.windll.kernel32
     kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
 
+
 def pack_normal(nx, ny, nz):
     l1norm = abs(nx) + abs(ny) + abs(nz)
     if l1norm > 1e-6:
@@ -25,6 +26,63 @@ def pack_normal(nx, ny, nz):
         py = int((ny * 0.5 + 0.5) * 255.0)
         return (px << 8) | py
     return 0
+
+
+def min_enclosing_ball(px, py, pz, iterations=128):
+    n = len(px)
+    if n == 0:
+        return (0.0, 0.0, 0.0, 0.0)
+    if n == 1:
+        return (float(px[0]), float(py[0]), float(pz[0]), 0.0)
+
+    min_x = max_x = float(px[0])
+    min_y = max_y = float(py[0])
+    min_z = max_z = float(pz[0])
+    for i in range(1, n):
+        xv = float(px[i]); yv = float(py[i]); zv = float(pz[i])
+        if xv < min_x: min_x = xv
+        elif xv > max_x: max_x = xv
+        if yv < min_y: min_y = yv
+        elif yv > max_y: max_y = yv
+        if zv < min_z: min_z = zv
+        elif zv > max_z: max_z = zv
+
+    cx = (min_x + max_x) * 0.5
+    cy = (min_y + max_y) * 0.5
+    cz = (min_z + max_z) * 0.5
+
+    fpx = [float(v) for v in px]
+    fpy = [float(v) for v in py]
+    fpz = [float(v) for v in pz]
+
+    for k in range(1, iterations + 1):
+        far_idx = 0
+        max_d2 = -1.0
+        for i in range(n):
+            dx = fpx[i] - cx
+            dy = fpy[i] - cy
+            dz = fpz[i] - cz
+            d2 = dx * dx + dy * dy + dz * dz
+            if d2 > max_d2:
+                max_d2 = d2
+                far_idx = i
+
+        step = 1.0 / k
+        cx += (fpx[far_idx] - cx) * step
+        cy += (fpy[far_idx] - cy) * step
+        cz += (fpz[far_idx] - cz) * step
+
+    max_d2 = 0.0
+    for i in range(n):
+        dx = fpx[i] - cx
+        dy = fpy[i] - cy
+        dz = fpz[i] - cz
+        d2 = dx * dx + dy * dy + dz * dz
+        if d2 > max_d2:
+            max_d2 = d2
+
+    return (cx, cy, cz, math.sqrt(max_d2))
+
 
 def convert_obj2mesh(obj_path, force_output_path=None):
     if not os.path.exists(obj_path):
@@ -106,10 +164,6 @@ def convert_obj2mesh(obj_path, force_output_path=None):
         print(f"\033[91m[-] Error: No valid polygons found in the file!\033[0m")
         sys.exit(1)
 
-    xs = [v[0] for v in raw_vertices]
-    ys = [v[1] for v in raw_vertices]
-    zs = [v[2] for v in raw_vertices]
-    
     min_x = min(v['pos'][0] for v in vertices)
     max_x = max(v['pos'][0] for v in vertices)
     min_z = min(v['pos'][2] for v in vertices)
@@ -138,28 +192,12 @@ def convert_obj2mesh(obj_path, force_output_path=None):
         py_list.append(py)
         pz_list.append(pz)
 
-    min_px, max_px = min(px_list), max(px_list)
-    min_py, max_py = min(py_list), max(py_list)
-    min_pz, max_pz = min(pz_list), max(pz_list)
+    bcx, bcy, bcz, br = min_enclosing_ball(px_list, py_list, pz_list, iterations=128)
 
-    cx_int = (min_px + max_px) // 2
-    cy_int = (min_py + max_py) // 2
-    cz_int = (min_pz + max_pz) // 2
-
-    max_dist_sq = 0
-    for px, py, pz in zip(px_list, py_list, pz_list):
-        dx = px - cx_int
-        dy = py - cy_int
-        dz = pz - cz_int
-        dist_sq = dx*dx + dy*dy + dz*dz
-        if dist_sq > max_dist_sq:
-            max_dist_sq = dist_sq
-
-    max_dist = math.sqrt(max_dist_sq)
-    radius_ratio = max_dist / 32767.0
-    cx_ratio = cx_int / 32767.0
-    cy_ratio = cy_int / 32767.0
-    cz_ratio = cz_int / 32767.0
+    radius_ratio = br / 32767.0
+    cx_ratio = bcx / 32767.0
+    cy_ratio = bcy / 32767.0
+    cz_ratio = bcz / 32767.0
 
     raw_name = os.path.splitext(os.path.basename(obj_path))[0]
     
@@ -203,18 +241,16 @@ def convert_obj2mesh(obj_path, force_output_path=None):
             out.write("        };\n    }\n\n")
             
             out.write(f"    class {class_name} : public Mesh\n    {{\n    public:\n")
-            out.write(f"        {class_name}(float size = 1.0f, const Color &color = Color::WHITE)\n")
-            out.write(f"            : Mesh(detail::s_{var_name}Vertices, {verts_count}, detail::s_{var_name}Faces, {faces_count}, color, true)\n")
+            out.write(f"        explicit {class_name}(float size = 1.0f)\n")
+            out.write(f"            : Mesh(detail::s_{var_name}Vertices, {verts_count}, detail::s_{var_name}Faces, {faces_count}, true)\n")
             out.write("        {\n")
             out.write(f"            autoScale(size);\n")
-            out.write(f"            cache.boundingCenter = Vector3(size * 0.5f * ({cx_ratio:.8f}f), size * 0.5f * ({cy_ratio:.8f}f), size * 0.5f * ({cz_ratio:.8f}f));\n")
-            out.write(f"            cache.boundingRadius = size * 0.5f * ({radius_ratio:.8f}f);\n")
-            out.write("            cache.boundsValid = true;\n")
-            out.write("            cache.transform.identity();\n")
-            out.write("            cache.maxScale = 1.0f;\n")
-            out.write("            cache.transformValid = true;\n")
-            out.write("            transformDirty = false;\n")
-            out.write("            cache.transformHash = 4216742517u;\n")
+            out.write(f"            finalizeGeometry({verts_count}, {faces_count},\n")
+            out.write(f"                Vector3(size * 0.5f * ({cx_ratio:.8f}f),\n")
+            out.write(f"                         size * 0.5f * ({cy_ratio:.8f}f),\n")
+            out.write(f"                         size * 0.5f * ({cz_ratio:.8f}f)),\n")
+            out.write(f"                size * 0.5f * ({radius_ratio:.8f}f));\n")
+            out.write(f"            bindDeleter<{class_name}>();\n")
             out.write("        }\n    };\n}\n")
             
         rel_obj = os.path.join("Models", "Sources", os.path.basename(obj_path)).replace("\\", "/")
