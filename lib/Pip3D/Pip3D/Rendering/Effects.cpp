@@ -37,9 +37,11 @@ namespace pip3D
 
         const Matrix4x4 &worldTransform = instance->transform();
 
-        const Vector3 *localVerts = nullptr;
-        if (mesh->ensureDecodedVertexCache())
-            localVerts = mesh->getCachedLocalVertices();
+        const Vertex *PIP3D_RESTRICT vbase = mesh->vertexData();
+        Vector3 *PIP3D_RESTRICT localVerts = static_cast<Vector3 *>(
+            alloca(vertexCountUsed * sizeof(Vector3)));
+        for (uint16_t i = 0; i < vertexCountUsed; ++i)
+            localVerts[i] = mesh->decodePosition(vbase[i]);
 
         const uint32_t frameStamp = g_frameStamp;
         const uint32_t instanceVersion = instance->version();
@@ -54,8 +56,7 @@ namespace pip3D
         {
             for (uint16_t i = 0; i < vertexCountUsed; ++i)
             {
-                Vector3 local = localVerts ? localVerts[i] : mesh->decodePosition(mesh->vert(i));
-                Vector3 world = worldTransform.transformNoDiv(local);
+                Vector3 world = worldTransform.transformNoDiv(localVerts[i]);
                 worldVerts[i] = world;
                 screenVerts[i] = CameraController::project(world, viewProjMatrix,
                                                            viewportHalfWidth, viewportHalfHeight,
@@ -83,9 +84,10 @@ namespace pip3D
 
         const DisplayConfig &framebufferConfig = framebuffer.getConfig();
 
+        const Face *PIP3D_RESTRICT fbase = mesh->faceData();
         for (uint16_t i = 0; i < faceCount; ++i)
         {
-            const Face &face = mesh->face(i);
+            const Face &face = fbase[i];
             const uint16_t i0 = face.v0;
             const uint16_t i1 = face.v1;
             const uint16_t i2 = face.v2;

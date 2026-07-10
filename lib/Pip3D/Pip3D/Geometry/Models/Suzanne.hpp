@@ -2157,18 +2157,16 @@ namespace pip3D
     class Suzanne : public Mesh
     {
     public:
-        Suzanne(float size = 1.0f, const Color &color = Color::WHITE)
-            : Mesh(detail::s_suzanneVertices, 1175, detail::s_suzanneFaces, 967, color, true)
+        explicit Suzanne(float size = 1.0f)
+            : Mesh(detail::s_suzanneVertices, 1175, detail::s_suzanneFaces, 967, true)
         {
             autoScale(size);
-            cache.boundingCenter = Vector3(size * 0.5f * (0.00000000f), size * 0.5f * (0.00000000f), size * 0.5f * (0.00000000f));
-            cache.boundingRadius = size * 0.5f * (1.08668686f);
-            cache.boundsValid = true;
-            cache.transform.identity();
-            cache.maxScale = 1.0f;
-            cache.transformValid = true;
-            transformDirty = false;
-            cache.transformHash = 4216742517u;
+            finalizeGeometry(1175, 967,
+                Vector3(size * 0.5f * (0.00000000f),
+                         size * 0.5f * (0.06097932f),
+                         size * 0.5f * (-0.22231590f)),
+                size * 0.5f * (1.02222593f));
+            bindDeleter<Suzanne>();
         }
     };
 }

@@ -56,7 +56,7 @@ static bool g_sunOn = true;
 
 static void initMeshes()
 {
-    g_floorMesh = new Plane(40.0f, 40.0f, 4, Color::WHITE, 12.0f);
+    g_floorMesh = new Plane(40.0f, 40.0f, 4, 12.0f);
     g_floorMesh->setCastShadows(false);
     g_floorMesh->setSingleColorLighting(false);
     g_floorMesh->setTexture(&g_gravelTexture);
@@ -65,7 +65,7 @@ static void initMeshes()
     g_backWallMesh->setCastShadows(false);
     g_backWallMesh->setSingleColorLighting(false);
 
-    g_shrineMesh = new Cube(1.6f, Color::WHITE);
+    g_shrineMesh = new Cube(1.6f);
     g_shrineMesh->setTexture(&g_barrierTexture);
     g_shrineMesh->setCastShadows(true);
 }

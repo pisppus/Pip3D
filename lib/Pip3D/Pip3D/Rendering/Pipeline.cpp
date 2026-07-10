@@ -372,10 +372,11 @@ namespace pip3D
         const int actualLightCount = localLightCount;
 
         const Matrix4x4 &worldTransform = instance->transform();
+        const Vertex *PIP3D_RESTRICT vbase = mesh->vertexData();
 
         if (useUniformColor)
         {
-            Vector3 localNormal = mesh->numVertices() > 0 ? mesh->vert(0).normal.get() : Vector3(0.0f, 1.0f, 0.0f);
+            Vector3 localNormal = (mesh->numVertices() > 0) ? vbase[0].normal.get() : Vector3(0.0f, 1.0f, 0.0f);
             Vector3 worldNormal = worldTransform.transformNormal(localNormal);
             Vector3 viewDir = cam.position - center;
             const float viewDistSq = viewDir.lengthSquared();
@@ -419,9 +420,10 @@ namespace pip3D
             cache = nullptr;
         }
 
-        const Vector3 *localVerts = nullptr;
-        if (mesh->ensureDecodedVertexCache())
-            localVerts = mesh->getCachedLocalVertices();
+        Vector3 *PIP3D_RESTRICT localVerts = static_cast<Vector3 *>(
+            alloca(vertexCountUsed * sizeof(Vector3)));
+        for (uint16_t i = 0; i < vertexCountUsed; ++i)
+            localVerts[i] = mesh->decodePosition(vbase[i]);
 
         const uint32_t frameStamp = g_frameStamp;
         const uint32_t instanceVersion = instance->version();
@@ -438,8 +440,7 @@ namespace pip3D
             {
                 for (uint16_t i = 0; i < vertexCountUsed; ++i)
                 {
-                    Vector3 local = localVerts ? localVerts[i] : mesh->decodePosition(mesh->vert(i));
-                    Vector3 world = worldTransform.transformNoDiv(local);
+                    Vector3 world = worldTransform.transformNoDiv(localVerts[i]);
                     worldVerts[i] = world;
                     screenVerts[i] = CameraController::project(world, viewProjMatrix,
                                                                viewportHalfWidth, viewportHalfHeight,
@@ -468,7 +469,7 @@ namespace pip3D
             const Vector3 camPos = cam.position;
             for (uint16_t vi = 0; vi < vertexCountUsed; ++vi)
             {
-                Vector3 localNormal = mesh->vert(vi).normal.get();
+                Vector3 localNormal = vbase[vi].normal.get();
                 Vector3 worldNormal = worldTransform.transformNormal(localNormal);
                 Vector3 v;
                 if (!useFallbackPath)
@@ -477,8 +478,7 @@ namespace pip3D
                 }
                 else
                 {
-                    Vector3 local = localVerts ? localVerts[vi] : mesh->decodePosition(mesh->vert(vi));
-                    v = worldTransform.transformNoDiv(local);
+                    v = worldTransform.transformNoDiv(localVerts[vi]);
                 }
                 Vector3 viewDir = camPos - v;
                 const float viewDistSq = viewDir.lengthSquared();
@@ -516,12 +516,13 @@ namespace pip3D
         constexpr float kNearClipEps = 1e-4f;
         const float nearClip = nearPlane + kNearClipEps;
 
+        const Face *PIP3D_RESTRICT fbase = mesh->faceData();
         for (uint16_t i = 0; i < faceCount; ++i)
         {
             statsTrianglesTotal++;
             g_drawTelemetry.facesTotal++;
 
-            const Face &face = mesh->face(i);
+            const Face &face = fbase[i];
 
             Vector3 v0, v1, v2;
 
@@ -533,13 +534,9 @@ namespace pip3D
             }
             else
             {
-                Vector3 local0 = localVerts ? localVerts[face.v0] : mesh->decodePosition(mesh->vert(face.v0));
-                Vector3 local1 = localVerts ? localVerts[face.v1] : mesh->decodePosition(mesh->vert(face.v1));
-                Vector3 local2 = localVerts ? localVerts[face.v2] : mesh->decodePosition(mesh->vert(face.v2));
-
-                v0 = worldTransform.transformNoDiv(local0);
-                v1 = worldTransform.transformNoDiv(local1);
-                v2 = worldTransform.transformNoDiv(local2);
+                v0 = worldTransform.transformNoDiv(localVerts[face.v0]);
+                v1 = worldTransform.transformNoDiv(localVerts[face.v1]);
+                v2 = worldTransform.transformNoDiv(localVerts[face.v2]);
             }
 
             const Vector3 toCam0 = camPos - v0;
@@ -627,9 +624,9 @@ namespace pip3D
 
             if (isTextured)
             {
-                const Vertex &vert0 = mesh->vert(face.v0);
-                const Vertex &vert1 = mesh->vert(face.v1);
-                const Vertex &vert2 = mesh->vert(face.v2);
+                const Vertex &vert0 = vbase[face.v0];
+                const Vertex &vert1 = vbase[face.v1];
+                const Vertex &vert2 = vbase[face.v2];
 
                 float lr0, lg0, lb0, lr1, lg1, lb1, lr2, lg2, lb2;
                 if (gouraudShading)

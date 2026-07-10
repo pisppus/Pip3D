@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Rendering/Renderer.hpp"
-#include "Geometry/Primitives.hpp"
+#include "Geometry/Primitives/Basic.hpp"
 #include "Core/Color.hpp"
 
 namespace pip3D
