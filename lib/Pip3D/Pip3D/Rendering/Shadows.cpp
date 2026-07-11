@@ -35,7 +35,7 @@ namespace pip3D
         if (!shouldRenderShadowForBounds(instance->center(), instance->radius()))
             return;
 
-        Mesh *shadowMesh = mesh->getShadowProxy() ? mesh->getShadowProxy() : mesh;
+        Mesh *shadowMesh = mesh;
 
         ShadowSettings activeSettings = shadowSettings;
         uint32_t cacheGen = shadowCacheGeneration;

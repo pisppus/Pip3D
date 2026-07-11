@@ -36,6 +36,15 @@ namespace pip3D
             Vector3 T, N, B;
         };
 
+        static PIP3D_FORCE_INLINE int16_t saturateInt16(int32_t v)
+        {
+            if (v < -32768)
+                return -32768;
+            if (v > 32767)
+                return 32767;
+            return static_cast<int16_t>(v);
+        }
+
     public:
         TrefoilKnot(float scale = 1.0f,
                     uint8_t segments = 64,
@@ -47,8 +56,9 @@ namespace pip3D
                    static_cast<uint16_t>((segments ? segments : 3) *
                                          (tubeSegments ? tubeSegments : 3) * 2))
         {
+
             autoScale(scale * 7.5f);
-            if (!vertices_ || !faces_)
+            if (unlikely(!vertices_ || !faces_))
             {
                 LOGE(::pip3D::Debug::LOG_MODULE_RESOURCES,
                      "TrefoilKnot: base alloc failed");
@@ -61,8 +71,8 @@ namespace pip3D
             constexpr float tubeScale = 0.55f;
             const float tubeRadius = tubeScale * scale;
 
-            alignas(16) float cosC[65];
-            alignas(16) float sinC[65];
+            float cosC[65];
+            float sinC[65];
             const float invTS = FastMath::fastReciprocal(static_cast<float>(tubeSegs));
             for (uint8_t j = 0; j < tubeSegs; ++j)
             {
@@ -72,21 +82,18 @@ namespace pip3D
             cosC[tubeSegs] = cosC[0];
             sinC[tubeSegs] = sinC[0];
 
-            Vector3 *PIP3D_RESTRICT path =
-                static_cast<Vector3 *>(MemUtils::allocData((segs + 1) * sizeof(Vector3), 16));
-            Frame *PIP3D_RESTRICT frames =
-                static_cast<Frame *>(MemUtils::allocData((segs + 1) * sizeof(Frame), 16));
-
-            if (unlikely(!path || !frames))
+            const size_t pathBytes = static_cast<size_t>(segs + 1) * sizeof(Vector3);
+            const size_t frameBytes = static_cast<size_t>(segs + 1) * sizeof(Frame);
+            uint8_t *block = static_cast<uint8_t *>(
+                MemUtils::allocData(pathBytes + frameBytes, 16));
+            if (unlikely(!block))
             {
                 LOGE(::pip3D::Debug::LOG_MODULE_RESOURCES,
                      "TrefoilKnot: path/frame alloc failed");
-                if (path)
-                    MemUtils::freeData(path);
-                if (frames)
-                    MemUtils::freeData(frames);
                 return;
             }
+            Vector3 *PIP3D_RESTRICT path = reinterpret_cast<Vector3 *>(block);
+            Frame *PIP3D_RESTRICT frames = reinterpret_cast<Frame *>(block + pathBytes);
 
             const float invS = FastMath::fastReciprocal(static_cast<float>(segs));
             for (uint8_t i = 0; i < segs; ++i)
@@ -198,9 +205,9 @@ namespace pip3D
                     nrm.set(dx, dy, dz);
 
                     *vPtr = Vertex(
-                        static_cast<int16_t>(qxi < -32768 ? -32768 : (qxi > 32767 ? 32767 : qxi)),
-                        static_cast<int16_t>(qyi < -32768 ? -32768 : (qyi > 32767 ? 32767 : qyi)),
-                        static_cast<int16_t>(qzi < -32768 ? -32768 : (qzi > 32767 ? 32767 : qzi)),
+                        saturateInt16(qxi),
+                        saturateInt16(qyi),
+                        saturateInt16(qzi),
                         nrm.data,
                         u,
                         static_cast<float>(j) * invTS * uvScaleV);
@@ -208,8 +215,7 @@ namespace pip3D
                 }
             }
 
-            MemUtils::freeData(frames);
-            MemUtils::freeData(path);
+            MemUtils::freeData(block);
 
             vertexCount_ = static_cast<uint16_t>(vPtr - vertices_);
 
@@ -237,7 +243,7 @@ namespace pip3D
 
             finalizeGeometry(vertexCount_, faceCount_,
                              Vector3(0.0f, 0.0f, 0.0f),
-                             scale * 3.55f);
+                             scale * 5.5f);
             bindDeleter<TrefoilKnot>();
         }
     };

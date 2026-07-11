@@ -249,8 +249,9 @@ namespace pip3D
             if (cacheFlags & kFlagTransformDirty)
                 updateTransform();
 
-            const Vector3 localMeshCenter = sourceMesh->center();
-            const float localMeshRadius = sourceMesh->radius();
+            Vector3 localMeshCenter;
+            float localMeshRadius;
+            sourceMesh->getBounds(localMeshCenter, localMeshRadius);
             cachedWorldCenter = localTransform.transformNoDiv(localMeshCenter);
             cachedWorldRadius = localMeshRadius * cachedMaxAbsScale;
         }

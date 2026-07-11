@@ -50,12 +50,30 @@ namespace pip3D
     };
     mutable Cache cache;
 
+  private:
+    float yaw_ = 0.0f;
+    float pitch_ = 0.0f;
+
+    void recomputeAnglesFromForward(const Vector3 &fwd)
+    {
+      yaw_ = atan2f(fwd.x, fwd.z);
+      pitch_ = asinf(clamp(fwd.y, -1.0f, 1.0f));
+    }
+
+  public:
     Camera(const Vector3 &pos = Vector3(0, 0, -5),
            const Vector3 &tgt = Vector3(0, 0, 0),
            const Vector3 &upVec = Vector3(0, 1, 0))
         : position(pos), target(tgt), up(upVec)
     {
       up.normalize();
+      Vector3 fwd = target - position;
+      float lenSq = fwd.lengthSquared();
+      if (likely(lenSq > 1e-12f))
+        fwd *= FastMath::fastInvSqrt(lenSq);
+      else
+        fwd = Vector3(0, 0, 1);
+      recomputeAnglesFromForward(fwd);
     }
 
     PIP3D_FORCE_INLINE const Matrix4x4 &getViewMatrix() const
@@ -147,32 +165,27 @@ namespace pip3D
 
     void rotateRad(float yawRad, float pitchRad)
     {
-      if (cache.flags & CameraDirty::VECTORS)
-        updateVectors();
-
-      const Vector3 &fwd = cache.cachedForward;
-
-      float yaw = atan2f(fwd.x, fwd.z) + yawRad;
-      float pitch = asinf(clamp(fwd.y, -1.0f, 1.0f)) + pitchRad;
+      yaw_ += yawRad;
+      pitch_ += pitchRad;
 
       constexpr float kPitchLimit = 1.5533f;
-      if (pitch > kPitchLimit)
-        pitch = kPitchLimit;
-      if (pitch < -kPitchLimit)
-        pitch = -kPitchLimit;
+      if (pitch_ > kPitchLimit)
+        pitch_ = kPitchLimit;
+      if (pitch_ < -kPitchLimit)
+        pitch_ = -kPitchLimit;
 
       float sp, cp;
-      FastMath::fastSinCos(pitch, sp, cp);
+      FastMath::fastSinCos(pitch_, sp, cp);
       float sy, cy;
-      FastMath::fastSinCos(yaw, sy, cy);
+      FastMath::fastSinCos(yaw_, sy, cy);
 
       const Vector3 finalFwd(sy * cp, sp, cy * cp);
 
-      const Vector3 d = target - position;
-      const float distSq = d.lengthSquared();
-      const float dist = (distSq > 1e-12f)
-                             ? distSq * FastMath::fastInvSqrt(distSq)
-                             : 1.0f;
+      Vector3 d = target - position;
+      float distSq = d.lengthSquared();
+      float dist = (distSq > 1e-12f)
+                       ? distSq * FastMath::fastInvSqrt(distSq)
+                       : 1.0f;
 
       target = position + finalFwd * dist;
       invalidateView();
@@ -196,6 +209,13 @@ namespace pip3D
     PIP3D_FORCE_INLINE void lookAt(const Vector3 &newTarget)
     {
       target = newTarget;
+      Vector3 fwd = target - position;
+      float lenSq = fwd.lengthSquared();
+      if (likely(lenSq > 1e-12f))
+        fwd *= FastMath::fastInvSqrt(lenSq);
+      else
+        fwd = Vector3(0, 0, 1);
+      recomputeAnglesFromForward(fwd);
       invalidateView();
     }
 
@@ -204,11 +224,21 @@ namespace pip3D
       target = newTarget;
       up = newUp;
       up.normalize();
+      Vector3 fwd = target - position;
+      float lenSq = fwd.lengthSquared();
+      if (likely(lenSq > 1e-12f))
+        fwd *= FastMath::fastInvSqrt(lenSq);
+      else
+        fwd = Vector3(0, 0, 1);
+      recomputeAnglesFromForward(fwd);
       invalidateView();
     }
 
     void orbit(const Vector3 &center, float radius, float azimuth, float elevation)
     {
+      yaw_ = azimuth;
+      pitch_ = elevation;
+
       float sinEl, cosEl, sinAz, cosAz;
       FastMath::fastSinCos(elevation, sinEl, cosEl);
       FastMath::fastSinCos(azimuth, sinAz, cosAz);
@@ -285,6 +315,15 @@ namespace pip3D
       up.normalize();
       fov = anim.startFov + anim.deltaFov * st;
 
+      if (anim.deltaTgt.lengthSquared() > 1e-12f)
+      {
+        Vector3 fwd = target - position;
+        float lenSq = fwd.lengthSquared();
+        if (likely(lenSq > 1e-12f))
+          fwd *= FastMath::fastInvSqrt(lenSq);
+        recomputeAnglesFromForward(fwd);
+      }
+
       cache.flags |= anim.dirtyMask;
     }
 
@@ -300,6 +339,9 @@ namespace pip3D
     PIP3D_FORCE_INLINE void markDirty() { cache.flags = CameraDirty::ALL; }
     PIP3D_FORCE_INLINE bool isViewDirty() const { return (cache.flags & CameraDirty::VIEW) != 0; }
     PIP3D_FORCE_INLINE bool isProjDirty() const { return (cache.flags & CameraDirty::PROJ) != 0; }
+
+    PIP3D_FORCE_INLINE float yaw() const { return yaw_; }
+    PIP3D_FORCE_INLINE float pitch() const { return pitch_; }
 
   private:
     PIP3D_FORCE_INLINE void invalidateView()
@@ -460,7 +502,8 @@ namespace pip3D
       if (!viewProjMatrixDirty && !camera.isViewDirty() && !camera.isProjDirty())
         return;
 
-      const float aspect = static_cast<float>(viewport.width) * FastMath::fastReciprocal(static_cast<float>(viewport.height));
+      const float aspect = static_cast<float>(viewport.width) *
+                           FastMath::fastReciprocal(static_cast<float>(viewport.height));
       viewMatrix = camera.getViewMatrix();
       projMatrix = camera.getProjectionMatrix(aspect);
       viewProjMatrix = projMatrix * viewMatrix;
