@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Geometry/Mesh.hpp"
+#include "Math/Quant.hpp"
 
 namespace pip3D
 {
@@ -61,10 +62,10 @@ namespace pip3D
             const uint16_t ringStart = segs;
             const uint16_t bottomPoleStart = ringStart + ringRows * ringStride;
 
-            const float invSegs = 1.0f / static_cast<float>(segs);
+            const float invSegs = FastMath::fastReciprocal(static_cast<float>(segs));
             const float total_L = kPi * scaleR + (hasCylinder ? 2.0f * scaleCyl : 0.0f);
             const float invTotal_L = FastMath::fastReciprocal(total_L);
-            const float phi_step = (kPi * 0.5f) / static_cast<float>(hemiRings);
+            const float phi_step = (kPi * 0.5f) * FastMath::fastReciprocal(static_cast<float>(hemiRings));
             const float halfPiScaleR_invTotal = (kPi * 0.5f) * scaleR * invTotal_L;
 
             float sinThetaCache[64];
@@ -81,14 +82,15 @@ namespace pip3D
                 FastMath::fastSinCos(phi, sinPhiCache[ring - 1], cosPhiCache[ring - 1]);
             }
 
+            constexpr uint16_t poleTopNData = packNormalConstexpr(0.0f, 1.0f, 0.0f);
+            constexpr uint16_t poleBotNData = packNormalConstexpr(0.0f, -1.0f, 0.0f);
+
             Vertex *PIP3D_RESTRICT vPtr = vertices_;
 
-            PackedNormal poleTopN;
-            poleTopN.set(0.0f, 1.0f, 0.0f);
             const int16_t topPoleY = static_cast<int16_t>(lrintf(scaleCyl + scaleR));
             for (uint8_t seg = 0; seg < segs; ++seg)
             {
-                *vPtr++ = Vertex(0, topPoleY, 0, poleTopN.data,
+                *vPtr++ = Vertex(0, topPoleY, 0, poleTopNData,
                                  (static_cast<float>(seg) + 0.5f) * invSegs, 0.0f);
             }
 
@@ -116,13 +118,11 @@ namespace pip3D
                                      static_cast<float>(seg) * invSegs, v);
                 }
 
-                const float cosT0 = cosThetaCache[0];
-                const float sinT0 = sinThetaCache[0];
                 PackedNormal n0;
-                n0.set(sinPhi * cosT0, cosPhi, sinPhi * sinT0);
-                *vPtr++ = Vertex(static_cast<int16_t>(lrintf(r_scale * cosT0)),
+                n0.set(sinPhi, cosPhi, 0.0f);
+                *vPtr++ = Vertex(static_cast<int16_t>(lrintf(r_scale)),
                                  qY,
-                                 static_cast<int16_t>(lrintf(r_scale * sinT0)),
+                                 0,
                                  n0.data, 1.0f, v);
             }
 
@@ -143,13 +143,11 @@ namespace pip3D
                                      n.data,
                                      static_cast<float>(seg) * invSegs, v);
                 }
-                const float cosT0 = cosThetaCache[0];
-                const float sinT0 = sinThetaCache[0];
                 PackedNormal n0;
-                n0.set(cosT0, 0.0f, sinT0);
-                *vPtr++ = Vertex(static_cast<int16_t>(lrintf(scaleR * cosT0)),
+                n0.set(1.0f, 0.0f, 0.0f);
+                *vPtr++ = Vertex(static_cast<int16_t>(lrintf(scaleR)),
                                  qY,
-                                 static_cast<int16_t>(lrintf(scaleR * sinT0)),
+                                 0,
                                  n0.data, 1.0f, v);
             }
 
@@ -171,13 +169,11 @@ namespace pip3D
                                      n.data,
                                      static_cast<float>(seg) * invSegs, v);
                 }
-                const float cosT0 = cosThetaCache[0];
-                const float sinT0 = sinThetaCache[0];
                 PackedNormal n0;
-                n0.set(cosT0, 0.0f, sinT0);
-                *vPtr++ = Vertex(static_cast<int16_t>(lrintf(scaleR * cosT0)),
+                n0.set(1.0f, 0.0f, 0.0f);
+                *vPtr++ = Vertex(static_cast<int16_t>(lrintf(scaleR)),
                                  qY,
-                                 static_cast<int16_t>(lrintf(scaleR * sinT0)),
+                                 0,
                                  n0.data, 1.0f, v);
             }
 
@@ -204,22 +200,18 @@ namespace pip3D
                                      n.data,
                                      static_cast<float>(seg) * invSegs, v);
                 }
-                const float cosT0 = cosThetaCache[0];
-                const float sinT0 = sinThetaCache[0];
                 PackedNormal n0;
-                n0.set(sinPhi * cosT0, -cosPhi, sinPhi * sinT0);
-                *vPtr++ = Vertex(static_cast<int16_t>(lrintf(r_scale * cosT0)),
+                n0.set(sinPhi, -cosPhi, 0.0f);
+                *vPtr++ = Vertex(static_cast<int16_t>(lrintf(r_scale)),
                                  qY,
-                                 static_cast<int16_t>(lrintf(r_scale * sinT0)),
+                                 0,
                                  n0.data, 1.0f, v);
             }
 
-            PackedNormal poleBotN;
-            poleBotN.set(0.0f, -1.0f, 0.0f);
             const int16_t botPoleY = static_cast<int16_t>(lrintf(-scaleCyl - scaleR));
             for (uint8_t seg = 0; seg < segs; ++seg)
             {
-                *vPtr++ = Vertex(0, botPoleY, 0, poleBotN.data,
+                *vPtr++ = Vertex(0, botPoleY, 0, poleBotNData,
                                  (static_cast<float>(seg) + 0.5f) * invSegs, 1.0f);
             }
 
@@ -261,7 +253,16 @@ namespace pip3D
 
             const uint16_t fCount = static_cast<uint16_t>(fPtr - faces_);
 
-            const float boundRadius = fmaxf(height * 0.5f, radius);
+            float boundRadius;
+            if (hasCylinder)
+            {
+                const float boundSq = radius * radius + halfCyl * halfCyl;
+                boundRadius = boundSq * FastMath::fastInvSqrt(boundSq);
+            }
+            else
+            {
+                boundRadius = radius;
+            }
             finalizeGeometry(vCount, fCount, Vector3(0.0f, 0.0f, 0.0f), boundRadius);
             bindDeleter<Capsule>();
         }

@@ -22,10 +22,11 @@
 #include "Geometry/Mesh.hpp"
 #include "Geometry/Instance.hpp"
 #include "Geometry/Primitives/Basic.hpp"
-#include "Geometry/Primitives/Sphere.hpp"
 #include "Geometry/Primitives/Capsule.hpp"
+#include "Geometry/Primitives/Helix.hpp"
+#include "Geometry/Primitives/Sphere.hpp"
+#include "Geometry/Primitives/Torus.hpp"
 #include "Geometry/Primitives/TrefoilKnot.hpp"
-
 #include "Input/Input.hpp"
 
 #include "Rendering/Display/FrameBuffer.hpp"

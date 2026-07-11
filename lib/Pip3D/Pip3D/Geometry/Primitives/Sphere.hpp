@@ -80,12 +80,10 @@ namespace pip3D
         }
 
     public:
-        Sphere(float radius = 1.0f, uint8_t segments = 8, uint8_t rings = 6)
+        Sphere(float radius = 1.0f, uint8_t segments = 8)
             : Mesh(getIcosphereVertexCount(segments <= 8 ? 1 : (segments <= 16 ? 2 : 3)) + 64,
                    getIcosphereFaceCount(segments <= 8 ? 1 : (segments <= 16 ? 2 : 3)))
         {
-            (void)rings;
-
             autoScale(radius * 2.0f);
             if (unlikely(!vertices_ || !faces_))
             {
@@ -94,7 +92,6 @@ namespace pip3D
             }
 
             const uint8_t subdivisions = segments <= 8 ? 1 : (segments <= 16 ? 2 : 3);
-
             constexpr float A = 0.525731112119f * 32767.0f;
             constexpr float B = 0.850650808352f * 32767.0f;
 

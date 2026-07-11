@@ -4,8 +4,7 @@
 
 namespace pip3D
 {
-
-    class TrefoilKnot : public Mesh
+    class Helix : public Mesh
     {
     private:
         PIP3D_FORCE_INLINE static Vector3 transportN(const Vector3 &N_prev,
@@ -46,41 +45,41 @@ namespace pip3D
         }
 
     public:
-        TrefoilKnot(float scale = 1.0f,
-                    uint8_t segments = 64,
-                    uint8_t tubeSegments = 12,
-                    float uvScaleU = 1.0f,
-                    float uvScaleV = 1.0f)
+        Helix(float radius = 0.5f, float height = 2.0f, float turns = 3.0f,
+              uint8_t segments = 48, uint8_t tubeSegments = 8,
+              float uvScaleU = 1.0f, float uvScaleV = 1.0f,
+              float tubeRadius = -1.0f)
             : Mesh(static_cast<uint16_t>(((segments ? segments : 3) + 1) *
-                                         ((tubeSegments ? tubeSegments : 3) + 1)),
-                   static_cast<uint16_t>((segments ? segments : 3) *
+                                             ((tubeSegments ? tubeSegments : 3)) +
+                                         2),
+                   static_cast<uint16_t>(((segments ? segments : 3) *
+                                          (tubeSegments ? tubeSegments : 3) * 2) +
                                          (tubeSegments ? tubeSegments : 3) * 2))
         {
+            const uint8_t segs = (segments == 0) ? 3 : (segments > 128 ? 128 : segments);
+            const uint8_t tubeSegs = (tubeSegments == 0) ? 3 : (tubeSegments > 32 ? 32 : tubeSegments);
+            const float safeTurns = (turns > 0.01f) ? turns : 0.01f;
 
-            autoScale(scale * 7.5f);
+            const float tubeR = (tubeRadius > 0.0f) ? tubeRadius : (0.3f * radius);
+
+            const float halfHeight = height * 0.5f;
+            const float boundSq = radius * radius + halfHeight * halfHeight;
+            const float boundR = boundSq * FastMath::fastInvSqrt(boundSq) + tubeR;
+            const float size = boundR * 2.0f;
+            autoScale(size);
             if (unlikely(!vertices_ || !faces_))
             {
-                LOGE(::pip3D::Debug::LOG_MODULE_RESOURCES,
-                     "TrefoilKnot: base alloc failed");
+                LOGE(::pip3D::Debug::LOG_MODULE_RESOURCES, "Helix: base alloc failed");
                 return;
             }
 
-            const uint8_t segs = segments ? segments : 3;
-            const uint8_t tubeSegs = tubeSegments ? tubeSegments : 3;
-
-            constexpr float tubeScale = 0.55f;
-            const float tubeRadius = tubeScale * scale;
-
-            float cosC[65];
-            float sinC[65];
+            float cosC[32], sinC[32];
             const float invTS = FastMath::fastReciprocal(static_cast<float>(tubeSegs));
             for (uint8_t j = 0; j < tubeSegs; ++j)
             {
                 const float a = kTwoPi * static_cast<float>(j) * invTS;
                 FastMath::fastSinCos(a, sinC[j], cosC[j]);
             }
-            cosC[tubeSegs] = cosC[0];
-            sinC[tubeSegs] = sinC[0];
 
             const size_t pathBytes = static_cast<size_t>(segs + 1) * sizeof(Vector3);
             const size_t frameBytes = static_cast<size_t>(segs + 1) * sizeof(Frame);
@@ -88,27 +87,24 @@ namespace pip3D
                 MemUtils::allocData(pathBytes + frameBytes, 16));
             if (unlikely(!block))
             {
-                LOGE(::pip3D::Debug::LOG_MODULE_RESOURCES,
-                     "TrefoilKnot: path/frame alloc failed");
+                LOGE(::pip3D::Debug::LOG_MODULE_RESOURCES, "Helix: path/frame alloc failed");
                 return;
             }
             Vector3 *PIP3D_RESTRICT path = reinterpret_cast<Vector3 *>(block);
             Frame *PIP3D_RESTRICT frames = reinterpret_cast<Frame *>(block + pathBytes);
 
             const float invS = FastMath::fastReciprocal(static_cast<float>(segs));
-            for (uint8_t i = 0; i < segs; ++i)
+            const float totalAngle = kTwoPi * safeTurns;
+            const float yStep = height * invS;
+            for (uint8_t i = 0; i <= segs; ++i)
             {
-                const float t = kTwoPi * static_cast<float>(i) * invS;
-                float s2, c2, s3, c3;
-                FastMath::fastSinCos(2.0f * t, s2, c2);
-                FastMath::fastSinCos(3.0f * t, s3, c3);
-
-                const float r = scale * (2.0f + c3);
-                path[i].x = r * c2;
-                path[i].y = r * s2;
-                path[i].z = scale * (-s3 * 1.4f);
+                const float t = totalAngle * static_cast<float>(i) * invS;
+                float st, ct;
+                FastMath::fastSinCos(t, st, ct);
+                path[i].x = radius * ct;
+                path[i].y = -halfHeight + static_cast<float>(i) * yStep;
+                path[i].z = radius * st;
             }
-            path[segs] = path[0];
 
             frames[0].T = path[1] - path[0];
             frames[0].T.normalize();
@@ -121,9 +117,12 @@ namespace pip3D
                 frames[0].B = frames[0].T.cross(frames[0].N);
             }
 
-            for (uint8_t i = 1; i < segs; ++i)
+            for (uint8_t i = 1; i <= segs; ++i)
             {
-                frames[i].T = path[i + 1] - path[i];
+                if (i < segs)
+                    frames[i].T = path[i + 1] - path[i];
+                else
+                    frames[i].T = path[i] - path[i - 1];
                 frames[i].T.normalize();
 
                 const Vector3 delta = path[i] - path[i - 1];
@@ -132,41 +131,6 @@ namespace pip3D
                 frames[i].N.normalize();
                 frames[i].B = frames[i].T.cross(frames[i].N);
             }
-
-            {
-                const Vector3 delta_last = path[0] - path[segs - 1];
-                Vector3 N_transported = transportN(frames[segs - 1].N,
-                                                   frames[segs - 1].T,
-                                                   frames[0].T, delta_last);
-                N_transported.normalize();
-
-                float cosA = clamp(N_transported.dot(frames[0].N), -1.0f, 1.0f);
-                float angle_diff = acosf(cosA);
-
-                const Vector3 cr = N_transported.cross(frames[0].N);
-                if (cr.dot(frames[0].T) < 0.0f)
-                    angle_diff = -angle_diff;
-
-                const float angle_step = angle_diff * invS;
-                float c_step, s_step;
-                FastMath::fastSinCos(angle_step, s_step, c_step);
-                float c_total = 1.0f, s_total = 0.0f;
-
-                for (uint8_t i = 1; i < segs; ++i)
-                {
-                    const float new_c = c_total * c_step - s_total * s_step;
-                    const float new_s = s_total * c_step + c_total * s_step;
-                    c_total = new_c;
-                    s_total = new_s;
-
-                    const Vector3 oN = frames[i].N;
-                    const Vector3 oB = frames[i].B;
-                    frames[i].N = oN * c_total + oB * s_total;
-                    frames[i].B = oB * c_total - oN * s_total;
-                }
-            }
-
-            frames[segs] = frames[0];
 
             Vertex *PIP3D_RESTRICT vPtr = vertices_;
             const float invQ = (qScale_ > 1e-6f)
@@ -184,7 +148,7 @@ namespace pip3D
 
                 const float u = static_cast<float>(i) * invS * uvScaleU;
 
-                for (uint8_t j = 0; j <= tubeSegs; ++j)
+                for (uint8_t j = 0; j < tubeSegs; ++j)
                 {
                     const float cn = cosC[j];
                     const float sn = sinC[j];
@@ -193,21 +157,17 @@ namespace pip3D
                     const float dy = cn * Ny + sn * By;
                     const float dz = cn * Nz + sn * Bz;
 
-                    const float vx = px_c + tubeRadius * dx;
-                    const float vy = py_c + tubeRadius * dy;
-                    const float vz = pz_c + tubeRadius * dz;
-
-                    const int32_t qxi = lrintf(vx * invQ);
-                    const int32_t qyi = lrintf(vy * invQ);
-                    const int32_t qzi = lrintf(vz * invQ);
+                    const float vx = px_c + tubeR * dx;
+                    const float vy = py_c + tubeR * dy;
+                    const float vz = pz_c + tubeR * dz;
 
                     PackedNormal nrm;
                     nrm.set(dx, dy, dz);
 
                     *vPtr = Vertex(
-                        saturateInt16(qxi),
-                        saturateInt16(qyi),
-                        saturateInt16(qzi),
+                        saturateInt16(lrintf(vx * invQ)),
+                        saturateInt16(lrintf(vy * invQ)),
+                        saturateInt16(lrintf(vz * invQ)),
                         nrm.data,
                         u,
                         static_cast<float>(j) * invTS * uvScaleV);
@@ -215,23 +175,62 @@ namespace pip3D
                 }
             }
 
+            const uint16_t tubeSurfaceVerts = static_cast<uint16_t>(segs + 1) * tubeSegs;
+            const uint16_t cap0CenterIdx = tubeSurfaceVerts;
+            const uint16_t cap1CenterIdx = tubeSurfaceVerts + 1;
+
+            {
+                const float px_c = path[0].x;
+                const float py_c = path[0].y;
+                const float pz_c = path[0].z;
+                const float Tx = frames[0].T.x, Ty = frames[0].T.y, Tz = frames[0].T.z;
+
+                PackedNormal capN;
+                capN.set(-Tx, -Ty, -Tz);
+                *vPtr = Vertex(
+                    saturateInt16(lrintf(px_c * invQ)),
+                    saturateInt16(lrintf(py_c * invQ)),
+                    saturateInt16(lrintf(pz_c * invQ)),
+                    capN.data, 0.5f, 0.5f);
+                ++vPtr;
+            }
+
+            {
+                const float px_c = path[segs].x;
+                const float py_c = path[segs].y;
+                const float pz_c = path[segs].z;
+                const float Tx = frames[segs].T.x, Ty = frames[segs].T.y, Tz = frames[segs].T.z;
+
+                PackedNormal capN;
+                capN.set(Tx, Ty, Tz);
+                *vPtr = Vertex(
+                    saturateInt16(lrintf(px_c * invQ)),
+                    saturateInt16(lrintf(py_c * invQ)),
+                    saturateInt16(lrintf(pz_c * invQ)),
+                    capN.data, 0.5f, 0.5f);
+                ++vPtr;
+            }
+
             MemUtils::freeData(block);
 
             vertexCount_ = static_cast<uint16_t>(vPtr - vertices_);
 
             Face *PIP3D_RESTRICT fPtr = faces_;
-            const uint16_t pitch = tubeSegs + 1;
+            const uint16_t pitch = tubeSegs;
+
             for (uint8_t i = 0; i < segs; ++i)
             {
-                const uint16_t rowCurrent = static_cast<uint16_t>(i) * pitch;
-                const uint16_t rowNext = rowCurrent + pitch;
+                const uint16_t rowCurr = static_cast<uint16_t>(i) * pitch;
+                const uint16_t rowNext = static_cast<uint16_t>(i + 1) * pitch;
 
                 for (uint8_t j = 0; j < tubeSegs; ++j)
                 {
-                    const uint16_t a = rowCurrent + j;
+                    const uint16_t jNext = static_cast<uint16_t>((j + 1) % tubeSegs);
+
+                    const uint16_t a = rowCurr + j;
                     const uint16_t b = rowNext + j;
-                    const uint16_t c = rowNext + j + 1;
-                    const uint16_t d = rowCurrent + j + 1;
+                    const uint16_t c = rowNext + jNext;
+                    const uint16_t d = rowCurr + jNext;
 
                     fPtr[0] = Face(a, c, b);
                     fPtr[1] = Face(a, d, c);
@@ -239,12 +238,31 @@ namespace pip3D
                 }
             }
 
+            for (uint8_t j = 0; j < tubeSegs; ++j)
+            {
+                const uint16_t rim0 = j;
+                const uint16_t rim1 = static_cast<uint16_t>((j + 1) % tubeSegs);
+                fPtr[0] = Face(cap0CenterIdx, rim1, rim0);
+                fPtr += 1;
+            }
+
+            {
+                const uint16_t lastRow = static_cast<uint16_t>(segs) * pitch;
+                for (uint8_t j = 0; j < tubeSegs; ++j)
+                {
+                    const uint16_t rim0 = lastRow + j;
+                    const uint16_t rim1 = lastRow + static_cast<uint16_t>((j + 1) % tubeSegs);
+                    fPtr[0] = Face(cap1CenterIdx, rim0, rim1);
+                    fPtr += 1;
+                }
+            }
+
             faceCount_ = static_cast<uint16_t>(fPtr - faces_);
 
             finalizeGeometry(vertexCount_, faceCount_,
                              Vector3(0.0f, 0.0f, 0.0f),
-                             scale * 5.5f);
-            bindDeleter<TrefoilKnot>();
+                             boundR);
+            bindDeleter<Helix>();
         }
     };
 
