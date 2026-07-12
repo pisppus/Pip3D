@@ -68,18 +68,36 @@ namespace pip3D
             {12, 13, 14}, {12, 14, 15}
         };
 
-        static constexpr Vertex s_octaVertices[6] = {
-            { 32767,     0,     0, packNormalConstexpr( 1.0f,  0.0f,  0.0f), 0.0f, 0.0f},
-            {-32767,     0,     0, packNormalConstexpr(-1.0f,  0.0f,  0.0f), 0.0f, 0.0f},
-            {     0, 32767,     0, packNormalConstexpr( 0.0f,  1.0f,  0.0f), 0.0f, 0.0f},
-            {     0,-32767,     0, packNormalConstexpr( 0.0f, -1.0f,  0.0f), 0.0f, 0.0f},
-            {     0,     0, 32767, packNormalConstexpr( 0.0f,  0.0f,  1.0f), 0.0f, 0.0f},
-            {     0,     0,-32767, packNormalConstexpr( 0.0f,  0.0f, -1.0f), 0.0f, 0.0f}
+        static constexpr Vertex s_octaVertices[24] = {
+            { 32767,     0,     0, packNormalConstexpr( 1.0f,  1.0f,  1.0f), 0.0f, 0.0f},
+            {     0, 32767,     0, packNormalConstexpr( 1.0f,  1.0f,  1.0f), 1.0f, 0.0f},
+            {     0,     0, 32767, packNormalConstexpr( 1.0f,  1.0f,  1.0f), 0.5f, 1.0f},
+            {     0,     0, 32767, packNormalConstexpr(-1.0f,  1.0f,  1.0f), 0.0f, 0.0f},
+            {     0, 32767,     0, packNormalConstexpr(-1.0f,  1.0f,  1.0f), 1.0f, 0.0f},
+            {-32767,     0,     0, packNormalConstexpr(-1.0f,  1.0f,  1.0f), 0.5f, 1.0f},
+            {-32767,     0,     0, packNormalConstexpr(-1.0f,  1.0f, -1.0f), 0.0f, 0.0f},
+            {     0, 32767,     0, packNormalConstexpr(-1.0f,  1.0f, -1.0f), 1.0f, 0.0f},
+            {     0,     0,-32767, packNormalConstexpr(-1.0f,  1.0f, -1.0f), 0.5f, 1.0f},
+            {     0,     0,-32767, packNormalConstexpr( 1.0f,  1.0f, -1.0f), 0.0f, 0.0f},
+            {     0, 32767,     0, packNormalConstexpr( 1.0f,  1.0f, -1.0f), 1.0f, 0.0f},
+            { 32767,     0,     0, packNormalConstexpr( 1.0f,  1.0f, -1.0f), 0.5f, 1.0f},
+            {     0,     0, 32767, packNormalConstexpr( 1.0f, -1.0f,  1.0f), 0.0f, 0.0f},
+            {     0,-32767,     0, packNormalConstexpr( 1.0f, -1.0f,  1.0f), 1.0f, 0.0f},
+            { 32767,     0,     0, packNormalConstexpr( 1.0f, -1.0f,  1.0f), 0.5f, 1.0f},
+            {-32767,     0,     0, packNormalConstexpr(-1.0f, -1.0f,  1.0f), 0.0f, 0.0f},
+            {     0,-32767,     0, packNormalConstexpr(-1.0f, -1.0f,  1.0f), 1.0f, 0.0f},
+            {     0,     0, 32767, packNormalConstexpr(-1.0f, -1.0f,  1.0f), 0.5f, 1.0f},
+            {     0,     0,-32767, packNormalConstexpr(-1.0f, -1.0f, -1.0f), 0.0f, 0.0f},
+            {     0,-32767,     0, packNormalConstexpr(-1.0f, -1.0f, -1.0f), 1.0f, 0.0f},
+            {-32767,     0,     0, packNormalConstexpr(-1.0f, -1.0f, -1.0f), 0.5f, 1.0f},
+            { 32767,     0,     0, packNormalConstexpr( 1.0f, -1.0f, -1.0f), 0.0f, 0.0f},
+            {     0,-32767,     0, packNormalConstexpr( 1.0f, -1.0f, -1.0f), 1.0f, 0.0f},
+            {     0,     0,-32767, packNormalConstexpr( 1.0f, -1.0f, -1.0f), 0.5f, 1.0f}
         };
 
         static constexpr Face s_octaFaces[8] = {
-            {0, 2, 4}, {4, 2, 1}, {1, 2, 5}, {5, 2, 0},
-            {4, 3, 0}, {1, 3, 4}, {5, 3, 1}, {0, 3, 5}
+            {0,  1,  2}, {3,  4,  5}, {6,  7,  8}, {9, 10, 11},
+            {12, 13, 14}, {15, 16, 17}, {18, 19, 20}, {21, 22, 23}
         };
     }
 
@@ -189,10 +207,10 @@ namespace pip3D
     {
     public:
         explicit Octahedron(float size = 1.0f)
-            : Mesh(detail::s_octaVertices, 6, detail::s_octaFaces, 8, true)
+            : Mesh(detail::s_octaVertices, 24, detail::s_octaFaces, 8, true)
         {
             autoScale(size);
-            finalizeGeometry(6, 8, Vector3(0.0f, 0.0f, 0.0f), size * 0.5f);
+            finalizeGeometry(24, 8, Vector3(0.0f, 0.0f, 0.0f), size * 0.5f);
             bindDeleter<Octahedron>();
         }
     };
@@ -202,10 +220,10 @@ namespace pip3D
     public:
         Plane(float width = 2.0f, float depth = 2.0f, uint8_t subdivisions = 1,
               float uvScale = 1.0f)
-            : Mesh(static_cast<uint16_t>(((subdivisions ? subdivisions : 1) + 1) *
+            : Mesh(static_cast<uint16_t>(2 * ((subdivisions ? subdivisions : 1) + 1) *
                                          ((subdivisions ? subdivisions : 1) + 1)),
-                   static_cast<uint16_t>((subdivisions ? subdivisions : 1) *
-                                         (subdivisions ? subdivisions : 1) * 4))
+                   static_cast<uint16_t>(4 * (subdivisions ? subdivisions : 1) *
+                                         (subdivisions ? subdivisions : 1)))
         {
             setSingleColorLighting(true);
 
@@ -229,7 +247,10 @@ namespace pip3D
             const float invDivs = FastMath::fastReciprocal(static_cast<float>(divs));
             const float scaleUV = invDivs * uvScale;
 
-            constexpr uint16_t normalUpData = packNormalConstexpr(0.0f, 1.0f, 0.0f);
+            constexpr uint16_t normalUpData   = packNormalConstexpr(0.0f,  1.0f, 0.0f);
+            constexpr uint16_t normalDownData = packNormalConstexpr(0.0f, -1.0f, 0.0f);
+
+            const uint16_t topCount = static_cast<uint16_t>(divs + 1) * (divs + 1);
 
             Vertex *PIP3D_RESTRICT vPtr = vertices_;
             for (uint8_t z = 0; z <= divs; ++z)
@@ -246,9 +267,29 @@ namespace pip3D
                     const int16_t qX = (x == divs)
                                            ? static_cast<int16_t>(lrintf(qEndX))
                                            : static_cast<int16_t>(lrintf(currentX));
+                    const float tu = static_cast<float>(x) * scaleUV;
 
-                    *vPtr = Vertex(qX, 0, qZ, normalUpData,
-                                   static_cast<float>(x) * scaleUV, tv);
+                    *vPtr = Vertex(qX, 0, qZ, normalUpData, tu, tv);
+                    ++vPtr;
+                }
+            }
+            for (uint8_t z = 0; z <= divs; ++z)
+            {
+                const float currentZ = qStartZ + static_cast<float>(z) * stepZ;
+                const int16_t qZ = (z == divs)
+                                       ? static_cast<int16_t>(lrintf(qEndZ))
+                                       : static_cast<int16_t>(lrintf(currentZ));
+                const float tv = static_cast<float>(z) * scaleUV;
+
+                for (uint8_t x = 0; x <= divs; ++x)
+                {
+                    const float currentX = qStartX + static_cast<float>(x) * stepX;
+                    const int16_t qX = (x == divs)
+                                           ? static_cast<int16_t>(lrintf(qEndX))
+                                           : static_cast<int16_t>(lrintf(currentX));
+                    const float tu = static_cast<float>(x) * scaleUV;
+
+                    *vPtr = Vertex(qX, 0, qZ, normalDownData, tu, tv);
                     ++vPtr;
                 }
             }
@@ -263,8 +304,8 @@ namespace pip3D
                 {
                     fPtr[0] = Face(i0, i1, i0 + 1);
                     fPtr[1] = Face(i0 + 1, i1, i1 + 1);
-                    fPtr[2] = Face(i0, i0 + 1, i1);
-                    fPtr[3] = Face(i0 + 1, i1 + 1, i1);
+                    fPtr[2] = Face(i0 + topCount, i0 + 1 + topCount, i1 + topCount);
+                    fPtr[3] = Face(i0 + 1 + topCount, i1 + 1 + topCount, i1 + topCount);
                     fPtr += 4;
                     ++i0;
                     ++i1;
@@ -287,8 +328,8 @@ namespace pip3D
     {
     public:
         Circle(float radius = 1.0f, uint8_t segments = 16)
-            : Mesh(static_cast<uint16_t>(1 + (segments ? segments : 3)),
-                   static_cast<uint16_t>(segments ? segments : 3))
+            : Mesh(static_cast<uint16_t>(2 * (1 + (segments ? segments : 3))),
+                   static_cast<uint16_t>(2 * (segments ? segments : 3)))
         {
             autoScale(radius * 2.0f);
             if (unlikely(!vertices_ || !faces_))
@@ -308,20 +349,34 @@ namespace pip3D
                 FastMath::fastSinCosBin(static_cast<uint16_t>(j) * angleBinStep,
                                         sinT[j], cosT[j]);
 
-            constexpr uint16_t upNormalData = packNormalConstexpr(0.0f, 1.0f, 0.0f);
+            constexpr uint16_t normalUpData   = packNormalConstexpr(0.0f,  1.0f, 0.0f);
+            constexpr uint16_t normalDownData = packNormalConstexpr(0.0f, -1.0f, 0.0f);
+
+            const uint16_t topCount = 1 + segs;
 
             Vertex *PIP3D_RESTRICT vPtr = vertices_;
 
-            *vPtr = Vertex(0, 0, 0, upNormalData, 0.5f, 0.5f);
+            *vPtr = Vertex(0, 0, 0, normalUpData, 0.5f, 0.5f);
             ++vPtr;
-
             for (uint8_t j = 0; j < segs; ++j)
             {
                 const int16_t qx = static_cast<int16_t>(lrintf(cosT[j] * scaleR));
                 const int16_t qz = static_cast<int16_t>(lrintf(sinT[j] * scaleR));
                 const float u = 0.5f + 0.5f * cosT[j];
                 const float v = 0.5f + 0.5f * sinT[j];
-                *vPtr = Vertex(qx, 0, qz, upNormalData, u, v);
+                *vPtr = Vertex(qx, 0, qz, normalUpData, u, v);
+                ++vPtr;
+            }
+
+            *vPtr = Vertex(0, 0, 0, normalDownData, 0.5f, 0.5f);
+            ++vPtr;
+            for (uint8_t j = 0; j < segs; ++j)
+            {
+                const int16_t qx = static_cast<int16_t>(lrintf(cosT[j] * scaleR));
+                const int16_t qz = static_cast<int16_t>(lrintf(sinT[j] * scaleR));
+                const float u = 0.5f + 0.5f * cosT[j];
+                const float v = 0.5f + 0.5f * sinT[j];
+                *vPtr = Vertex(qx, 0, qz, normalDownData, u, v);
                 ++vPtr;
             }
 
@@ -331,6 +386,7 @@ namespace pip3D
                 const uint16_t curr = 1 + j;
                 const uint16_t next = 1 + ((j + 1) % segs);
                 *fPtr++ = Face(0, next, curr);
+                *fPtr++ = Face(topCount, curr + topCount, next + topCount);
             }
 
             setSingleColorLighting(true);
@@ -532,5 +588,4 @@ namespace pip3D
             bindDeleter<Cone>();
         }
     };
-
 }
