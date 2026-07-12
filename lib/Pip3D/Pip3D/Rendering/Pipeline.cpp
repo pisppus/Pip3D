@@ -376,8 +376,9 @@ namespace pip3D
 
         if (useUniformColor)
         {
+            NormalMatrix nm(worldTransform);
             Vector3 localNormal = (mesh->numVertices() > 0) ? vbase[0].normal.get() : Vector3(0.0f, 1.0f, 0.0f);
-            Vector3 worldNormal = worldTransform.transformNormal(localNormal);
+            Vector3 worldNormal = nm.transform(localNormal);
             Vector3 viewDir = cam.position - center;
             const float viewDistSq = viewDir.lengthSquared();
             viewDir.normalize();
@@ -467,10 +468,11 @@ namespace pip3D
                 vertexColors.resize(vertexCountUsed);
 
             const Vector3 camPos = cam.position;
+            NormalMatrix nm(worldTransform);
             for (uint16_t vi = 0; vi < vertexCountUsed; ++vi)
             {
                 Vector3 localNormal = vbase[vi].normal.get();
-                Vector3 worldNormal = worldTransform.transformNormal(localNormal);
+                Vector3 worldNormal = nm.transform(localNormal);
                 Vector3 v;
                 if (!useFallbackPath)
                 {
@@ -631,19 +633,21 @@ namespace pip3D
                 float lr0, lg0, lb0, lr1, lg1, lb1, lr2, lg2, lb2;
                 if (gouraudShading)
                 {
+                    NormalMatrix nm(worldTransform);
+
                     Vector3 viewDir0 = camPos - v0;
                     viewDir0.normalize();
-                    Vector3 n0 = worldTransform.transformNormal(vert0.normal.get());
+                    Vector3 n0 = nm.transform(vert0.normal.get());
                     Shading::calculateLighting(v0, n0, viewDir0, activeLights, actualLightCount, baseR, baseG, baseB, lr0, lg0, lb0);
 
                     Vector3 viewDir1 = camPos - v1;
                     viewDir1.normalize();
-                    Vector3 n1 = worldTransform.transformNormal(vert1.normal.get());
+                    Vector3 n1 = nm.transform(vert1.normal.get());
                     Shading::calculateLighting(v1, n1, viewDir1, activeLights, actualLightCount, baseR, baseG, baseB, lr1, lg1, lb1);
 
                     Vector3 viewDir2 = camPos - v2;
                     viewDir2.normalize();
-                    Vector3 n2 = worldTransform.transformNormal(vert2.normal.get());
+                    Vector3 n2 = nm.transform(vert2.normal.get());
                     Shading::calculateLighting(v2, n2, viewDir2, activeLights, actualLightCount, baseR, baseG, baseB, lr2, lg2, lb2);
                 }
                 else

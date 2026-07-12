@@ -10,7 +10,6 @@ namespace pip3D
     inline constexpr float kPi = 3.1415927f;
     inline constexpr float kTwoPi = 6.2831855f;
     inline constexpr float kHalfPi = 1.5707963f;
-    inline constexpr float kInvPi = 1.0f / kPi;
     inline constexpr float kInvTwoPi = 1.0f / kTwoPi;
     inline constexpr float kDegToRad = 0.017453292f;
     inline constexpr float kRadToDeg = 57.29578f;
@@ -103,9 +102,6 @@ namespace pip3D
                 "const.s %1, 1\n"
                 "msub.s %1, %2, %0\n"
                 "madd.s %0, %0, %1\n"
-                "const.s %1, 1\n"
-                "msub.s %1, %2, %0\n"
-                "maddn.s %0, %0, %1\n"
                 : "=&f"(result), "=&f"(temp) : "f"(input));
             return result;
 #else
@@ -118,7 +114,7 @@ namespace pip3D
 #if defined(ESP_PLATFORM) || defined(ESP32)
             float result;
             float f0, f2, f4, f5;
-            __asm__ __volatile__(
+            __asm__(
                 "rsqrt0.s %1, %5\n"
                 "mul.s %2, %5, %1\n"
                 "const.s %3, 3\n"
@@ -303,30 +299,6 @@ namespace pip3D
                 m[2] * v.x + m[6] * v.y + m[10] * v.z + m[14]);
         }
 
-        PIP3D_FORCE_INLINE Vector3 transformNormal(Vector3 n) const noexcept
-        {
-            const float c0 = m[0], c1 = m[4], c2 = m[8];
-            const float c3 = m[1], c4 = m[5], c5 = m[9];
-            const float c6 = m[2], c7 = m[6], c8 = m[10];
-
-            const float cf0 = c4 * c8 - c5 * c7;
-            const float cf1 = c5 * c6 - c3 * c8;
-            const float cf2 = c3 * c7 - c4 * c6;
-            const float cf3 = c2 * c7 - c1 * c8;
-            const float cf4 = c0 * c8 - c2 * c6;
-            const float cf5 = c1 * c6 - c0 * c7;
-            const float cf6 = c1 * c5 - c2 * c4;
-            const float cf7 = c2 * c3 - c0 * c5;
-            const float cf8 = c0 * c4 - c1 * c3;
-
-            Vector3 result(
-                cf0 * n.x + cf1 * n.y + cf2 * n.z,
-                cf3 * n.x + cf4 * n.y + cf5 * n.z,
-                cf6 * n.x + cf7 * n.y + cf8 * n.z);
-            result.normalize();
-            return result;
-        }
-
         PIP3D_FORCE_INLINE void setPerspective(float fovRad, float aspect,
                                                float nearPlane, float farPlane) noexcept
         {
@@ -455,6 +427,43 @@ namespace pip3D
 
     static_assert(sizeof(Matrix4x4) == 64);
     static_assert(alignof(Matrix4x4) == 4);
+
+    struct NormalMatrix
+    {
+        float cf0, cf1, cf2;
+        float cf3, cf4, cf5;
+        float cf6, cf7, cf8;
+
+        PIP3D_FORCE_INLINE explicit NormalMatrix(const Matrix4x4 &m) noexcept
+        {
+
+            const float c0 = m.m[0], c1 = m.m[4], c2 = m.m[8];
+            const float c3 = m.m[1], c4 = m.m[5], c5 = m.m[9];
+            const float c6 = m.m[2], c7 = m.m[6], c8 = m.m[10];
+
+            cf0 = c4 * c8 - c5 * c7;
+            cf1 = c5 * c6 - c3 * c8;
+            cf2 = c3 * c7 - c4 * c6;
+            cf3 = c2 * c7 - c1 * c8;
+            cf4 = c0 * c8 - c2 * c6;
+            cf5 = c1 * c6 - c0 * c7;
+            cf6 = c1 * c5 - c2 * c4;
+            cf7 = c2 * c3 - c0 * c5;
+            cf8 = c0 * c4 - c1 * c3;
+        }
+
+        [[nodiscard]] PIP3D_FORCE_INLINE Vector3 transform(Vector3 n) const noexcept
+        {
+            Vector3 result(
+                cf0 * n.x + cf1 * n.y + cf2 * n.z,
+                cf3 * n.x + cf4 * n.y + cf5 * n.z,
+                cf6 * n.x + cf7 * n.y + cf8 * n.z);
+            result.normalize();
+            return result;
+        }
+    };
+    static_assert(sizeof(NormalMatrix) == 36, "NormalMatrix must be 36 bytes");
+    static_assert(alignof(NormalMatrix) == 4, "NormalMatrix must be 4-byte aligned");
 
     struct Quaternion
     {
