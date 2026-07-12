@@ -8,6 +8,47 @@
 
 namespace pip3D
 {
+    namespace detail
+    {
+        constexpr float qAbs(float v) noexcept { return v < 0.0f ? -v : v; }
+        constexpr float qCopysign(float magnitude, float sign) noexcept
+        {
+            return sign < 0.0f ? -magnitude : magnitude;
+        }
+    }
+
+    constexpr uint16_t packNormalRaw(float x, float y, float z) noexcept
+    {
+        const float l1 = detail::qAbs(x) + detail::qAbs(y) + detail::qAbs(z);
+        if (l1 <= 1e-6f)
+            return 0;
+
+        const float inv = 1.0f / l1;
+        float ox = x * inv;
+        float oy = y * inv;
+
+        if (z < 0.0f)
+        {
+            const float sgnX = detail::qCopysign(1.0f, ox);
+            const float sgnY = detail::qCopysign(1.0f, oy);
+            const float ax = detail::qAbs(ox);
+            const float ay = detail::qAbs(oy);
+            ox = (1.0f - ay) * sgnX;
+            oy = (1.0f - ax) * sgnY;
+        }
+
+        constexpr float kPack = 127.5f;
+        const float fx = ox * kPack + kPack;
+        const float fy = oy * kPack + kPack;
+
+        const uint32_t px = static_cast<uint32_t>(
+            fx < 0.0f ? 0.0f : (fx > 255.0f ? 255.0f : fx));
+        const uint32_t py = static_cast<uint32_t>(
+            fy < 0.0f ? 0.0f : (fy > 255.0f ? 255.0f : fy));
+
+        return static_cast<uint16_t>((px << 8) | py);
+    }
+
     struct PackedNormal
     {
         uint16_t data;
@@ -15,37 +56,23 @@ namespace pip3D
         static constexpr float kInvPack = 1.0f / 127.5f;
         static constexpr float kPack = 127.5f;
 
-        constexpr PackedNormal() : data(0) {}
-        constexpr explicit PackedNormal(uint16_t d) : data(d) {}
+        constexpr PackedNormal() noexcept : data(0) {}
+        constexpr explicit PackedNormal(uint16_t d) noexcept : data(d) {}
 
-        PIP3D_FORCE_INLINE void set(float nx, float ny, float nz)
+        PIP3D_FORCE_INLINE explicit PackedNormal(float nx, float ny, float nz) noexcept
+            : data(packNormalRaw(nx, ny, nz)) {}
+
+        PIP3D_FORCE_INLINE void set(float nx, float ny, float nz) noexcept
         {
-            const float l1 = fabsf(nx) + fabsf(ny) + fabsf(nz);
-            if (likely(l1 > 1e-6f))
-            {
-                const float inv_l1 = FastMath::fastReciprocal(l1);
-                float ox = nx * inv_l1;
-                float oy = ny * inv_l1;
-
-                if (unlikely(nz < 0.0f))
-                {
-                    const float sgnX = __builtin_copysignf(1.0f, ox);
-                    const float sgnY = __builtin_copysignf(1.0f, oy);
-                    const float ax = fabsf(ox);
-                    const float ay = fabsf(oy);
-                    ox = (1.0f - ay) * sgnX;
-                    oy = (1.0f - ax) * sgnY;
-                }
-
-                const uint32_t px = static_cast<uint32_t>(ox * kPack + kPack);
-                const uint32_t py = static_cast<uint32_t>(oy * kPack + kPack);
-                data = static_cast<uint16_t>((px << 8) | py);
-            }
+            data = packNormalRaw(nx, ny, nz);
         }
 
-        PIP3D_FORCE_INLINE void set(const Vector3 &n) { set(n.x, n.y, n.z); }
+        PIP3D_FORCE_INLINE void set(const Vector3 &n) noexcept
+        {
+            data = packNormalRaw(n.x, n.y, n.z);
+        }
 
-        PIP3D_FORCE_INLINE Vector3 get() const
+        [[nodiscard]] PIP3D_FORCE_INLINE Vector3 get() const noexcept
         {
             const float nx = static_cast<float>(data >> 8) * kInvPack - 1.0f;
             const float ny = static_cast<float>(data & 0xFF) * kInvPack - 1.0f;
@@ -64,34 +91,11 @@ namespace pip3D
             return Vector3(nx, ny, nz);
         }
     };
+    static_assert(sizeof(PackedNormal) == 2);
+    static_assert(alignof(PackedNormal) == 2);
 
-    namespace detail
+    [[nodiscard]] constexpr uint16_t packNormalConstexpr(float x, float y, float z) noexcept
     {
-        constexpr float qAbs(float v) { return v < 0.0f ? -v : v; }
+        return packNormalRaw(x, y, z);
     }
-
-    constexpr uint16_t packNormalConstexpr(float x, float y, float z)
-    {
-        const float l1 = detail::qAbs(x) + detail::qAbs(y) + detail::qAbs(z);
-        if (l1 > 1e-6f)
-        {
-            const float inv = 1.0f / l1;
-            float nx = x * inv;
-            float ny = y * inv;
-
-            if (z < 0.0f)
-            {
-                const float ax = detail::qAbs(nx);
-                const float ay = detail::qAbs(ny);
-                nx = (1.0f - ay) * (nx >= 0.0f ? 1.0f : -1.0f);
-                ny = (1.0f - ax) * (ny >= 0.0f ? 1.0f : -1.0f);
-            }
-
-            const uint32_t px = static_cast<uint32_t>((nx * 0.5f + 0.5f) * 255.0f);
-            const uint32_t py = static_cast<uint32_t>((ny * 0.5f + 0.5f) * 255.0f);
-            return static_cast<uint16_t>((px << 8) | py);
-        }
-        return 0;
-    }
-
 }
