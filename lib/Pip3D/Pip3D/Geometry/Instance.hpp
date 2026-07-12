@@ -24,7 +24,7 @@ namespace pip3D
               rotation(0.0f, 0.0f, 0.0f, 1.0f),
               rotationValid(true)
         {
-            localTransform.identity();
+            localTransform.reset();
         }
 
         ~MeshInstance() = default;

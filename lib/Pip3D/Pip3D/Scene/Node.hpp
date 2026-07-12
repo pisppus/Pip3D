@@ -36,8 +36,8 @@ namespace pip3D
               position(0, 0, 0), rotation(0, 0, 0), scale(1, 1, 1),
               parent(nullptr), transformDirty(true)
         {
-            localTransform.identity();
-            worldTransform.identity();
+            localTransform.reset(); 
+            worldTransform.reset();
         }
 
         virtual ~Node()
@@ -198,7 +198,7 @@ namespace pip3D
         {
             Matrix4x4 T, R, S;
 
-            T.identity();
+            T.reset();
             T.m[12] = position.x;
             T.m[13] = position.y;
             T.m[14] = position.z;
@@ -211,7 +211,7 @@ namespace pip3D
             const float cy = cosf(radY), sy = sinf(radY);
             const float cz = cosf(radZ), sz = sinf(radZ);
 
-            R.identity();
+            R.reset();
             R.m[0] = cy * cz;
             R.m[1] = cy * sz;
             R.m[2] = -sy;
@@ -224,7 +224,7 @@ namespace pip3D
             R.m[9] = cx * sy * sz - sx * cz;
             R.m[10] = cx * cy;
 
-            S.identity();
+            S.reset();
             S.m[0] = scale.x;
             S.m[5] = scale.y;
             S.m[10] = scale.z;
@@ -326,7 +326,7 @@ namespace pip3D
         else
             axisZ = Vector3(0.0f, 0.0f, 1.0f);
 
-        basisOut.identity();
+        basisOut.reset();
         basisOut.m[0] = axisX.x;
         basisOut.m[1] = axisX.y;
         basisOut.m[2] = axisX.z;

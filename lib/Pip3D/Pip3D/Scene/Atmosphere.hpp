@@ -197,7 +197,7 @@ namespace pip3D
             const float keyIntensity = lerpF(kA.sunIntensity, kB.sunIntensity, k);
             out.intensity = nightIntensity + (baseIntensity - nightIntensity) * keyIntensity;
 
-            const float dayAngle = (t - 0.25f) * TWO_PI;
+            const float dayAngle = (t - 0.25f) * kTwoPi;
             const float elevation = sinf(dayAngle);
             float dayRaw;
             if (hour < 5.0f || hour >= 21.0f)
@@ -208,7 +208,7 @@ namespace pip3D
                 dayRaw = 1.0f;
             else
                 dayRaw = 1.0f - smoothstep(19.0f, 21.0f, hour);
-            const float azimuth = t * TWO_PI;
+            const float azimuth = t * kTwoPi;
             const float sx = cosf(azimuth) * 0.6f;
             const float sz = sinf(azimuth) * 0.6f;
             Vector3 dayDir(sx, -elevation, sz);

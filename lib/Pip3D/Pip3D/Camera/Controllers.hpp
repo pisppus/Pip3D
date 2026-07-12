@@ -82,7 +82,6 @@ namespace pip3D
       {
         const float rs = rotSpd * dt * kDegToRad;
         azimuth += joyX * rs;
-        constexpr float kHalfPi = kPi * 0.5f;
         elevation = fmaxf(-kHalfPi + 0.1f,
                           fminf(kHalfPi - 0.1f, elevation + joyY * rs));
         updatePos();

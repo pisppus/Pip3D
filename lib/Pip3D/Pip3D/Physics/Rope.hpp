@@ -534,7 +534,7 @@ namespace pip3D
                     axis = v0.cross(Vector3(1.0f, 0.0f, 0.0f));
                 }
                 axis.normalize();
-                return Quaternion::fromAxisAngle(axis, 3.14159265f);
+                return Quaternion::fromAxisAngle(axis, kPi);
             }
 
             Vector3 c = v0.cross(v1);

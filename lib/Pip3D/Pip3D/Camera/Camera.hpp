@@ -408,7 +408,7 @@ namespace pip3D
       switch (projectionType)
       {
       case PERSPECTIVE:
-        cache.proj.setPerspective(fov, aspect, nearPlane, farPlane);
+        cache.proj.setPerspective(fov * kDegToRad, aspect, nearPlane, farPlane);
         break;
       case ORTHOGRAPHIC:
       default:
