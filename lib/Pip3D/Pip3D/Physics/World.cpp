@@ -227,7 +227,7 @@ namespace pip3D
                     {
                         Vector3 worldCorner = b->orientation.rotate(localCorners[c]) + b->position;
 
-                        if (!zone.contains(worldCorner))
+                        if (!zone.bounds.contains(worldCorner))
                             continue;
 
                         float depth = zone.surfaceLevel - worldCorner.y;
