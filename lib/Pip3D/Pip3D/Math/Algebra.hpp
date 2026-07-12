@@ -60,8 +60,8 @@ namespace pip3D
             return static_cast<uint16_t>(static_cast<int32_t>(rad * 10430.378f));
         }
 
-        PIP3D_FORCE_INLINE static float fastSinCosBin(uint16_t angle,
-                                                      float &outSin, float &outCos) noexcept
+        PIP3D_FORCE_INLINE static void fastSinCosBin(uint16_t angle,
+                                                     float &outSin, float &outCos) noexcept
         {
             const uint8_t idx = static_cast<uint8_t>(angle >> 8);
             const uint8_t idxNext = static_cast<uint8_t>(idx + 1);
@@ -528,6 +528,16 @@ namespace pip3D
                 v.x + 2.0f * (w * tx + (y * tz - z * ty)),
                 v.y + 2.0f * (w * ty + (z * tx - x * tz)),
                 v.z + 2.0f * (w * tz + (x * ty - y * tx)));
+        }
+
+        PIP3D_FORCE_INLINE constexpr Quaternion
+        operator*(const Quaternion &rhs) const noexcept
+        {
+            return Quaternion(
+                w * rhs.x + x * rhs.w + y * rhs.z - z * rhs.y,
+                w * rhs.y - x * rhs.z + y * rhs.w + z * rhs.x,
+                w * rhs.z + x * rhs.y - y * rhs.x + z * rhs.w,
+                w * rhs.w - x * rhs.x - y * rhs.y - z * rhs.z);
         }
     };
 

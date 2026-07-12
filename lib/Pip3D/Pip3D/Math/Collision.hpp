@@ -1,218 +1,121 @@
 #pragma once
 
 #include "Algebra.hpp"
-#include <float.h>
+#include "Core/Platform.hpp"
 
 namespace pip3D
 {
-
-  struct __attribute__((aligned(16))) AABB
+  struct AABB
   {
-    Vector3 min, max;
+    Vector3 min;
+    Vector3 max;
 
-    AABB() : min(0, 0, 0), max(0, 0, 0) {}
-    AABB(const Vector3 &mn, const Vector3 &mx) : min(mn), max(mx) {}
+    constexpr AABB() noexcept : min(0, 0, 0), max(0, 0, 0) {}
+    constexpr AABB(const Vector3 &mn, const Vector3 &mx) noexcept
+        : min(mn), max(mx) {}
 
-    static AABB fromCenterSize(const Vector3 &center, const Vector3 &size)
+    PIP3D_FORCE_INLINE static constexpr AABB
+    fromCenterSize(const Vector3 &center, const Vector3 &size) noexcept
     {
-      Vector3 halfSize = size * 0.5f;
-      return AABB(center - halfSize, center + halfSize);
+      const Vector3 half = size * 0.5f;
+      return AABB(center - half, center + half);
     }
 
-    __attribute__((always_inline)) inline Vector3 center() const
+    [[nodiscard]] PIP3D_FORCE_INLINE constexpr bool
+    contains(const Vector3 &p) const noexcept
     {
-      return (min + max) * 0.5f;
+      return p.x >= min.x && p.x <= max.x &&
+             p.y >= min.y && p.y <= max.y &&
+             p.z >= min.z && p.z <= max.z;
     }
 
-    __attribute__((always_inline)) inline Vector3 size() const
+    [[nodiscard]] PIP3D_FORCE_INLINE constexpr bool
+    intersects(const AABB &o) const noexcept
     {
-      return max - min;
-    }
-
-    __attribute__((always_inline)) inline bool
-    contains(const Vector3 &point) const
-    {
-      return point.x >= min.x && point.x <= max.x && point.y >= min.y &&
-             point.y <= max.y && point.z >= min.z && point.z <= max.z;
-    }
-
-    __attribute__((always_inline)) inline bool
-    intersects(const AABB &other) const
-    {
-      return min.x <= other.max.x && max.x >= other.min.x &&
-             min.y <= other.max.y && max.y >= other.min.y &&
-             min.z <= other.max.z && max.z >= other.min.z;
-    }
-
-    __attribute__((always_inline)) inline void expand(const Vector3 &point)
-    {
-      min.x = fminf(min.x, point.x);
-      min.y = fminf(min.y, point.y);
-      min.z = fminf(min.z, point.z);
-      max.x = fmaxf(max.x, point.x);
-      max.y = fmaxf(max.y, point.y);
-      max.z = fmaxf(max.z, point.z);
-    }
-
-    __attribute__((always_inline)) inline void merge(const AABB &other)
-    {
-      min.x = fminf(min.x, other.min.x);
-      min.y = fminf(min.y, other.min.y);
-      min.z = fminf(min.z, other.min.z);
-      max.x = fmaxf(max.x, other.max.x);
-      max.y = fmaxf(max.y, other.max.y);
-      max.z = fmaxf(max.z, other.max.z);
+      return min.x <= o.max.x && max.x >= o.min.x &&
+             min.y <= o.max.y && max.y >= o.min.y &&
+             min.z <= o.max.z && max.z >= o.min.z;
     }
   };
+  static_assert(sizeof(AABB) == 24);
+  static_assert(alignof(AABB) == 4);
 
-  struct __attribute__((aligned(16))) CollisionSphere
+  struct CollisionSphere
   {
     Vector3 center;
     float radius;
 
-    CollisionSphere() : center(0, 0, 0), radius(0) {}
-    CollisionSphere(const Vector3 &c, float r) : center(c), radius(r) {}
-
-    __attribute__((always_inline)) inline bool
-    contains(const Vector3 &point) const
-    {
-      float dx = point.x - center.x;
-      float dy = point.y - center.y;
-      float dz = point.z - center.z;
-      float distSq = dx * dx + dy * dy + dz * dz;
-      return distSq <= radius * radius;
-    }
-
-    __attribute__((always_inline)) inline bool
-    intersects(const CollisionSphere &other) const
-    {
-      float dx = center.x - other.center.x;
-      float dy = center.y - other.center.y;
-      float dz = center.z - other.center.z;
-      float distSq = dx * dx + dy * dy + dz * dz;
-      float radiusSum = radius + other.radius;
-      return distSq <= radiusSum * radiusSum;
-    }
-
-    __attribute__((always_inline)) inline bool intersects(const AABB &box) const
-    {
-      float x = fmaxf(box.min.x, fminf(center.x, box.max.x));
-      float y = fmaxf(box.min.y, fminf(center.y, box.max.y));
-      float z = fmaxf(box.min.z, fminf(center.z, box.max.z));
-
-      float dx = x - center.x;
-      float dy = y - center.y;
-      float dz = z - center.z;
-      float distSq = dx * dx + dy * dy + dz * dz;
-
-      return distSq <= radius * radius;
-    }
+    constexpr CollisionSphere() noexcept : center(0, 0, 0), radius(0) {}
+    constexpr CollisionSphere(const Vector3 &c, float r) noexcept
+        : center(c), radius(r) {}
   };
+  static_assert(sizeof(CollisionSphere) == 16);
+  static_assert(alignof(CollisionSphere) == 4);
 
-  struct __attribute__((aligned(16))) Ray
+  struct Ray
   {
+
     Vector3 origin;
     Vector3 direction;
+    Vector3 invDirection;
 
-    Ray() : origin(0, 0, 0), direction(0, 0, 1) {}
-    Ray(const Vector3 &o, const Vector3 &d) : origin(o), direction(d) {}
+    constexpr Ray() noexcept
+        : origin(0, 0, 0),
+          direction(0, 0, 1),
+          invDirection(__builtin_inff(), __builtin_inff(), 1.0f) {}
 
-    __attribute__((always_inline)) inline Vector3 at(float t) const
+    PIP3D_FORCE_INLINE Ray(const Vector3 &o, const Vector3 &d) noexcept
+        : origin(o), direction(d)
+    {
+      invDirection.x = FastMath::fastReciprocal(d.x);
+      invDirection.y = FastMath::fastReciprocal(d.y);
+      invDirection.z = FastMath::fastReciprocal(d.z);
+    }
+
+    PIP3D_FORCE_INLINE constexpr Vector3 at(float t) const noexcept
     {
       return origin + direction * t;
     }
 
-    bool intersects(const AABB &box, float &tMin, float &tMax) const
+    [[nodiscard]] PIP3D_FORCE_INLINE bool
+    intersects(const AABB &box, float &tMinOut, float &tMaxOut) const noexcept
     {
-      tMin = 0.0f;
-      tMax = FLT_MAX;
-      float t0, t1;
+      const float t0x = (box.min.x - origin.x) * invDirection.x;
+      const float t1x = (box.max.x - origin.x) * invDirection.x;
+      const float t0y = (box.min.y - origin.y) * invDirection.y;
+      const float t1y = (box.max.y - origin.y) * invDirection.y;
+      const float t0z = (box.min.z - origin.z) * invDirection.z;
+      const float t1z = (box.max.z - origin.z) * invDirection.z;
 
-      if (fabsf(direction.x) < 1e-8f)
-      {
-        if (origin.x < box.min.x || origin.x > box.max.x)
-          return false;
-      }
-      else
-      {
-        float invDx = 1.0f / direction.x;
-        t0 = (box.min.x - origin.x) * invDx;
-        t1 = (box.max.x - origin.x) * invDx;
-        if (invDx < 0.0f)
-        {
-          float temp = t0;
-          t0 = t1;
-          t1 = temp;
-        }
-        if (t0 > tMin)
-          tMin = t0;
-        if (t1 < tMax)
-          tMax = t1;
-        if (tMax < tMin)
-          return false;
-      }
+      const float loX = t0x < t1x ? t0x : t1x;
+      const float hiX = t0x < t1x ? t1x : t0x;
+      const float loY = t0y < t1y ? t0y : t1y;
+      const float hiY = t0y < t1y ? t1y : t0y;
+      const float loZ = t0z < t1z ? t0z : t1z;
+      const float hiZ = t0z < t1z ? t1z : t0z;
 
-      if (fabsf(direction.y) < 1e-8f)
-      {
-        if (origin.y < box.min.y || origin.y > box.max.y)
-          return false;
-      }
-      else
-      {
-        float invDy = 1.0f / direction.y;
-        t0 = (box.min.y - origin.y) * invDy;
-        t1 = (box.max.y - origin.y) * invDy;
-        if (invDy < 0.0f)
-        {
-          float temp = t0;
-          t0 = t1;
-          t1 = temp;
-        }
-        if (t0 > tMin)
-          tMin = t0;
-        if (t1 < tMax)
-          tMax = t1;
-        if (tMax < tMin)
-          return false;
-      }
+      float tMin = loX > loY ? loX : loY;
+      tMin = tMin > loZ ? tMin : loZ;
 
-      if (fabsf(direction.z) < 1e-8f)
-      {
-        if (origin.z < box.min.z || origin.z > box.max.z)
-          return false;
-      }
-      else
-      {
-        float invDz = 1.0f / direction.z;
-        t0 = (box.min.z - origin.z) * invDz;
-        t1 = (box.max.z - origin.z) * invDz;
-        if (invDz < 0.0f)
-        {
-          float temp = t0;
-          t0 = t1;
-          t1 = temp;
-        }
-        if (t0 > tMin)
-          tMin = t0;
-        if (t1 < tMax)
-          tMax = t1;
-        if (tMax < tMin)
-          return false;
-      }
+      float tMax = hiX < hiY ? hiX : hiY;
+      tMax = tMax < hiZ ? tMax : hiZ;
 
-      return true;
+      tMinOut = tMin;
+      tMaxOut = tMax;
+      return tMax >= tMin;
     }
 
-    bool intersects(const CollisionSphere &sphere, float &t) const
+    [[nodiscard]] PIP3D_FORCE_INLINE bool
+    intersects(const CollisionSphere &s, float &t) const noexcept
     {
-      Vector3 oc = origin - sphere.center;
-      float a = direction.lengthSquared();
+      const Vector3 oc = origin - s.center;
+      const float a = direction.lengthSquared();
 
-      if (a <= 1e-8f)
+      if (unlikely(a <= 1e-8f))
       {
-        float distSq = oc.lengthSquared();
-        float radiusSq = sphere.radius * sphere.radius;
-        if (distSq <= radiusSq)
+        const float distSq = oc.lengthSquared();
+        const float rSq = s.radius * s.radius;
+        if (distSq <= rSq)
         {
           t = 0.0f;
           return true;
@@ -220,84 +123,34 @@ namespace pip3D
         return false;
       }
 
-      float halfB = oc.dot(direction);
-      float c = oc.lengthSquared() - sphere.radius * sphere.radius;
-      float discriminant = halfB * halfB - a * c;
+      const float halfB = oc.dot(direction);
+      const float c = oc.lengthSquared() - s.radius * s.radius;
+      const float disc = halfB * halfB - a * c;
 
-      if (discriminant < 0.0f)
+      if (unlikely(disc < 0.0f))
         return false;
 
-      float sqrtD = sqrtf(discriminant);
-      float t0 = (-halfB - sqrtD) / a;
-      float t1 = (-halfB + sqrtD) / a;
+      const float invSqrtD = FastMath::fastInvSqrt(disc);
+      const float sqrtD = disc * invSqrtD;
+      const float invA = FastMath::fastReciprocal(a);
 
+      const float t0 = (-halfB - sqrtD) * invA;
       if (t0 >= 0.0f)
       {
         t = t0;
         return true;
       }
+
+      const float t1 = (-halfB + sqrtD) * invA;
       if (t1 >= 0.0f)
       {
         t = t1;
         return true;
       }
+
       return false;
     }
   };
-
-  struct __attribute__((aligned(16))) CollisionPlane
-  {
-    Vector3 normal;
-    float distance;
-
-    CollisionPlane() : normal(0, 1, 0), distance(0) {}
-
-    CollisionPlane(const Vector3 &n, float d)
-    {
-      normal = n;
-      float lenSq = normal.lengthSquared();
-      if (lenSq > 1e-8f)
-      {
-        float invLen = 1.0f / sqrtf(lenSq);
-        normal *= invLen;
-        distance = d * invLen;
-      }
-      else
-      {
-        normal = Vector3(0, 1, 0);
-        distance = 0.0f;
-      }
-    }
-
-    CollisionPlane(const Vector3 &n, const Vector3 &point)
-    {
-      normal = n;
-      float lenSq = normal.lengthSquared();
-      if (lenSq > 1e-8f)
-      {
-        float invLen = 1.0f / sqrtf(lenSq);
-        normal *= invLen;
-        distance = normal.dot(point);
-      }
-      else
-      {
-        normal = Vector3(0, 1, 0);
-        distance = 0.0f;
-      }
-    }
-
-    __attribute__((always_inline)) inline float
-    distanceToPoint(const Vector3 &point) const
-    {
-      return normal.dot(point) - distance;
-    }
-
-    __attribute__((always_inline)) inline bool
-    intersects(const CollisionSphere &sphere) const
-    {
-      float dist = fabsf(distanceToPoint(sphere.center));
-      return dist <= sphere.radius;
-    }
-  };
-
+  static_assert(sizeof(Ray) == 36);
+  static_assert(alignof(Ray) == 4);
 }
