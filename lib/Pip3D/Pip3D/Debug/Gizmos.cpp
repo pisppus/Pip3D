@@ -9,8 +9,6 @@ namespace pip3D
 {
     namespace Debug
     {
-        static constexpr float kPi = 3.14159265f;
-        static constexpr float kTwoPi = 2.0f * kPi;
 
         static DRAM_ATTR DebugLine g_lines[Gizmos::MAX_DEBUG_LINES];
         static DRAM_ATTR uint16_t g_lineCount = 0;

@@ -2,6 +2,7 @@
 
 #include "Core/Platform.hpp"
 #include "Core/Color.hpp"
+#include "Math/Algebra.hpp"
 #include "Rendering/Display/CloudsMask.hpp"
 
 #if !defined(IRAM_ATTR)
@@ -152,22 +153,20 @@ namespace pip3D
             if (unlikely(lutDirty))
                 const_cast<CloudLayer *>(this)->buildLuts();
 
-            constexpr float TAU = 6.2831855f;
             float y = yawRad;
             if (y < 0.0f)
-                y += TAU;
-            if (y >= TAU)
-                y -= TAU;
+                y += kTwoPi;
+            if (y >= kTwoPi)
+                y -= kTwoPi;
 
-            const float hfovFrac = (hfovRad > 0.001f && hfovRad < TAU)
-                                       ? (hfovRad / TAU)
+            const float hfovFrac = (hfovRad > 0.001f && hfovRad < kTwoPi)
+                                       ? (hfovRad * kInvTwoPi)
                                        : 1.0f;
 
             constexpr float span = static_cast<float>(CLOUDS_W) *
                                    static_cast<float>(CLOUDS_REPEATS);
-            constexpr float INV_TAU = 1.0f / TAU;
 
-            const float centerPano = -(y * span) * INV_TAU;
+            const float centerPano = -(y * span) * kInvTwoPi;
             const float stepPano = (hfovFrac * span) / static_cast<float>(WIDTH);
             const float startPano = centerPano - stepPano * (WIDTH / 2);
 

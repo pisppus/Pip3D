@@ -376,8 +376,8 @@ namespace pip3D
                     float phase = walkTime;
                     float armSwing = sinf(phase) * 30.0f * walkAmount;
                     float legSwing = sinf(phase) * 35.0f * walkAmount;
-                    float armSwingOpp = sinf(phase + PI) * 30.0f * walkAmount;
-                    float legSwingOpp = sinf(phase + PI) * 35.0f * walkAmount;
+                    float armSwingOpp = sinf(phase + kPi) * 30.0f * walkAmount;
+                    float legSwingOpp = sinf(phase + kPi) * 35.0f * walkAmount;
 
                     if (visualArmL)
                         visualArmL->setRotation(armSwing, 0.0f, 0.0f);
