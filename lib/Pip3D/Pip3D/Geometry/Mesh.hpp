@@ -221,7 +221,7 @@ namespace pip3D
         [[nodiscard]] PIP3D_FORCE_INLINE bool isTextured() const { return meshTexture_ != nullptr; }
     };
 
-    static_assert(sizeof(Mesh) == 48);
+    static_assert(sizeof(void*) == 4 ? sizeof(Mesh) == 48 : true);
 
     PIP3D_COLD inline void Mesh::calculateBoundingSphere() const
     {

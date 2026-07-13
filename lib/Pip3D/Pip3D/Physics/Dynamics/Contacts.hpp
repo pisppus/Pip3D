@@ -1,28 +1,53 @@
 #pragma once
 
 #include "Math/Collision.hpp"
-#include "Body.hpp"
+#include "../Types.hpp"
 
 namespace pip3D
 {
+    struct RigidBody;
 
     struct Contact
     {
+
         Vector3 pos;
         float penetration;
+
         float accumulatedImpulse;
+        float tangentImpulse1;
+        float tangentImpulse2;
+
         float normalMass;
+        float tangentMass1;
+        float tangentMass2;
+
         float bias;
+        float restitution;
+        float friction;
+
+        Vector3 tangent1;
+        Vector3 tangent2;
+
+        uint32_t featureId;
 
         Contact()
             : pos(0.0f, 0.0f, 0.0f),
               penetration(0.0f),
               accumulatedImpulse(0.0f),
+              tangentImpulse1(0.0f),
+              tangentImpulse2(0.0f),
               normalMass(0.0f),
-              bias(0.0f) {}
+              tangentMass1(0.0f),
+              tangentMass2(0.0f),
+              bias(0.0f),
+              restitution(0.0f),
+              friction(0.0f),
+              tangent1(1.0f, 0.0f, 0.0f),
+              tangent2(0.0f, 1.0f, 0.0f),
+              featureId(0) {}
     };
 
-    struct CollisionInfo
+    struct ContactManifold
     {
         bool hasCollision;
         Vector3 normal;
@@ -31,25 +56,11 @@ namespace pip3D
         RigidBody *bodyA;
         RigidBody *bodyB;
 
-        CollisionInfo()
+        ContactManifold()
             : hasCollision(false),
               normal(0.0f, 1.0f, 0.0f),
               contactCount(0),
               bodyA(nullptr),
               bodyB(nullptr) {}
     };
-
-    struct RaycastHit
-    {
-        bool hit;
-        Vector3 point;
-        Vector3 normal;
-        float distance;
-        RigidBody *body;
-
-        RaycastHit()
-            : hit(false), point(0.0f, 0.0f, 0.0f), normal(0.0f, 1.0f, 0.0f), distance(0.0f), body(nullptr) {}
-    };
-
 }
-
