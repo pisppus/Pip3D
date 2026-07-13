@@ -1,33 +1,60 @@
 #include "World.hpp"
-#include "Rendering/Renderer.hpp"
-#include "Debug/Logging.hpp"
-#include "Debug/Gizmos.hpp"
+
 #include <algorithm>
 #include <cmath>
+#include <cfloat>
 
+#include "Debug/Logging.hpp"
+#include "Collision/ContinuousCollision.hpp"
+#include "Collision/Narrowphase.hpp"
+#include "Dynamics/Buoyancy.hpp"
 namespace pip3D
 {
-    PhysicsWorld::PhysicsWorld()
-        : gravity(0, -9.81f, 0), asyncEnabled(true), stepInProgress(false),
-          pendingDelta(0.0f), fixedTimeStep(1.0f / 120.0f), accumulator(0.0f), currentDeltaTime(0.0f) {}
 
+    PhysicsWorld::PhysicsWorld()
+        : gravity(0, -9.81f, 0),
+          asyncEnabled(true),
+          stepInProgress(false),
+          pendingDelta(0.0f),
+          fixedTimeStep(PhysicsConfig::DEFAULT_FIXED_TIMESTEP),
+          accumulator(0.0f),
+          currentDeltaTime(0.0f)
+    {
+    }
     bool PhysicsWorld::addBody(RigidBody *body)
     {
         if (!body)
         {
-            LOGE(::pip3D::Debug::LOG_MODULE_PHYSICS, "PhysicsWorld::addBody called with null body");
+            LOGE(::pip3D::Debug::LOG_MODULE_PHYSICS,
+                 "PhysicsWorld::addBody called with null body");
             return false;
         }
         bodies.push_back(body);
-        LOGI(::pip3D::Debug::LOG_MODULE_PHYSICS, "PhysicsWorld::addBody: bodyCount=%u", static_cast<unsigned int>(bodies.size()));
+        LOGI(::pip3D::Debug::LOG_MODULE_PHYSICS,
+             "PhysicsWorld::addBody: bodyCount=%u",
+             static_cast<unsigned int>(bodies.size()));
         return true;
+    }
+
+    void PhysicsWorld::removeBody(RigidBody *body)
+    {
+        for (size_t i = 0; i < bodies.size(); ++i)
+        {
+            if (bodies[i] == body)
+            {
+                bodies[i] = bodies.back();
+                bodies.pop_back();
+                break;
+            }
+        }
     }
 
     bool PhysicsWorld::addConstraint(Constraint *c)
     {
         if (!c)
         {
-            LOGE(::pip3D::Debug::LOG_MODULE_PHYSICS, "PhysicsWorld::addConstraint called with null constraint");
+            LOGE(::pip3D::Debug::LOG_MODULE_PHYSICS,
+                 "PhysicsWorld::addConstraint called with null constraint");
             return false;
         }
         constraints.push_back(c);
@@ -52,117 +79,111 @@ namespace pip3D
         waterZones.push_back(zone);
     }
 
-    void PhysicsWorld::removeBody(RigidBody *body)
-    {
-        for (size_t i = 0; i < bodies.size(); i++)
-        {
-            if (bodies[i] == body)
-            {
-                bodies[i] = bodies.back();
-                bodies.pop_back();
-                break;
-            }
-        }
-    }
-
     bool PhysicsWorld::isAsyncEnabled() const
     {
         return asyncEnabled && JobSystem::isEnabled();
     }
 
-    void PhysicsWorld::updateFixed(float frameDelta)
+    void PhysicsWorld::stepInternal(float deltaTime)
     {
-        float dt = fixedTimeStep;
-        if (dt <= 0.0f)
+        currentDeltaTime = deltaTime;
+        const size_t bodyCount = bodies.size();
+        const float gravityMag = gravity.length();
+
+        for (size_t i = 0; i < bodyCount; ++i)
         {
-            stepInternal(frameDelta);
-            return;
+            RigidBody *b = bodies[i];
+            b->beginStep();
+
+            if (!b->isStatic && !b->isKinematic && !b->isSleeping && b->mass > 0.0f)
+                b->acceleration += gravity * b->gravityScale;
         }
 
-        accumulator += frameDelta;
-        float maxAccum = dt * static_cast<float>(MAX_SUBSTEPS);
-        if (accumulator > maxAccum)
-            accumulator = maxAccum;
-
-        if (isAsyncEnabled())
+        if (!waterZones.empty())
         {
-            if (!stepInProgress && accumulator >= dt)
+            float effectiveGravity = (gravityMag > 0.0f) ? gravityMag : 9.81f;
+            applyBuoyancy(bodies.data(), bodyCount,
+                          waterZones.data(), waterZones.size(),
+                          effectiveGravity, deltaTime);
+        }
+
+        for (size_t i = 0; i < bodyCount; ++i)
+            bodies[i]->update(deltaTime);
+
+        contactConstraints.clear();
+
+        for (size_t i = 0; i < bodyCount; ++i)
+        {
+            RigidBody *a = bodies[i];
+            for (size_t j = i + 1; j < bodyCount; ++j)
             {
-                stepAsync(dt);
-                accumulator -= dt;
+                RigidBody *b = bodies[j];
+
+                bool aImmobile = (a->isStatic || a->isSleeping || a->isKinematic);
+                bool bImmobile = (b->isStatic || b->isSleeping || b->isKinematic);
+                if (aImmobile && bImmobile)
+                    continue;
+
+                ContactManifold info = pip3D::detectCollision(a, b, currentDeltaTime);
+
+                if (!info.hasCollision || info.contactCount <= 0)
+                    info = pip3D::predictContacts(a, b, currentDeltaTime);
+
+                if (!info.hasCollision || info.contactCount <= 0)
+                    continue;
+
+                maybeWake(info);
+
+                solver.preStep(info, deltaTime);
+                contactConstraints.push_back(info);
             }
         }
-        else
+
+        preStepJoints(deltaTime);
+        solver.warmStart(contactConstraints);
+
+        for (int iter = 0; iter < PhysicsConfig::SOLVER_ITERATIONS; ++iter)
         {
-            int steps = 0;
-            while (accumulator >= dt && steps < MAX_SUBSTEPS)
-            {
-                stepInternal(dt);
-                accumulator -= dt;
-                ++steps;
-            }
+            const size_t contactCount = contactConstraints.size();
+            for (size_t c = 0; c < contactCount; ++c)
+                solver.solve(contactConstraints[c], deltaTime);
+
+            solveJoints(deltaTime);
         }
+
+        solver.integratePseudoVel(bodies, deltaTime);
+
+        solver.positionalCorrection(contactConstraints);
+
+        applyRestingVelocityZeroing();
+
+        solver.commitFrame(contactConstraints);
+
+        updateSleepAndSettle(deltaTime);
     }
 
-    void PhysicsWorld::stepAsync(float deltaTime)
+    float PhysicsWorld::getInterpolationAlpha() const
     {
-        if (!isAsyncEnabled())
-        {
-            stepInternal(deltaTime);
-            return;
-        }
-
-        if (stepInProgress)
-            return;
-
-        pendingDelta = deltaTime;
-
-        if (JobSystem::submit(&PhysicsWorld::stepJobFunc, this))
-        {
-            stepInProgress = true;
-        }
-        else
-        {
-            LOGW(::pip3D::Debug::LOG_MODULE_PHYSICS, "PhysicsWorld::stepAsync: JobSystem::submit failed, physics step skipped");
-        }
+        if (fixedTimeStep <= 0.0f)
+            return 0.0f;
+        float a = accumulator / fixedTimeStep;
+        if (a < 0.0f)
+            a = 0.0f;
+        if (a > 1.0f)
+            a = 1.0f;
+        return a;
     }
 
-    void PhysicsWorld::stepJobFunc(void *userData)
+    void PhysicsWorld::interpolateTransforms(float alpha)
     {
-        PhysicsWorld *self = static_cast<PhysicsWorld *>(userData);
-        if (self)
-            self->runStepJob();
-    }
-
-    void PhysicsWorld::runStepJob()
-    {
-        float dt = pendingDelta;
-        pendingDelta = 0.0f;
-
-        if (dt <= 0.0f)
-        {
-            stepInProgress = false;
-            return;
-        }
-
-        float baseStep = fixedTimeStep > 0.0f ? fixedTimeStep : dt;
-        float remaining = dt;
-        int steps = 0;
-
-        while (remaining > 0.0f && steps < MAX_SUBSTEPS)
-        {
-            float curDt = (fixedTimeStep > 0.0f && remaining > baseStep) ? baseStep : remaining;
-            stepInternal(curDt);
-            remaining -= curDt;
-            ++steps;
-        }
-
-        stepInProgress = false;
+        const size_t bodyCount = bodies.size();
+        for (size_t i = 0; i < bodyCount; ++i)
+            bodies[i]->interpolateTransforms(alpha);
     }
 
     void PhysicsWorld::preStepJoints(float deltaTime)
     {
-        size_t count = constraints.size();
+        const size_t count = constraints.size();
         for (size_t i = 0; i < count; ++i)
         {
             Constraint *c = constraints[i];
@@ -173,7 +194,7 @@ namespace pip3D
 
     void PhysicsWorld::solveJoints(float deltaTime)
     {
-        size_t count = constraints.size();
+        const size_t count = constraints.size();
         for (size_t i = 0; i < count; ++i)
         {
             Constraint *c = constraints[i];
@@ -182,1096 +203,4 @@ namespace pip3D
         }
     }
 
-    void PhysicsWorld::stepInternal(float deltaTime)
-    {
-        currentDeltaTime = deltaTime;
-        size_t bodyCount = bodies.size();
-        const float gravityMag = gravity.length();
-
-        for (size_t i = 0; i < bodyCount; i++)
-        {
-            RigidBody *b = bodies[i];
-            b->previousPosition = b->position;
-            if (!b->isStatic && !b->isSleeping && b->mass > 0.0f)
-            {
-                b->applyForce(gravity * b->mass);
-            }
-        }
-
-        if (!waterZones.empty())
-        {
-            const float effectiveGravity = (gravityMag > 0.0f) ? gravityMag : 9.81f;
-
-            for (size_t i = 0; i < bodyCount; ++i)
-            {
-                RigidBody *b = bodies[i];
-                if (!b || b->isStatic || b->isKinematic || b->isSleeping || b->mass <= 0.0f)
-                    continue;
-
-                if (b->shape != BODY_SHAPE_BOX)
-                    continue;
-
-                Vector3 half = b->size * 0.5f;
-
-                Vector3 localCorners[4] = {
-                    Vector3(-half.x, -half.y, -half.z),
-                    Vector3(half.x, -half.y, -half.z),
-                    Vector3(half.x, -half.y, half.z),
-                    Vector3(-half.x, -half.y, half.z)};
-
-                for (size_t zi = 0; zi < waterZones.size(); ++zi)
-                {
-                    const BuoyancyZone &zone = waterZones[zi];
-
-                    for (int c = 0; c < 4; ++c)
-                    {
-                        Vector3 worldCorner = b->orientation.rotate(localCorners[c]) + b->position;
-
-                        if (!zone.bounds.contains(worldCorner))
-                            continue;
-
-                        float depth = zone.surfaceLevel - worldCorner.y;
-                        if (depth <= 0.0f)
-                            continue;
-
-                        float hRef = b->size.y;
-                        if (hRef <= 0.0f)
-                            hRef = 1.0f;
-                        float depthFactor = depth / hRef;
-                        if (depthFactor > 1.0f)
-                            depthFactor = 1.0f;
-
-                        float cornerForceMag = (b->mass * zone.density * effectiveGravity * 0.25f) * depthFactor;
-                        Vector3 forceVec(0.0f, cornerForceMag, 0.0f);
-
-                        b->applyForce(forceVec);
-
-                        Vector3 r = worldCorner - b->position;
-                        Vector3 tau = r.cross(forceVec);
-                        Vector3 angAcc(
-                            tau.x * b->invInertia.x,
-                            tau.y * b->invInertia.y,
-                            tau.z * b->invInertia.z);
-                        b->angularVelocity += angAcc * deltaTime;
-                    }
-
-                    float linFactor = 1.0f - zone.dragLinear * deltaTime;
-                    float angFactor = 1.0f - zone.dragAngular * deltaTime;
-                    if (linFactor < 0.0f)
-                        linFactor = 0.0f;
-                    if (angFactor < 0.0f)
-                        angFactor = 0.0f;
-
-                    b->velocity *= linFactor;
-                    b->angularVelocity *= angFactor;
-                }
-            }
-        }
-
-        for (size_t i = 0; i < bodyCount; i++)
-        {
-            bodies[i]->update(deltaTime);
-        }
-
-        contactConstraints.clear();
-
-        for (size_t i = 0; i < bodyCount; i++)
-        {
-            RigidBody *a = bodies[i];
-            for (size_t j = i + 1; j < bodyCount; j++)
-            {
-                RigidBody *b = bodies[j];
-
-                bool aImmobile = (a->isStatic || a->isSleeping || a->isKinematic);
-                bool bImmobile = (b->isStatic || b->isSleeping || b->isKinematic);
-                if (aImmobile && bImmobile)
-                    continue;
-
-                CollisionInfo info = detectCollision(a, b);
-                if (info.hasCollision && info.contactCount > 0)
-                {
-                    if (a->isSleeping || b->isSleeping)
-                    {
-                        Vector3 vRel = b->velocity - a->velocity;
-                        float vRelSq = vRel.lengthSquared();
-                        const float wakeThresholdSq = 1e-4f;
-                        if (vRelSq > wakeThresholdSq)
-                        {
-                            if (a->isSleeping)
-                                a->wakeUp();
-                            if (b->isSleeping)
-                                b->wakeUp();
-                        }
-                    }
-
-                    preStepConstraint(info, deltaTime);
-                    contactConstraints.push_back(info);
-                }
-            }
-        }
-
-        preStepJoints(deltaTime);
-        warmStartConstraints();
-
-        for (int iter = 0; iter < SOLVER_ITERATIONS; iter++)
-        {
-            size_t contactCount = contactConstraints.size();
-            for (size_t c = 0; c < contactCount; c++)
-            {
-                resolveCollision(contactConstraints[c]);
-            }
-
-            solveJoints(deltaTime);
-        }
-
-        positionalCorrection();
-
-        previousContactConstraints = contactConstraints;
-
-        const float sleepLinThresholdSq = 1e-4f;
-        const float sleepAngThresholdSq = 1e-4f;
-        const float sleepTime = 0.5f;
-
-        for (size_t i = 0; i < bodyCount; i++)
-        {
-            RigidBody *b = bodies[i];
-            if (b->isStatic || b->shape != BODY_SHAPE_BOX)
-                continue;
-            float v2 = b->velocity.lengthSquared();
-            if (v2 > 1e-3f)
-                continue;
-            float w2 = b->angularVelocity.lengthSquared();
-            if (w2 > 1e-3f)
-                continue;
-            if (!b->canSleep)
-                continue;
-            if (v2 < sleepLinThresholdSq && w2 < sleepAngThresholdSq)
-            {
-                b->sleepTimer += deltaTime;
-                if (b->sleepTimer > sleepTime)
-                {
-                    b->isSleeping = true;
-                    b->velocity = Vector3(0, 0, 0);
-                    b->angularVelocity = Vector3(0, 0, 0);
-                    b->acceleration = Vector3(0, 0, 0);
-                }
-            }
-            else
-            {
-                b->sleepTimer = 0.0f;
-                b->isSleeping = false;
-            }
-
-            float halfY = b->size.y * 0.5f;
-            float targetY = halfY;
-            float dy = b->position.y - targetY;
-            if (fabsf(dy) < 0.1f)
-            {
-                Vector3 up = b->orientation.rotate(Vector3(0, 1, 0));
-                if (up.y > 0.995f)
-                {
-                    b->position.y = targetY;
-                    b->orientation = Quaternion();
-                    b->angularVelocity = Vector3(0, 0, 0);
-                    b->updateBoundsFromTransform();
-                }
-            }
-        }
-    }
-
-    void PhysicsWorld::preStepConstraint(CollisionInfo &info, float deltaTime)
-    {
-        RigidBody *a = info.bodyA;
-        RigidBody *b = info.bodyB;
-        if (!a || !b)
-            return;
-        if (a->isTrigger || b->isTrigger)
-            return;
-
-        float invMassA = a->invMass;
-        float invMassB = b->invMass;
-        float invMassSum = invMassA + invMassB;
-        Vector3 n = info.normal;
-
-        CollisionInfo *old = nullptr;
-        size_t prevCount = previousContactConstraints.size();
-        for (size_t i = 0; i < prevCount; ++i)
-        {
-            CollisionInfo &prev = previousContactConstraints[i];
-            if (prev.bodyA == a && prev.bodyB == b)
-            {
-                old = &prev;
-                break;
-            }
-        }
-
-        bool used[4] = {false, false, false, false};
-
-        for (int ci = 0; ci < info.contactCount; ++ci)
-        {
-            Contact &c = info.contacts[ci];
-            c.normalMass = 0.0f;
-            c.bias = 0.0f;
-            c.accumulatedImpulse = 0.0f;
-
-            if (old)
-            {
-                float bestDistSq = 0.01f * 0.01f;
-                int bestIndex = -1;
-                int oldContactCount = old->contactCount;
-                if (oldContactCount > 4)
-                    oldContactCount = 4;
-                for (int oi = 0; oi < oldContactCount; ++oi)
-                {
-                    if (used[oi])
-                        continue;
-                    Vector3 diff = old->contacts[oi].pos - c.pos;
-                    float distSq = diff.lengthSquared();
-                    if (distSq < bestDistSq)
-                    {
-                        bestDistSq = distSq;
-                        bestIndex = oi;
-                    }
-                }
-                if (bestIndex >= 0)
-                {
-                    c.accumulatedImpulse = old->contacts[bestIndex].accumulatedImpulse;
-                    used[bestIndex] = true;
-                }
-            }
-
-            Vector3 rA = c.pos - a->position;
-            Vector3 rB = c.pos - b->position;
-            Vector3 rAxn = rA.cross(n);
-            Vector3 rBxn = rB.cross(n);
-            Vector3 invInertiaA(a->invInertia.x * rAxn.x, a->invInertia.y * rAxn.y, a->invInertia.z * rAxn.z);
-            Vector3 invInertiaB(b->invInertia.x * rBxn.x, b->invInertia.y * rBxn.y, b->invInertia.z * rBxn.z);
-            Vector3 crossA = invInertiaA.cross(rA);
-            Vector3 crossB = invInertiaB.cross(rB);
-            float angularTerm = crossA.dot(n) + crossB.dot(n);
-            float denom = invMassSum + angularTerm;
-            if (denom > 0.0f)
-                c.normalMass = 1.0f / denom;
-            else
-                c.normalMass = 0.0f;
-
-            const float baumgarte = 0.2f;
-            const float slop = 0.001f;
-            float penetration = c.penetration - slop;
-            if (penetration < 0.0f)
-                penetration = 0.0f;
-            if (penetration > 0.0f && deltaTime > 0.0f)
-                c.bias = -baumgarte * penetration / deltaTime;
-            else
-                c.bias = 0.0f;
-
-            Vector3 vA = a->velocity + a->angularVelocity.cross(rA);
-            Vector3 vB = b->velocity + b->angularVelocity.cross(rB);
-            Vector3 relativeVelocity = vB - vA;
-            float vn = relativeVelocity.dot(n);
-            float restitution = fminf(a->restitution, b->restitution);
-            const float restitutionThreshold = 1.0f;
-            if (vn < -restitutionThreshold)
-            {
-                c.bias += -restitution * vn;
-            }
-        }
-    }
-
-    void PhysicsWorld::warmStartConstraints()
-    {
-        size_t count = contactConstraints.size();
-        for (size_t ci = 0; ci < count; ++ci)
-        {
-            CollisionInfo &info = contactConstraints[ci];
-            RigidBody *a = info.bodyA;
-            RigidBody *b = info.bodyB;
-            if (!a || !b)
-                continue;
-            if (a->isTrigger || b->isTrigger)
-                continue;
-            if (a->isStatic && b->isStatic)
-                continue;
-
-            float invMassA = a->invMass;
-            float invMassB = b->invMass;
-            Vector3 n = info.normal;
-
-            for (int j = 0; j < info.contactCount; ++j)
-            {
-                Contact &c = info.contacts[j];
-                float jn = c.accumulatedImpulse;
-                if (jn == 0.0f)
-                    continue;
-
-                Vector3 impulse = n * jn;
-                Vector3 rA = c.pos - a->position;
-                Vector3 rB = c.pos - b->position;
-
-                if (!a->isStatic && invMassA > 0.0f)
-                {
-                    a->velocity -= impulse * invMassA;
-                    Vector3 angImpulse = rA.cross(impulse);
-                    a->angularVelocity.x -= angImpulse.x * a->invInertia.x;
-                    a->angularVelocity.y -= angImpulse.y * a->invInertia.y;
-                    a->angularVelocity.z -= angImpulse.z * a->invInertia.z;
-                }
-                if (!b->isStatic && invMassB > 0.0f)
-                {
-                    b->velocity += impulse * invMassB;
-                    Vector3 angImpulse = rB.cross(impulse);
-                    b->angularVelocity.x += angImpulse.x * b->invInertia.x;
-                    b->angularVelocity.y += angImpulse.y * b->invInertia.y;
-                    b->angularVelocity.z += angImpulse.z * b->invInertia.z;
-                }
-            }
-        }
-    }
-
-    void PhysicsWorld::positionalCorrection()
-    {
-        const float percent = 0.4f;
-        const float slop = 0.001f;
-
-        size_t count = contactConstraints.size();
-        for (size_t i = 0; i < count; ++i)
-        {
-            CollisionInfo &info = contactConstraints[i];
-            RigidBody *a = info.bodyA;
-            RigidBody *b = info.bodyB;
-            if (!a || !b)
-                continue;
-            if (a->isTrigger || b->isTrigger)
-                continue;
-            if (a->isStatic && b->isStatic)
-                continue;
-
-            float invMassA = a->invMass;
-            float invMassB = b->invMass;
-            float invMassSum = invMassA + invMassB;
-            if (invMassSum <= 0.0f)
-                continue;
-
-            float maxPenetration = 0.0f;
-            for (int ci = 0; ci < info.contactCount; ++ci)
-            {
-                float p = info.contacts[ci].penetration;
-                if (p > maxPenetration)
-                    maxPenetration = p;
-            }
-
-            float correctionMag = maxPenetration - slop;
-            if (correctionMag < 0.0f)
-                correctionMag = 0.0f;
-            correctionMag *= percent;
-            if (correctionMag > 0.0f)
-            {
-                Vector3 correction = info.normal * correctionMag;
-                float aFactor = a->isStatic ? 0.0f : invMassA / invMassSum;
-                float bFactor = b->isStatic ? 0.0f : invMassB / invMassSum;
-                if (!a->isStatic)
-                {
-                    a->position -= correction * aFactor;
-                    a->updateBoundsFromTransform();
-                }
-                if (!b->isStatic)
-                {
-                    b->position += correction * bFactor;
-                    b->updateBoundsFromTransform();
-                }
-            }
-        }
-    }
-
-    void PhysicsWorld::resolveCollision(CollisionInfo &info)
-    {
-        RigidBody *a = info.bodyA;
-        RigidBody *b = info.bodyB;
-        if ((a && a->isTrigger) || (b && b->isTrigger))
-            return;
-        if (a->isStatic && b->isStatic)
-            return;
-        if (info.contactCount <= 0)
-            return;
-
-        float invMassA = a->invMass;
-        float invMassB = b->invMass;
-        float invMassSum = invMassA + invMassB;
-        if (invMassSum <= 0.0f)
-            return;
-
-        Vector3 n = info.normal;
-        float frictionCoeff = fminf(a->friction, b->friction);
-
-        for (int ci = 0; ci < info.contactCount; ++ci)
-        {
-            Contact &ct = info.contacts[ci];
-            Vector3 contactPoint = ct.pos;
-
-            Vector3 rA = contactPoint - a->position;
-            Vector3 rB = contactPoint - b->position;
-            Vector3 vA = a->velocity + a->angularVelocity.cross(rA);
-            Vector3 vB = b->velocity + b->angularVelocity.cross(rB);
-            Vector3 relativeVelocity = vB - vA;
-            float velocityAlongNormal = relativeVelocity.dot(n);
-
-            float lambda = -(velocityAlongNormal + ct.bias) * ct.normalMass;
-
-            float oldImpulse = ct.accumulatedImpulse;
-            ct.accumulatedImpulse = oldImpulse + lambda;
-            if (ct.accumulatedImpulse < 0.0f)
-                ct.accumulatedImpulse = 0.0f;
-            float deltaImpulse = ct.accumulatedImpulse - oldImpulse;
-            if (deltaImpulse == 0.0f)
-                continue;
-
-            Vector3 impulse = n * deltaImpulse;
-
-            if (!a->isStatic && invMassA > 0.0f)
-            {
-                a->velocity -= impulse * invMassA;
-                Vector3 angImpulse = rA.cross(impulse);
-                a->angularVelocity.x -= angImpulse.x * a->invInertia.x;
-                a->angularVelocity.y -= angImpulse.y * a->invInertia.y;
-                a->angularVelocity.z -= angImpulse.z * a->invInertia.z;
-            }
-            if (!b->isStatic && invMassB > 0.0f)
-            {
-                b->velocity += impulse * invMassB;
-                Vector3 angImpulse = rB.cross(impulse);
-                b->angularVelocity.x += angImpulse.x * b->invInertia.x;
-                b->angularVelocity.y += angImpulse.y * b->invInertia.y;
-                b->angularVelocity.z += angImpulse.z * b->invInertia.z;
-            }
-
-            vA = a->velocity + a->angularVelocity.cross(rA);
-            vB = b->velocity + b->angularVelocity.cross(rB);
-            relativeVelocity = vB - vA;
-            Vector3 tangent = relativeVelocity - n * relativeVelocity.dot(n);
-            float tLenSq = tangent.lengthSquared();
-            if (tLenSq > 1e-8f)
-            {
-                float invTL = 1.0f / sqrtf(tLenSq);
-                tangent *= invTL;
-                Vector3 rAxT = rA.cross(tangent);
-                Vector3 rBxT = rB.cross(tangent);
-                Vector3 invInertiaAT(a->invInertia.x * rAxT.x, a->invInertia.y * rAxT.y, a->invInertia.z * rAxT.z);
-                Vector3 invInertiaBT(b->invInertia.x * rBxT.x, b->invInertia.y * rBxT.y, b->invInertia.z * rBxT.z);
-                Vector3 crossAT = invInertiaAT.cross(rA);
-                Vector3 crossBT = invInertiaBT.cross(rB);
-                float angularTermT = crossAT.dot(tangent) + crossBT.dot(tangent);
-                float denomT = invMassSum + angularTermT;
-                if (denomT > 0.0f)
-                {
-                    float jt = -relativeVelocity.dot(tangent) / denomT;
-                    float maxFriction = frictionCoeff * ct.accumulatedImpulse;
-                    if (jt > maxFriction)
-                        jt = maxFriction;
-                    if (jt < -maxFriction)
-                        jt = -maxFriction;
-                    Vector3 frictionImpulse = tangent * jt;
-                    if (!a->isStatic && invMassA > 0.0f)
-                    {
-                        a->velocity -= frictionImpulse * invMassA;
-                        Vector3 angF = rA.cross(frictionImpulse);
-                        a->angularVelocity.x -= angF.x * a->invInertia.x;
-                        a->angularVelocity.y -= angF.y * a->invInertia.y;
-                        a->angularVelocity.z -= angF.z * a->invInertia.z;
-                    }
-                    if (!b->isStatic && invMassB > 0.0f)
-                    {
-                        b->velocity += frictionImpulse * invMassB;
-                        Vector3 angF = rB.cross(frictionImpulse);
-                        b->angularVelocity.x += angF.x * b->invInertia.x;
-                        b->angularVelocity.y += angF.y * b->invInertia.y;
-                        b->angularVelocity.z += angF.z * b->invInertia.z;
-                    }
-                }
-            }
-        }
-    }
-
-    bool PhysicsWorld::raycast(const Ray &ray, RaycastHit &outHit, float maxDistance)
-    {
-        outHit.hit = false;
-        outHit.body = nullptr;
-        outHit.distance = maxDistance;
-
-        size_t bodyCount = bodies.size();
-        for (size_t i = 0; i < bodyCount; ++i)
-        {
-            RigidBody *b = bodies[i];
-            if (!b)
-                continue;
-
-            float tMinAABB, tMaxAABB;
-            if (!ray.intersects(b->bounds, tMinAABB, tMaxAABB))
-                continue;
-
-            if (tMaxAABB < 0.0f)
-                continue;
-
-            float bestT = FLT_MAX;
-            Vector3 hitNormal(0.0f, 1.0f, 0.0f);
-            bool hitFound = false;
-
-            if (b->shape == BODY_SHAPE_SPHERE)
-            {
-                CollisionSphere s(b->position, b->radius);
-                float tSphere;
-                if (ray.intersects(s, tSphere) && tSphere >= 0.0f && tSphere <= maxDistance)
-                {
-                    bestT = tSphere;
-                    Vector3 hitPoint = ray.at(tSphere);
-                    Vector3 n = hitPoint - b->position;
-                    float nLenSq = n.lengthSquared();
-                    if (nLenSq > 1e-8f)
-                    {
-                        float invLen = 1.0f / sqrtf(nLenSq);
-                        n *= invLen;
-                    }
-                    else
-                    {
-                        n = Vector3(0.0f, 1.0f, 0.0f);
-                    }
-                    hitNormal = n;
-                    hitFound = true;
-                }
-            }
-            else
-            {
-                Vector3 half = b->size * 0.5f;
-
-                Quaternion invRot = b->orientation.conjugate();
-                Vector3 localOrigin = invRot.rotate(ray.origin - b->position);
-                Vector3 localDir = invRot.rotate(ray.direction);
-
-                Ray localRay(localOrigin, localDir);
-                AABB localBox(Vector3(-half.x, -half.y, -half.z), Vector3(half.x, half.y, half.z));
-
-                float tMin, tMax;
-                if (localRay.intersects(localBox, tMin, tMax))
-                {
-                    float tHit = tMin >= 0.0f ? tMin : tMax;
-                    if (tHit >= 0.0f && tHit <= maxDistance)
-                    {
-                        bestT = tHit;
-
-                        Vector3 localHit = localRay.at(tHit);
-                        float dx = half.x - fabsf(localHit.x);
-                        float dy = half.y - fabsf(localHit.y);
-                        float dz = half.z - fabsf(localHit.z);
-
-                        Vector3 localN(0.0f, 1.0f, 0.0f);
-                        if (dx <= dy && dx <= dz)
-                        {
-                            localN = Vector3((localHit.x > 0.0f) ? 1.0f : -1.0f, 0.0f, 0.0f);
-                        }
-                        else if (dy <= dz)
-                        {
-                            localN = Vector3(0.0f, (localHit.y > 0.0f) ? 1.0f : -1.0f, 0.0f);
-                        }
-                        else
-                        {
-                            localN = Vector3(0.0f, 0.0f, (localHit.z > 0.0f) ? 1.0f : -1.0f);
-                        }
-
-                        hitNormal = b->orientation.rotate(localN);
-                        hitFound = true;
-                    }
-                }
-            }
-
-            if (!hitFound)
-                continue;
-
-            if (bestT < outHit.distance)
-            {
-                outHit.hit = true;
-                outHit.body = b;
-                outHit.distance = bestT;
-                outHit.point = ray.at(bestT);
-                outHit.normal = hitNormal;
-            }
-        }
-
-        return outHit.hit;
-    }
-
-    CollisionInfo PhysicsWorld::detectCollision(RigidBody *a, RigidBody *b)
-    {
-        CollisionInfo info;
-        if (!a || !b)
-            return info;
-
-        bool bothStatic = a->isStatic && b->isStatic;
-        bool bothKinematicNonTrigger = a->isKinematic && b->isKinematic && !a->isTrigger && !b->isTrigger;
-        if (bothStatic || bothKinematicNonTrigger)
-            return info;
-
-        if (!a->bounds.intersects(b->bounds))
-            return info;
-
-        if (a->shape == BODY_SHAPE_SPHERE && b->shape == BODY_SHAPE_SPHERE)
-        {
-            Vector3 centerA = a->position;
-            Vector3 centerB = b->position;
-            Vector3 delta = centerB - centerA;
-            float distSq = delta.lengthSquared();
-            float radiusSum = a->radius + b->radius;
-            if (distSq > radiusSum * radiusSum)
-            {
-                if (currentDeltaTime > 0.0f)
-                {
-                    Vector3 startA = a->previousPosition;
-                    Vector3 endA = a->position;
-                    Vector3 startB = b->previousPosition;
-                    Vector3 endB = b->position;
-                    Vector3 relStart = startA - startB;
-                    Vector3 relEnd = endA - endB;
-                    Vector3 relDir = relEnd - relStart;
-                    float relLenSq = relDir.lengthSquared();
-                    if (relLenSq > 1e-8f)
-                    {
-                        Ray ray(relStart, relDir);
-                        CollisionSphere expanded(Vector3(0, 0, 0), radiusSum);
-                        float t;
-                        if (ray.intersects(expanded, t) && t >= 0.0f && t <= 1.0f)
-                        {
-                            Vector3 posA = startA + (endA - startA) * t;
-                            Vector3 posB = startB + (endB - startB) * t;
-                            Vector3 hitDelta = posB - posA;
-                            float distHitSq = hitDelta.lengthSquared();
-                            float distHit = distHitSq > 1e-8f ? sqrtf(distHitSq) : 0.0f;
-                            Vector3 normal;
-                            if (distHit > 1e-4f)
-                                normal = hitDelta * (1.0f / distHit);
-                            else
-                                normal = Vector3(0, 1, 0);
-                            float penetration = radiusSum - distHit;
-                            if (penetration < 0.0f)
-                                penetration = 0.0f;
-                            Vector3 contact = posA + normal * (a->radius - penetration * 0.5f);
-
-                            info.hasCollision = true;
-                            info.bodyA = a;
-                            info.bodyB = b;
-                            info.normal = normal;
-                            info.contactCount = 1;
-                            info.contacts[0].pos = contact;
-                            info.contacts[0].penetration = penetration;
-                            info.contacts[0].accumulatedImpulse = 0.0f;
-                            return info;
-                        }
-                    }
-                }
-                return info;
-            }
-            float dist = distSq > 1e-8f ? sqrtf(distSq) : 0.0f;
-            Vector3 normal;
-            if (dist > 1e-4f)
-                normal = delta * (1.0f / dist);
-            else
-                normal = Vector3(0, 1, 0);
-            float penetration = radiusSum - dist;
-            Vector3 contact = centerA + normal * (a->radius - penetration * 0.5f);
-            info.hasCollision = true;
-            info.bodyA = a;
-            info.bodyB = b;
-            info.normal = normal;
-            info.contactCount = 1;
-            info.contacts[0].pos = contact;
-            info.contacts[0].penetration = penetration;
-            info.contacts[0].accumulatedImpulse = 0.0f;
-            return info;
-        }
-
-        if (a->shape == BODY_SHAPE_SPHERE && b->shape == BODY_SHAPE_BOX)
-        {
-            Vector3 sphereCenter = a->position;
-            Vector3 boxCenter = b->position;
-            Vector3 halfExtents = b->size * 0.5f;
-
-            Quaternion invRot = b->orientation.conjugate();
-            Vector3 local = invRot.rotate(sphereCenter - boxCenter);
-
-            float lx = fmaxf(-halfExtents.x, fminf(local.x, halfExtents.x));
-            float ly = fmaxf(-halfExtents.y, fminf(local.y, halfExtents.y));
-            float lz = fmaxf(-halfExtents.z, fminf(local.z, halfExtents.z));
-            Vector3 closestLocal(lx, ly, lz);
-            Vector3 closestWorld = b->orientation.rotate(closestLocal) + boxCenter;
-
-            Vector3 diff = closestWorld - sphereCenter;
-            float distSq = diff.lengthSquared();
-            float r = a->radius;
-            if (distSq > r * r)
-            {
-                if (currentDeltaTime > 0.0f)
-                {
-                    Vector3 start = a->previousPosition;
-                    Vector3 end = a->position;
-                    Vector3 dir = end - start;
-                    float lenSq = dir.lengthSquared();
-                    if (lenSq > 1e-8f)
-                    {
-                        AABB expanded = b->bounds;
-                        expanded.min.x -= r;
-                        expanded.min.y -= r;
-                        expanded.min.z -= r;
-                        expanded.max.x += r;
-                        expanded.max.y += r;
-                        expanded.max.z += r;
-
-                        Ray ray(start, dir);
-                        float tMin, tMax;
-                        if (ray.intersects(expanded, tMin, tMax) && tMax >= 0.0f && tMin <= 1.0f)
-                        {
-                            float tHit = tMin;
-                            if (tHit < 0.0f)
-                                tHit = 0.0f;
-                            if (tHit > 1.0f)
-                                tHit = 1.0f;
-
-                            Vector3 centerHit = start + dir * tHit;
-                            Vector3 boxMin = b->bounds.min;
-                            Vector3 boxMax = b->bounds.max;
-                            float hx = fmaxf(boxMin.x, fminf(centerHit.x, boxMax.x));
-                            float hy = fmaxf(boxMin.y, fminf(centerHit.y, boxMax.y));
-                            float hz = fmaxf(boxMin.z, fminf(centerHit.z, boxMax.z));
-                            Vector3 closestHit(hx, hy, hz);
-                            Vector3 diffHit = closestHit - centerHit;
-                            float distHitSq = diffHit.lengthSquared();
-                            float distHit = distHitSq > 1e-8f ? sqrtf(distHitSq) : 0.0f;
-
-                            Vector3 normal;
-                            float penetration;
-                            if (distHit > 1e-4f)
-                            {
-                                normal = diffHit * (1.0f / distHit);
-                                penetration = r - distHit;
-                            }
-                            else
-                            {
-                                normal = Vector3(0, -1, 0);
-                                penetration = r;
-                            }
-
-                            if (penetration < 0.0f)
-                                penetration = 0.0f;
-
-                            info.hasCollision = true;
-                            info.bodyA = a;
-                            info.bodyB = b;
-                            info.normal = normal;
-                            info.contactCount = 1;
-                            info.contacts[0].pos = closestHit;
-                            info.contacts[0].penetration = penetration;
-                            info.contacts[0].accumulatedImpulse = 0.0f;
-                            return info;
-                        }
-                    }
-                }
-                return info;
-            }
-
-            float dist = distSq > 1e-8f ? sqrtf(distSq) : 0.0f;
-            Vector3 normal;
-            float penetration;
-            if (dist > 1e-4f)
-            {
-                normal = diff * (1.0f / dist);
-                penetration = r - dist;
-            }
-            else
-            {
-                float dx = halfExtents.x - fabsf(local.x);
-                float dy = halfExtents.y - fabsf(local.y);
-                float dz = halfExtents.z - fabsf(local.z);
-
-                Vector3 localN(0, -1, 0);
-                if (dx < dy && dx < dz)
-                    localN = Vector3((local.x > 0.0f) ? 1.0f : -1.0f, 0.0f, 0.0f);
-                else if (dy < dz)
-                    localN = Vector3(0.0f, (local.y > 0.0f) ? 1.0f : -1.0f, 0.0f);
-                else
-                    localN = Vector3(0.0f, 0.0f, (local.z > 0.0f) ? 1.0f : -1.0f);
-                normal = b->orientation.rotate(localN);
-                penetration = r;
-            }
-
-            info.hasCollision = true;
-            info.bodyA = a;
-            info.bodyB = b;
-            info.normal = normal;
-            info.contactCount = 1;
-            info.contacts[0].pos = closestWorld;
-            info.contacts[0].penetration = penetration;
-            info.contacts[0].accumulatedImpulse = 0.0f;
-            return info;
-        }
-
-        if (a->shape == BODY_SHAPE_BOX && b->shape == BODY_SHAPE_SPHERE)
-        {
-            CollisionInfo swapped = detectCollision(b, a);
-            if (!swapped.hasCollision)
-                return info;
-            info.hasCollision = true;
-            info.bodyA = a;
-            info.bodyB = b;
-            info.normal = swapped.normal * -1.0f;
-            info.contactCount = swapped.contactCount;
-            for (int i = 0; i < swapped.contactCount && i < 4; ++i)
-            {
-                info.contacts[i].pos = swapped.contacts[i].pos;
-                info.contacts[i].penetration = swapped.contacts[i].penetration;
-                info.contacts[i].accumulatedImpulse = 0.0f;
-            }
-            return info;
-        }
-
-        if (a->shape == BODY_SHAPE_BOX && b->shape == BODY_SHAPE_BOX)
-        {
-            const float eps = 1e-4f;
-            Vector3 Ca = a->position;
-            Vector3 Cb = b->position;
-
-            Vector3 Aa[3] = {
-                a->orientation.rotate(Vector3(1, 0, 0)),
-                a->orientation.rotate(Vector3(0, 1, 0)),
-                a->orientation.rotate(Vector3(0, 0, 1))};
-
-            Vector3 Ab[3] = {
-                b->orientation.rotate(Vector3(1, 0, 0)),
-                b->orientation.rotate(Vector3(0, 1, 0)),
-                b->orientation.rotate(Vector3(0, 0, 1))};
-
-            Vector3 Ea = a->size * 0.5f;
-            Vector3 Eb = b->size * 0.5f;
-
-            float R[3][3];
-            float AbsR[3][3];
-            for (int i = 0; i < 3; ++i)
-            {
-                for (int j = 0; j < 3; ++j)
-                {
-                    float v = Aa[i].dot(Ab[j]);
-                    R[i][j] = v;
-                    AbsR[i][j] = fabsf(v) + eps;
-                }
-            }
-
-            Vector3 tWorld = Cb - Ca;
-            float t[3] = {tWorld.dot(Aa[0]), tWorld.dot(Aa[1]), tWorld.dot(Aa[2])};
-
-            float minPenetration = FLT_MAX;
-            Vector3 bestAxis(0, 1, 0);
-
-            for (int i = 0; i < 3; ++i)
-            {
-                float ra = (i == 0 ? Ea.x : (i == 1 ? Ea.y : Ea.z));
-                float rb = Eb.x * AbsR[i][0] + Eb.y * AbsR[i][1] + Eb.z * AbsR[i][2];
-                float dist = fabsf(t[i]);
-                float pen = ra + rb - dist;
-                if (pen < 0.0f)
-                    return info;
-                if (pen < minPenetration)
-                {
-                    minPenetration = pen;
-                    bestAxis = Aa[i] * (t[i] < 0.0f ? -1.0f : 1.0f);
-                }
-            }
-
-            for (int j = 0; j < 3; ++j)
-            {
-                float ra = Ea.x * AbsR[0][j] + Ea.y * AbsR[1][j] + Ea.z * AbsR[2][j];
-                float rb = (j == 0 ? Eb.x : (j == 1 ? Eb.y : Eb.z));
-                float dist = fabsf(Cb.dot(Ab[j]) - Ca.dot(Ab[j]));
-                float pen = ra + rb - dist;
-                if (pen < 0.0f)
-                    return info;
-                if (pen < minPenetration)
-                {
-                    minPenetration = pen;
-                    float sign = (tWorld.dot(Ab[j]) < 0.0f) ? -1.0f : 1.0f;
-                    bestAxis = Ab[j] * sign;
-                }
-            }
-
-            for (int i = 0; i < 3; ++i)
-            {
-                for (int j = 0; j < 3; ++j)
-                {
-                    Vector3 axis = Aa[i].cross(Ab[j]);
-                    float axisLenSq = axis.lengthSquared();
-                    if (axisLenSq < 1e-8f)
-                        continue;
-                    float invLen = 1.0f / sqrtf(axisLenSq);
-                    axis *= invLen;
-
-                    float ra = Ea.x * fabsf(axis.dot(Aa[0])) + Ea.y * fabsf(axis.dot(Aa[1])) + Ea.z * fabsf(axis.dot(Aa[2]));
-                    float rb = Eb.x * fabsf(axis.dot(Ab[0])) + Eb.y * fabsf(axis.dot(Ab[1])) + Eb.z * fabsf(axis.dot(Ab[2]));
-                    float dist = fabsf(axis.dot(tWorld));
-                    float pen = ra + rb - dist;
-                    if (pen < 0.0f)
-                        return info;
-                    if (pen < minPenetration)
-                    {
-                        minPenetration = pen;
-                        bestAxis = axis * (axis.dot(tWorld) < 0.0f ? -1.0f : 1.0f);
-                    }
-                }
-            }
-
-            if (minPenetration <= 0.0f)
-                return info;
-
-            Vector3 n = bestAxis;
-            int refIndex = 0;
-            float maxDotA = Aa[0].dot(n);
-            for (int i = 1; i < 3; ++i)
-            {
-                float d = Aa[i].dot(n);
-                if (d > maxDotA)
-                {
-                    maxDotA = d;
-                    refIndex = i;
-                }
-            }
-
-            float refExtent = (refIndex == 0 ? Ea.x : (refIndex == 1 ? Ea.y : Ea.z));
-            float refSign = (maxDotA >= 0.0f ? 1.0f : -1.0f);
-            Vector3 refCenter = Ca + Aa[refIndex] * (refSign * refExtent);
-            float planeD = n.dot(refCenter);
-
-            int incIndex = 0;
-            float minDotB = Ab[0].dot(n);
-            for (int j = 1; j < 3; ++j)
-            {
-                float d = Ab[j].dot(n);
-                if (d < minDotB)
-                {
-                    minDotB = d;
-                    incIndex = j;
-                }
-            }
-
-            Vector3 incidentLocal[4];
-            if (incIndex == 0)
-            {
-                float x = (Ab[0].dot(n) < 0.0f) ? Eb.x : -Eb.x;
-                incidentLocal[0] = Vector3(x, -Eb.y, -Eb.z);
-                incidentLocal[1] = Vector3(x, -Eb.y, Eb.z);
-                incidentLocal[2] = Vector3(x, Eb.y, -Eb.z);
-                incidentLocal[3] = Vector3(x, Eb.y, Eb.z);
-            }
-            else if (incIndex == 1)
-            {
-                float y = (Ab[1].dot(n) < 0.0f) ? Eb.y : -Eb.y;
-                incidentLocal[0] = Vector3(-Eb.x, y, -Eb.z);
-                incidentLocal[1] = Vector3(-Eb.x, y, Eb.z);
-                incidentLocal[2] = Vector3(Eb.x, y, -Eb.z);
-                incidentLocal[3] = Vector3(Eb.x, y, Eb.z);
-            }
-            else
-            {
-                float z = (Ab[2].dot(n) < 0.0f) ? Eb.z : -Eb.z;
-                incidentLocal[0] = Vector3(-Eb.x, -Eb.y, z);
-                incidentLocal[1] = Vector3(-Eb.x, Eb.y, z);
-                incidentLocal[2] = Vector3(Eb.x, -Eb.y, z);
-                incidentLocal[3] = Vector3(Eb.x, Eb.y, z);
-            }
-
-            Vector3 incidentWorld[4];
-            for (int i = 0; i < 4; ++i)
-            {
-                incidentWorld[i] = b->orientation.rotate(incidentLocal[i]) + Cb;
-            }
-
-            info.hasCollision = true;
-            info.bodyA = a;
-            info.bodyB = b;
-            info.normal = n;
-            info.contactCount = 0;
-
-            const float contactEps = 1e-3f;
-            for (int i = 0; i < 4; ++i)
-            {
-                Vector3 p = incidentWorld[i];
-                float dist = n.dot(p) - planeD;
-                if (dist <= contactEps && info.contactCount < 4)
-                {
-                    Contact &c = info.contacts[info.contactCount++];
-                    c.pos = p - n * dist;
-                    c.penetration = fmaxf(0.0f, -dist);
-                    c.accumulatedImpulse = 0.0f;
-                }
-            }
-
-            if (info.contactCount == 0)
-            {
-                info.contactCount = 1;
-                info.contacts[0].pos = (Ca + Cb) * 0.5f;
-                info.contacts[0].penetration = minPenetration;
-                info.contacts[0].accumulatedImpulse = 0.0f;
-            }
-
-            return info;
-        }
-
-        return info;
-    }
-
-    void PhysicsWorld::Gizmos(Renderer &renderer)
-    {
-        size_t bodyCount = bodies.size();
-        for (size_t i = 0; i < bodyCount; ++i)
-        {
-            RigidBody *b = bodies[i];
-            if (!b)
-                continue;
-
-            uint16_t color = Color::GREEN;
-            if (b->isStatic)
-                color = Color::RED;
-            else if (b->isSleeping)
-                color = Color::GRAY;
-
-            DBG_AABB(b->bounds, color, ::pip3D::Debug::DEBUG_CATEGORY_PHYSICS);
-
-            if (b->shape == BODY_SHAPE_SPHERE)
-            {
-                DBG_SPHERE(b->position, b->radius, color,
-                           ::pip3D::Debug::DEBUG_CATEGORY_PHYSICS);
-            }
-            else
-            {
-                DBG_OBB(b->position, b->size * 0.5f, b->orientation, color,
-                        ::pip3D::Debug::DEBUG_CATEGORY_PHYSICS);
-            }
-        }
-
-        size_t constraintCount = contactConstraints.size();
-        for (size_t i = 0; i < constraintCount; ++i)
-        {
-            CollisionInfo &info = contactConstraints[i];
-            if (!info.hasCollision || info.contactCount <= 0)
-                continue;
-
-            Vector3 n = info.normal;
-            float nLenSq = n.lengthSquared();
-            if (nLenSq > 1e-8f)
-            {
-                n *= FastMath::fastReciprocal(sqrtf(nLenSq));
-            }
-
-            for (int j = 0; j < info.contactCount; ++j)
-            {
-                Contact &c = info.contacts[j];
-                DBG_SPHERE(c.pos, 0.08f, Color::RED,
-                           ::pip3D::Debug::DEBUG_CATEGORY_PHYSICS);
-                DBG_ARROW(c.pos, n, 0.2f, 0.04f, Color::YELLOW,
-                          ::pip3D::Debug::DEBUG_CATEGORY_PHYSICS);
-            }
-        }
-    }
 }

@@ -1,13 +1,19 @@
 #pragma once
 
+#include <atomic>
+#include <vector>
+
 #include "Math/Collision.hpp"
 #include "Core/Jobs.hpp"
-#include "Body.hpp"
-#include "Contacts.hpp"
-#include "Constraints.hpp"
-#include "Buoyancy.hpp"
-#include <vector>
-#include <atomic>
+
+#include "Types.hpp"
+#include "Dynamics/Body.hpp"
+#include "Dynamics/Contacts.hpp"
+#include "Dynamics/Constraints.hpp"
+#include "Dynamics/Buoyancy.hpp"
+#include "Collision/Narrowphase.hpp"
+#include "Dynamics/ContactSolver.hpp"
+#include "Collision/Raycast.hpp"
 
 namespace pip3D
 {
@@ -16,30 +22,33 @@ namespace pip3D
     class PhysicsWorld
     {
     private:
-        static constexpr int SOLVER_ITERATIONS = 8;
-        static constexpr int MAX_SUBSTEPS = 3;
         std::vector<RigidBody *> bodies;
         std::vector<Constraint *> constraints;
+        std::vector<BuoyancyZone> waterZones;
+
+        std::vector<ContactManifold> contactConstraints;
+        ContactSolver solver;
+
         Vector3 gravity;
         bool asyncEnabled;
 
         std::atomic<bool> stepInProgress;
-
         float pendingDelta;
+
         float fixedTimeStep;
         float accumulator;
         float currentDeltaTime;
-        std::vector<CollisionInfo> contactConstraints;
-        std::vector<CollisionInfo> previousContactConstraints;
-        std::vector<BuoyancyZone> waterZones;
 
         static void stepJobFunc(void *userData);
         void runStepJob();
         void stepInternal(float deltaTime);
-        void preStepConstraint(CollisionInfo &info, float deltaTime);
-        void warmStartConstraints();
-        void positionalCorrection();
-        void resolveCollision(CollisionInfo &info);
+
+        void maybeWake(ContactManifold &info);
+
+        void updateSleepAndSettle(float deltaTime);
+
+        void applyRestingVelocityZeroing();
+
         void preStepJoints(float deltaTime);
         void solveJoints(float deltaTime);
 
@@ -47,10 +56,10 @@ namespace pip3D
         PhysicsWorld();
 
         bool addBody(RigidBody *body);
+        void removeBody(RigidBody *body);
         bool addConstraint(Constraint *c);
         void removeConstraint(Constraint *c);
         void addBuoyancyZone(const BuoyancyZone &zone);
-        void removeBody(RigidBody *body);
 
         void setGravity(const Vector3 &g) { gravity = g; }
         const Vector3 &getGravity() const { return gravity; }
@@ -64,9 +73,19 @@ namespace pip3D
 
         void updateFixed(float frameDelta);
         void stepAsync(float deltaTime);
-        void Gizmos(Renderer &renderer);
+        void finishStep();
 
-        bool raycast(const Ray &ray, RaycastHit &outHit, float maxDistance = FLT_MAX);
-        CollisionInfo detectCollision(RigidBody *a, RigidBody *b);
+        float getInterpolationAlpha() const;
+        void interpolateTransforms(float alpha);
+
+        bool raycast(const Ray &ray, RaycastHit &outHit,
+                     float maxDistance = FLT_MAX);
+
+        ContactManifold detectCollision(RigidBody *a, RigidBody *b)
+        {
+            return pip3D::detectCollision(a, b, currentDeltaTime);
+        }
+
+        void Gizmos(Renderer &renderer);
     };
 }

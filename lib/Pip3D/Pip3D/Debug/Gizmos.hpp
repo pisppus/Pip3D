@@ -117,7 +117,7 @@ namespace pip3D
 
             static void render(Renderer &renderer);
 
-            static constexpr int MAX_DEBUG_LINES = 256;
+            static constexpr int MAX_DEBUG_LINES = 1024;
         };
     }
 }
