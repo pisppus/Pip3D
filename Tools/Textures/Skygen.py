@@ -149,10 +149,11 @@ def gen_cloud_mask(coverage, seed):
     alpha   = d_sharp * d_sharp * (3.0 - 2.0 * d_sharp)
 
     v_norm     = np.linspace(0.0, 1.0, PANO_H, dtype=np.float32)[:, None]
+    
     t_h        = np.clip(v_norm / 0.92, 0.0, 1.0)
     horiz_fade = 1.0 - t_h * t_h * (3.0 - 2.0 * t_h)
-    top_clear  = np.clip(v_norm * 9.0, 0.0, 1.0)
-    alpha      = np.clip(alpha * horiz_fade * top_clear, 0.0, 1.0)
+
+    alpha      = np.clip(alpha * horiz_fade, 0.0, 1.0)
 
     ht    = 1.0 - v_norm
     inner = np.clip(alpha - 0.55, 0.0, 1.0) * 0.20
@@ -174,104 +175,47 @@ def mask_to_preview(alpha_plane, shade_plane, cloud_rgb):
     b = np.clip(cb * s_norm * a_norm, 0, 255)
     return np.stack([r, g, b], axis=-1).astype(np.uint8)
 
-def packbits_encode_row(row, row_w):
-    out = bytearray()
-    i = 0
-    n = len(row)
-    while i < n:
-        run = 1
-        while i + run < n and row[i + run] == row[i] and run < 128:
-            run += 1
-        if run >= 2:
-            out.append((run - 1) & 0x7F)
-            out.append(row[i] & 0xFF)
-            i += run
-        else:
-            lit_start = i
-            i += 1
-            while i < n and (i + 1 >= n or row[i] != row[i + 1]) and (i - lit_start) < 128:
-                i += 1
-            lit_len = i - lit_start
-            out.append(0x80 | (lit_len - 1))
-            out.extend(row[lit_start:lit_start + lit_len])
-    return bytes(out)
 
-
-def packbits_decode_row(data, off, row_w, dst):
-    idx = off
-    written = 0
-    while written < row_w:
-        c = data[idx]; idx += 1
-        if c & 0x80:
-            count = (c & 0x7F) + 1
-            for _ in range(count):
-                dst[written] = data[idx]; idx += 1; written += 1
-        else:
-            count = c + 1
-            v = data[idx]; idx += 1
-            for _ in range(count):
-                dst[written] = v; written += 1
-    return idx
-
-
-def encode_plane(plane):
-    flat = bytearray()
-    offsets = np.zeros(PANO_H, dtype=np.uint32)
-    scratch = bytearray(PANO_W)
+def fmt_array_chunked(plane, items_per_line=16):
+    lines = []
     for y in range(PANO_H):
-        offsets[y] = len(flat)
-        row_bytes = plane[y].tobytes()
-        enc = packbits_encode_row(row_bytes, PANO_W)
-        flat.extend(enc)
-        end = packbits_decode_row(enc, 0, PANO_W, scratch)
-        assert end == len(enc), f"row {y}: decoder consumed {end} != {len(enc)}"
-        assert bytes(scratch) == row_bytes, f"row {y}: round-trip mismatch"
-    return bytes(flat), offsets
+        row = plane[y]
+        for i in range(0, PANO_W, items_per_line):
+            chunk = row[i:i + items_per_line]
+            hex_str = ", ".join(f"0x{v:02X}" for v in chunk)
+            lines.append(f"            {hex_str},")
+    return "\n".join(lines)
 
 
-def write_mask_header(alpha_plane, shade_plane, cloud_rgb, repeats, out_path):
-    a_flat, a_off = encode_plane(alpha_plane)
-    s_flat, s_off = encode_plane(shade_plane)
+def write_mask_header(alpha_plane, shade_plane, cloud_rgb, repeats, coverage, seed, out_path):
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
-
-    def fmt_row(b, per_line):
-        lines = []
-        for i in range(0, len(b), per_line):
-            chunk = b[i:i + per_line]
-            lines.append("            " + "".join(f"0x{v:02X}, " for v in chunk))
-        return "\n".join(lines)
-
-    def fmt_offsets(off):
-        return "            " + "".join(f"{int(v)}, " for v in off) + "\n"
 
     cr, cg, cb = cloud_rgb
     default565 = to565(int(cr), int(cg), int(cb))
-    total = len(a_flat) + len(s_flat) + 2 * PANO_H * 4
+    total = alpha_plane.nbytes + shade_plane.nbytes
 
     with open(out_path, "w", encoding="utf-8") as f:
-        f.write("#pragma once\n")
+        f.write("/*\n")
+        f.write(" * Pip3D Cloud Mask Asset\n")
+        f.write(" * Generated automatically by Tools/Textures/Skygen.py. Do not edit.\n")
+        f.write(" *\n")
+        f.write(f" * Panorama Size : {PANO_W}x{PANO_H} (2 Planes: Alpha + Shade)\n")
+        f.write(f" * Parameters    : Coverage={coverage:.2f}, Seed={seed:#x}, Repeats={repeats}\n")
+        f.write(f" * Default Color : RGB({cr}, {cg}, {cb}) -> 0x{default565:04X}\n")
+        f.write(f" * Flash Memory  : {total} bytes ({total / 1024.0:.2f} KB)\n")
+        f.write(" */\n\n")
+        f.write("#pragma once\n\n")
         f.write("#include <cstdint>\n\n")
         f.write("namespace pip3D\n{\n")
         f.write("    namespace detail\n    {\n")
-        f.write(f"        // PackBits-RLE cloud mask, two 8-bit planes (alpha, shade).\n")
-        f.write(f"        // Run:    [count-1]            value   (count in 1..128)\n")
-        f.write(f"        // Literal:[0x80|count-1]       bytes   (count in 1..128)\n")
-        f.write(f"        alignas(16) static const uint8_t s_cloudsAlphaData[{len(a_flat)}] =\n        {{\n")
-        f.write(fmt_row(a_flat, 24) + "\n")
+        f.write(f"        // Alpha Channel Map ({PANO_W}x{PANO_H})\n")
+        f.write(f"        alignas(16) static const uint8_t s_cloudsAlphaData[{PANO_H}][{PANO_W}] =\n        {{\n")
+        f.write(fmt_array_chunked(alpha_plane) + "\n")
         f.write("        };\n\n")
-        f.write(f"        alignas(16) static const uint8_t s_cloudsShadeData[{len(s_flat)}] =\n        {{\n")
-        f.write(fmt_row(s_flat, 24) + "\n")
-        f.write("        };\n\n")
-        f.write(f"        alignas(16) static const uint32_t s_cloudsAlphaOffset[{PANO_H}] =\n        {{\n")
-        f.write(fmt_offsets(a_off))
-        f.write("        };\n\n")
-        f.write(f"        alignas(16) static const uint32_t s_cloudsShadeOffset[{PANO_H}] =\n        {{\n")
-        f.write(fmt_offsets(s_off))
+        f.write(f"        // Shade Factor Map ({PANO_W}x{PANO_H})\n")
+        f.write(f"        alignas(16) static const uint8_t s_cloudsShadeData[{PANO_H}][{PANO_W}] =\n        {{\n")
+        f.write(fmt_array_chunked(shade_plane) + "\n")
         f.write("        };\n    }\n\n")
-        f.write(f"    inline constexpr const uint8_t*  g_cloudsAlpha       = detail::s_cloudsAlphaData;\n")
-        f.write(f"    inline constexpr const uint8_t*  g_cloudsShade       = detail::s_cloudsShadeData;\n")
-        f.write(f"    inline constexpr const uint32_t* g_cloudsAlphaOffset = detail::s_cloudsAlphaOffset;\n")
-        f.write(f"    inline constexpr const uint32_t* g_cloudsShadeOffset = detail::s_cloudsShadeOffset;\n")
         f.write(f"    inline constexpr uint16_t        CLOUDS_PANO_W        = {PANO_W};\n")
         f.write(f"    inline constexpr uint16_t        CLOUDS_PANO_H        = {PANO_H};\n")
         f.write(f"    inline constexpr uint16_t        CLOUDS_PANO_REPEATS  = {repeats};\n")
@@ -306,8 +250,8 @@ def main():
     print(_tag(f"Skygen: Preview: {preview_path}"))
 
     if args.output:
-        hpp, total = write_mask_header(alpha_plane, shade_plane, cloud_rgb, repeats, args.output)
-        print(_tag(f"Skygen: Flash header: {hpp}  ({total} bytes total: two 8-bit RLE planes + offsets, 0 RAM)"))
+        hpp, total = write_mask_header(alpha_plane, shade_plane, cloud_rgb, repeats, args.coverage, args.seed, args.output)
+        print(_tag(f"Skygen: Flash header: {hpp}  ({total} bytes total, 0 RAM)"))
 
 
 if __name__ == "__main__":

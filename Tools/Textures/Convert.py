@@ -34,6 +34,13 @@ def _image_to_rgb565_array(img):
     return arr
 
 
+def _write_hex_array_chunked(out, data, items_per_line=12, indent="            "):
+    for i in range(0, len(data), items_per_line):
+        chunk = data[i:i + items_per_line]
+        hex_str = ", ".join(f"0x{v:04X}" for v in chunk)
+        out.write(f"{indent}{hex_str},\n")
+
+
 def convert_png2tex(img_path, force_output_path=None, target_size=None):
     if not os.path.exists(img_path):
         print(f"\033[91m[-] Error: Source image {img_path} not found!\033[0m")
@@ -90,7 +97,7 @@ def convert_png2tex(img_path, force_output_path=None, target_size=None):
     if (width != orig_width) or (height != orig_height):
         img = img.resize((width, height), resample_lanczos)
 
-    pixels = img.load()
+    base_array = _image_to_rgb565_array(img)
 
     width_shift = int(math.log2(width))
     height_shift = int(math.log2(height))
@@ -132,30 +139,37 @@ def convert_png2tex(img_path, force_output_path=None, target_size=None):
         else:
             header_path = os.path.splitext(img_path)[0] + ".hpp"
 
+    base_bytes = width * height * 2
+    mip_bytes = sum(len(arr) * 2 for _, _, arr in mip_levels)
+    total_bytes = base_bytes + mip_bytes
+
     try:
         with open(header_path, 'w', encoding='utf-8') as out:
-            out.write("#pragma once\n#include \"Rendering/Display/Texture.hpp\"\n\nnamespace pip3D\n{\n")
+            out.write("/*\n")
+            out.write(f" * Pip3D Texture Asset — {clean_name}\n")
+            out.write(" * Generated automatically by Tools/Textures/Convert.py. Do not edit.\n")
+            out.write(" *\n")
+            out.write(f" * Source File   : {os.path.basename(img_path)} ({orig_width}x{orig_height})\n")
+            out.write(f" * Texture Size : {width}x{height} (RGB565)\n")
+            out.write(f" * Mipmaps       : {mip_count} level(s)\n")
+            out.write(f" * Flash Memory  : {base_bytes} bytes base + {mip_bytes} bytes mips = {total_bytes} bytes ({total_bytes / 1024.0:.2f} KB)\n")
+            out.write(" */\n\n")
+            out.write("#pragma once\n\n")
+            out.write("#include \"Rendering/Display/Texture.hpp\"\n\n")
+            out.write("namespace pip3D\n{\n")
             out.write("    namespace detail\n    {\n")
+            out.write(f"        // Base Level (LOD 0): {width}x{height}\n")
             out.write(f"        alignas(16) static const uint16_t s_{var_name}TextureData[{width * height}] = {{\n")
-            for y in range(height):
-                out.write("            ")
-                for x in range(width):
-                    r, g, b = pixels[x, y]
-                    rgb565 = _pixel_to_rgb565(r, g, b)
-                    out.write(f"0x{rgb565:04X}, ")
-                out.write("\n")
+            _write_hex_array_chunked(out, base_array, items_per_line=12)
             out.write("        };\n\n")
 
             if mip_count > 0:
                 total_mip_pixels = sum(len(arr) for _, _, arr in mip_levels)
+                out.write(f"        // Mipmap Levels (LOD 1 .. LOD {mip_count}): {total_mip_pixels} total pixels\n")
                 out.write(f"        alignas(16) static const uint16_t s_{var_name}MipData[{total_mip_pixels}] = {{\n")
                 for level_idx, (mw, mh, arr) in enumerate(mip_levels):
-                    out.write(f"            // mip level {level_idx + 1}: {mw}x{mh}\n")
-                    for y in range(mh):
-                        out.write("            ")
-                        for x in range(mw):
-                            out.write(f"0x{arr[y * mw + x]:04X}, ")
-                        out.write("\n")
+                    out.write(f"            // LOD {level_idx + 1}: {mw}x{mh}\n")
+                    _write_hex_array_chunked(out, arr, items_per_line=12)
                 out.write("        };\n\n")
 
             out.write("    }\n\n")
@@ -176,9 +190,6 @@ def convert_png2tex(img_path, force_output_path=None, target_size=None):
 
         rel_img = os.path.join("Textures", "Sources", os.path.basename(img_path)).replace("\\", "/")
         rel_hpp = os.path.join("Rendering", "Display", "Textures", os.path.basename(header_path)).replace("\\", "/")
-        base_bytes = width * height * 2
-        mip_bytes = sum(len(arr) * 2 for _, _, arr in mip_levels)
-        total_bytes = base_bytes + mip_bytes
         print(f"\033[36m[Pip3D]\033[0m Converting: {rel_img} -> {rel_hpp} ({width}x{height} POT, {base_bytes / 1024.0:.2f} KB + {mip_count} mips = {mip_bytes / 1024.0:.2f} KB, {total_bytes / 1024.0:.2f} KB total)")
 
     except Exception as e:

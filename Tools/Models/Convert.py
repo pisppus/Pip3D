@@ -224,9 +224,26 @@ def convert_obj2mesh(obj_path, force_output_path=None):
         else:
             header_path = os.path.splitext(obj_path)[0] + ".hpp"
     
+    vertex_bytes = verts_count * 16
+    face_bytes = faces_count * 6
+    total_bytes = vertex_bytes + face_bytes
+
     try:
         with open(header_path, 'w', encoding='utf-8') as out:
-            out.write("#pragma once\n#include \"Geometry/Mesh.hpp\"\n\nnamespace pip3D\n{\n")
+            out.write("/*\n")
+            out.write(f" * Pip3D Model Asset — {class_name}\n")
+            out.write(" * Generated automatically by Tools/Models/Convert.py. Do not edit.\n")
+            out.write(" *\n")
+            out.write(f" * Source File     : {os.path.basename(obj_path)}\n")
+            out.write(f" * Vertices        : {verts_count} ({vertex_bytes} bytes)\n")
+            out.write(f" * Triangles       : {faces_count} ({face_bytes} bytes)\n")
+            out.write(f" * Has UVs         : {'Yes' if has_uv else 'No'}\n")
+            out.write(f" * Bounding Sphere : Center({cx_ratio:.4f}, {cy_ratio:.4f}, {cz_ratio:.4f}), Radius({radius_ratio:.4f})\n")
+            out.write(f" * Flash Memory    : {total_bytes} bytes ({total_bytes / 1024.0:.2f} KB)\n")
+            out.write(" */\n\n")
+            out.write("#pragma once\n\n")
+            out.write("#include \"Geometry/Mesh.hpp\"\n\n")
+            out.write("namespace pip3D\n{\n")
             out.write("    namespace detail\n    {\n")
             out.write(f"        alignas(16) static constexpr Vertex s_{var_name}Vertices[{verts_count}] = {{\n")
             for px, py, pz, v in zip(px_list, py_list, pz_list, vertices):
