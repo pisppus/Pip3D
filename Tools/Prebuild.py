@@ -14,6 +14,14 @@ except ImportError:
     print("\033[36m[Pip3D]\033[0m Pillow not found, installing...")
     subprocess.check_call([env.subst("$PYTHONEXE"), "-m", "pip", "install", "Pillow"])
 
+try:
+    import miniaudio
+    import numpy
+    import matplotlib
+except ImportError:
+    print("\033[36m[Pip3D]\033[0m Audio tools (miniaudio/numpy/matplotlib) not found, installing...")
+    subprocess.check_call([env.subst("$PYTHONEXE"), "-m", "pip", "install", "miniaudio", "numpy", "matplotlib"])
+
 project_dir = env.subst("$PROJECT_DIR")
 
 ANSI_GREEN  = "\033[32m"
@@ -138,7 +146,6 @@ obj_sources_dir     = os.path.join(models_dir, "Sources")
 geometry_models_dir = os.path.join(project_dir, "lib", "Pip3D", "Pip3D", "Geometry", "Models")
 
 os.makedirs(geometry_models_dir, exist_ok=True)
-
 expected_model_outputs = {}
 
 if os.path.isdir(obj_sources_dir):
@@ -172,7 +179,6 @@ tex_sources_dir      = os.path.join(textures_dir, "Sources")
 display_textures_dir = os.path.join(project_dir, "lib", "Pip3D", "Pip3D", "Rendering", "Display", "Textures")
 
 os.makedirs(display_textures_dir, exist_ok=True)
-
 expected_tex_outputs = {}
 
 if os.path.isdir(tex_sources_dir):
@@ -239,6 +245,51 @@ if os.path.isfile(sungen_path):
         mark_built(CACHE, sun_key, sungen_path, sun_hpp_path)
         touch(sun_hpp_path)
         CACHE_CHANGED = True
+
+audio_dir          = os.path.join(project_dir, "Tools", "Audio")
+audio_sources_dir  = os.path.join(audio_dir, "Sources")
+sounds_output_dir  = os.path.join(project_dir, "lib", "Pip3D", "Pip3D", "Audio", "Sounds")
+
+os.makedirs(sounds_output_dir, exist_ok=True)
+expected_audio_outputs = {}
+
+if os.path.isdir(audio_sources_dir):
+    audio_claims = {}
+    for file in sorted(os.listdir(audio_sources_dir)):
+        if file.startswith("_"):
+            continue
+        if file.lower().endswith((".wav", ".mp3", ".ogg", ".flac")):
+            clean_name, _ = parse_asset_name(file)
+            audio_claims.setdefault(clean_name, []).append(file)
+
+    for clean_name, sources in audio_claims.items():
+        hpp_path = os.path.join(sounds_output_dir, clean_name + ".hpp")
+        expected_audio_outputs[os.path.basename(hpp_path)] = True
+
+        if len(sources) > 1:
+            chosen = sorted(sources)[-1]
+            src_path = os.path.join(audio_sources_dir, chosen)
+            print(_tag(ANSI_YELLOW, f"Name collision for audio '{clean_name}': {sources} -> using '{chosen}'"))
+        else:
+            src_path = os.path.join(audio_sources_dir, sources[0])
+
+        key = "audio:" + clean_name
+        if needs_rebuild(CACHE, key, src_path, hpp_path):
+            print(_tag(ANSI_GREEN, f"Building audio: {sources[-1]} -> {clean_name}.hpp"))
+            run_convert(os.path.join(audio_dir, "Convert.py"), [src_path, hpp_path])
+            mark_built(CACHE, key, src_path, hpp_path)
+            touch(hpp_path)
+            CACHE_CHANGED = True
+
+if os.path.isdir(sounds_output_dir):
+    for existing in os.listdir(sounds_output_dir):
+        if existing.lower().endswith(".hpp") and existing not in expected_audio_outputs:
+            stale_path = os.path.join(sounds_output_dir, existing)
+            try:
+                os.remove(stale_path)
+                print(_tag(ANSI_YELLOW, f"Removed orphaned audio header: {existing}"))
+            except OSError:
+                pass
 
 if CACHE_CHANGED:
     save_cache(CACHE)
