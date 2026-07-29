@@ -23,7 +23,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-#include <PipCore/Debug/MemoryHooks.hpp>
+#include <PipCore/Debug/Memory.hpp>
 
 #include <cstring>
 #include <algorithm>

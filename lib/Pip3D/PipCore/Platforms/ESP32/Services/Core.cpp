@@ -1,5 +1,5 @@
 #include <PipCore/Platforms/ESP32/Services/Core.hpp>
-#include <PipCore/Debug/MemoryHooks.hpp>
+#include <PipCore/Debug/Memory.hpp>
 
 #include <Arduino.h>
 #include <esp_heap_caps.h>

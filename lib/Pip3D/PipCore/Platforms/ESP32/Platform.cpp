@@ -1,7 +1,23 @@
 #include <PipCore/Platforms/ESP32/Platform.hpp>
+#include <PipCore/Debug/Alloc.hpp>
+#include <PipCore/Debug/Server.hpp>
+
+#include <cstdlib>
+#include <new>
 
 namespace pipcore::esp32
 {
+    Platform::Platform()
+#if PIPCORE_ENABLE_AUDIO
+        : _audio(static_cast<pipcore::audio::Backend &>(_audioBackend))
+#endif
+    {
+#if PIPCORE_ENABLE_OTA
+        _ota.bindWifi(&_wifi);
+#endif
+        pipcore::debug::Server::instance().begin();
+    }
+
     void Platform::pinModeInput(uint8_t pin, InputMode mode) noexcept
     {
         _gpio.pinModeInput(pin, mode);
@@ -245,4 +261,42 @@ namespace pipcore::esp32
         return nullptr;
 #endif
     }
+}
+
+void *operator new(std::size_t size)
+{
+    void *ptr = pipcore::debug::Tracker::instance().trackMalloc(size, "std.new", __builtin_return_address(0));
+    if (!ptr)
+    {
+#if __cpp_exceptions
+        throw std::bad_alloc();
+#else
+        return nullptr;
+#endif
+    }
+    return ptr;
+}
+
+void *operator new[](std::size_t size)
+{
+    void *ptr = pipcore::debug::Tracker::instance().trackMalloc(size, "std.new[]", __builtin_return_address(0));
+    if (!ptr)
+    {
+#if __cpp_exceptions
+        throw std::bad_alloc();
+#else
+        return nullptr;
+#endif
+    }
+    return ptr;
+}
+
+void operator delete(void *ptr) noexcept
+{
+    pipcore::debug::Tracker::instance().trackFree(ptr);
+}
+
+void operator delete[](void *ptr) noexcept
+{
+    pipcore::debug::Tracker::instance().trackFree(ptr);
 }

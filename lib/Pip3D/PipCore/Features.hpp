@@ -125,7 +125,6 @@ namespace pipcore::detail
 #ifndef PIPCORE_ENABLE_TOUCH
 #define PIPCORE_ENABLE_TOUCH 0
 #endif
-
 #ifndef PIPCORE_TOUCH_SDA
 #define PIPCORE_TOUCH_SDA 8
 #endif
@@ -135,11 +134,18 @@ namespace pipcore::detail
 #ifndef PIPCORE_TOUCH_INT
 #define PIPCORE_TOUCH_INT -1
 #endif
-#ifndef PIPCORE_TOUCH_I2C_ADDR
-#define PIPCORE_TOUCH_I2C_ADDR 0x38
+
+#ifndef PIPCORE_ENABLE_AUDIO
+#define PIPCORE_ENABLE_AUDIO 1
 #endif
-#ifndef PIPCORE_TOUCH_FREQ_HZ
-#define PIPCORE_TOUCH_FREQ_HZ 400000
+#ifndef PIPCORE_AUDIO_I2S_BCK
+#define PIPCORE_AUDIO_I2S_BCK 13
+#endif
+#ifndef PIPCORE_AUDIO_I2S_WS
+#define PIPCORE_AUDIO_I2S_WS 15
+#endif
+#ifndef PIPCORE_AUDIO_I2S_DATA_OUT
+#define PIPCORE_AUDIO_I2S_DATA_OUT 17
 #endif
 
 #ifndef PIPCORE_OTA_PROJECT_URL

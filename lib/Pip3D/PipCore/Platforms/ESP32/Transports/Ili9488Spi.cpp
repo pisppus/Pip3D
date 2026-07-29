@@ -2,7 +2,7 @@
 
 #if PIPCORE_DISPLAY_ID(PIPCORE_DISPLAY) == PIPCORE_DISPLAY_TAG_ILI9488
 
-#include <PipCore/Debug/MemoryHooks.hpp>
+#include <PipCore/Debug/Memory.hpp>
 #include <PipCore/Platforms/ESP32/Transports/Ili9488Spi.hpp>
 #include <driver/gpio.h>
 #include <driver/spi_master.h>
