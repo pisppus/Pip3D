@@ -8,6 +8,8 @@
 #include <PipCore/Network/Wifi.hpp>
 #include <PipCore/Platform.hpp>
 #include <PipCore/Update/Ota.hpp>
+#include <PipCore/Audio.hpp>
+#include <PipCore/Platforms/Desktop/Audio.hpp>
 #if PIPCORE_ENABLE_TOUCH
 #include <PipCore/Platforms/Desktop/Touch.hpp>
 #endif
@@ -17,7 +19,15 @@ namespace pipcore::desktop
     class Platform final : public pipcore::Platform
     {
     public:
-        Platform() = default;
+        Platform()
+#if PIPCORE_ENABLE_AUDIO
+            : _audio(static_cast<pipcore::audio::Backend &>(_audioBackend))
+#endif
+        {
+#if PIPCORE_ENABLE_AUDIO
+            _audioBackend.bindMixer(&_audio);
+#endif
+        }
 
         [[nodiscard]] uint32_t nowMs() noexcept override;
         [[nodiscard]] uint64_t nowUs() noexcept override;
@@ -26,7 +36,8 @@ namespace pipcore::desktop
         [[nodiscard]] bool digitalRead(uint8_t pin) noexcept override;
         [[nodiscard]] int16_t analogRead(uint8_t pin) noexcept override;
 
-        void configureBacklightPin(uint8_t, uint8_t = 0, uint32_t = 5000, uint8_t = 12) noexcept override {}
+        void configureBacklightPin(uint8_t, uint8_t = 0, uint32_t = 5000,
+                                   uint8_t = 12, bool = false) noexcept override {}
         [[nodiscard]] uint8_t loadMaxBrightnessPercent() noexcept override;
         void storeMaxBrightnessPercent(uint8_t percent) noexcept override;
         void setBacklightPercent(uint8_t percent) noexcept override;
@@ -59,6 +70,14 @@ namespace pipcore::desktop
 #else
         [[nodiscard]] pipcore::Touch *touch() noexcept override { return nullptr; }
         [[nodiscard]] const pipcore::Touch *touch() const noexcept override { return nullptr; }
+#endif
+
+#if PIPCORE_ENABLE_AUDIO
+        [[nodiscard]] pipcore::Audio *audio() noexcept override { return &_audio; }
+        [[nodiscard]] const pipcore::Audio *audio() const noexcept override { return &_audio; }
+#else
+        [[nodiscard]] pipcore::Audio *audio() noexcept override { return nullptr; }
+        [[nodiscard]] const pipcore::Audio *audio() const noexcept override { return nullptr; }
 #endif
 
     private:
@@ -98,7 +117,6 @@ namespace pipcore::desktop
             void fail(pipcore::ota::Error error) noexcept;
             void notify() noexcept;
 
-        private:
             pipcore::ota::Options _options = {};
             pipcore::ota::Status _status = {};
             pipcore::ota::StatusCallback _callback = nullptr;
@@ -114,6 +132,11 @@ namespace pipcore::desktop
         OtaBackend _ota = {};
 #if PIPCORE_ENABLE_TOUCH
         Touch _touch;
+#endif
+#if PIPCORE_ENABLE_AUDIO
+
+        desktop::Audio _audioBackend;
+        pipcore::Audio _audio;
 #endif
     };
 }

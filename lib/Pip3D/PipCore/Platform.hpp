@@ -23,6 +23,7 @@ namespace pipcore
     }
 
     class Touch;
+    class Audio;
 
     enum class InputMode : uint8_t
     {
@@ -141,5 +142,8 @@ namespace pipcore
 
         [[nodiscard]] virtual Touch *touch() noexcept { return nullptr; }
         [[nodiscard]] virtual const Touch *touch() const noexcept { return nullptr; }
+
+        [[nodiscard]] virtual Audio *audio() noexcept { return nullptr; }
+        [[nodiscard]] virtual const Audio *audio() const noexcept { return nullptr; }
     };
 }

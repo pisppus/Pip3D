@@ -21,6 +21,10 @@
 #if PIPCORE_ENABLE_TOUCH
 #include <PipCore/Platforms/ESP32/Services/Touch.hpp>
 #endif
+#if PIPCORE_ENABLE_AUDIO
+#include <PipCore/Platforms/ESP32/Services/Audio.hpp>
+#include <PipCore/Audio.hpp>
+#endif
 
 #if (PIPCORE_DISPLAY_ID(PIPCORE_DISPLAY) == PIPCORE_DISPLAY_TAG_ST7789) || \
     (PIPCORE_DISPLAY_ID(PIPCORE_DISPLAY) == PIPCORE_DISPLAY_TAG_ST7796)
@@ -43,12 +47,7 @@ namespace pipcore::esp32
         class Platform final : public pipcore::Platform
         {
         public:
-                Platform()
-                {
-#if PIPCORE_ENABLE_OTA
-                        _ota.bindWifi(&_wifi);
-#endif
-                }
+                Platform();
                 ~Platform() override = default;
 
                 void pinModeInput(uint8_t pin, InputMode mode) noexcept override;
@@ -97,6 +96,14 @@ namespace pipcore::esp32
                 [[nodiscard]] const pipcore::Touch *touch() const noexcept override { return nullptr; }
 #endif
 
+#if PIPCORE_ENABLE_AUDIO
+                [[nodiscard]] pipcore::Audio *audio() noexcept override { return &_audio; }
+                [[nodiscard]] const pipcore::Audio *audio() const noexcept override { return &_audio; }
+#else
+                [[nodiscard]] pipcore::Audio *audio() noexcept override { return nullptr; }
+                [[nodiscard]] const pipcore::Audio *audio() const noexcept override { return nullptr; }
+#endif
+
         private:
                 services::Time _time;
                 services::Gpio _gpio;
@@ -113,6 +120,10 @@ namespace pipcore::esp32
 #endif
 #if PIPCORE_ENABLE_TOUCH
                 services::Touch _touch;
+#endif
+#if PIPCORE_ENABLE_AUDIO
+                services::Audio _audioBackend;
+                pipcore::Audio _audio;
 #endif
                 SelectedDisplayTransport _transport;
                 SelectedDisplay _display;
