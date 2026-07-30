@@ -171,6 +171,8 @@ namespace pip3D
         ~Renderer();
 
         bool init(const DisplayConfig &cfg);
+        bool ensureReflectBuffers();
+
         void beginFrame();
         void endFrame();
         void beginFrameBand(int bandIndex);

@@ -1,4 +1,17 @@
+/*
+ * Pip3D Model Asset — Car
+ * Generated automatically by Tools/Models/Convert.py. Do not edit.
+ *
+ * Source File     : Car.obj
+ * Vertices        : 951 (15216 bytes)
+ * Triangles       : 1874 (11244 bytes)
+ * Has UVs         : No
+ * Bounding Sphere : Center(-0.0017, 0.1224, 0.0072), Radius(1.0118)
+ * Flash Memory    : 26460 bytes (25.84 KB)
+ */
+
 #pragma once
+
 #include "Geometry/Mesh.hpp"
 
 namespace pip3D
