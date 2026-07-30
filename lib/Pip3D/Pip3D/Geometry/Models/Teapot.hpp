@@ -1,4 +1,17 @@
+/*
+ * Pip3D Model Asset — Teapot
+ * Generated automatically by Tools/Models/Convert.py. Do not edit.
+ *
+ * Source File     : Teapot.obj
+ * Vertices        : 1668 (26688 bytes)
+ * Triangles       : 2256 (13536 bytes)
+ * Has UVs         : Yes
+ * Bounding Sphere : Center(-0.0816, 0.4805, 0.0165), Radius(0.9344)
+ * Flash Memory    : 40224 bytes (39.28 KB)
+ */
+
 #pragma once
+
 #include "Geometry/Mesh.hpp"
 
 namespace pip3D

@@ -10,6 +10,7 @@ namespace pip3D
 {
     Renderer::Renderer() : zBuffer(nullptr),
                            reflectBuffer(nullptr),
+                           reflectWriteBuffer(nullptr),
 #if defined(PIP3D_PC)
                            pcDisplayReady(false),
 #else
@@ -63,6 +64,32 @@ namespace pip3D
                 flushSlotSem[i] = nullptr;
             }
         }
+    }
+
+    bool Renderer::ensureReflectBuffers()
+    {
+        if (reflectBuffer && reflectWriteBuffer)
+            return true;
+
+        const size_t reflectBytes = static_cast<size_t>(REFLECT_WIDTH) *
+                                    static_cast<size_t>(REFLECT_HEIGHT) *
+                                    sizeof(uint16_t);
+
+        reflectBuffer = static_cast<uint16_t *>(MemUtils::allocData(reflectBytes, 16));
+        reflectWriteBuffer = static_cast<uint16_t *>(MemUtils::allocData(reflectBytes, 16));
+
+        if (reflectBuffer && reflectWriteBuffer)
+        {
+            memset(reflectBuffer, 0, reflectBytes);
+            memset(reflectWriteBuffer, 0, reflectBytes);
+            LOGI(::pip3D::Debug::LOG_MODULE_RENDER,
+                 "Renderer: Reflection buffers allocated on demand (2x %u bytes)",
+                 static_cast<unsigned>(reflectBytes));
+            return true;
+        }
+
+        LOGW(::pip3D::Debug::LOG_MODULE_RENDER, "Renderer: Reflection buffers allocation failed!");
+        return false;
     }
 
     bool Renderer::init(const DisplayConfig &cfg)
@@ -176,25 +203,8 @@ namespace pip3D
         }
 
         viewport = Viewport(0, 0, cfg.width, cfg.height);
-        const size_t reflectBytes = static_cast<size_t>(REFLECT_WIDTH) *
-                                    static_cast<size_t>(REFLECT_HEIGHT) *
-                                    sizeof(uint16_t);
-
-        reflectBuffer = static_cast<uint16_t *>(MemUtils::allocData(reflectBytes, 16));
-        reflectWriteBuffer = static_cast<uint16_t *>(MemUtils::allocData(reflectBytes, 16));
-
-        if (reflectBuffer && reflectWriteBuffer)
-        {
-            memset(reflectBuffer, 0, reflectBytes);
-            memset(reflectWriteBuffer, 0, reflectBytes);
-            LOGI(::pip3D::Debug::LOG_MODULE_RENDER,
-                 "Renderer::init: double reflection buffers allocated (2x %u bytes)",
-                 static_cast<unsigned>(reflectBytes));
-        }
-        else
-        {
-            LOGW(::pip3D::Debug::LOG_MODULE_RENDER, "Renderer::init: Reflection buffers OOM!");
-        }
+        reflectBuffer = nullptr;
+        reflectWriteBuffer = nullptr;
 
         LOGI(::pip3D::Debug::LOG_MODULE_RENDER, "Renderer::init OK: viewport %dx%d", cfg.width, cfg.height);
 
@@ -415,7 +425,8 @@ namespace pip3D
 
         if (bandIndex == BAND_COUNT - 1)
         {
-            std::swap(reflectBuffer, reflectWriteBuffer);
+            if (reflectBuffer && reflectWriteBuffer)
+                std::swap(reflectBuffer, reflectWriteBuffer);
 
             perfCounter.endFrame();
 
@@ -452,9 +463,10 @@ namespace pip3D
 
     void Renderer::drawSkyboxBackground()
     {
-        const Vector3 &fwd = cameras[activeCameraIndex].forward();
+        const Camera &cam = cameras[activeCameraIndex];
+        const Vector3 &fwd = cam.forward();
         const float pitch = asinf(clamp(fwd.y, -1.0f, 1.0f));
-        const float vfov = cameras[activeCameraIndex].fov * kDegToRad;
+        const float vfov = cam.fov * kDegToRad;
         const float pitchShiftRows =
             (vfov > 1e-4f) ? (pitch / vfov) * static_cast<float>(SCREEN_HEIGHT) : 0.0f;
 
@@ -462,9 +474,9 @@ namespace pip3D
 
         if (framebuffer.getClouds().isReady())
         {
-            const float yaw = atan2f(fwd.x, fwd.z);
             const float hfov = ensureHfovCached();
-            framebuffer.drawClouds<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>(yaw, pitchShiftRows, hfov);
+            framebuffer.drawClouds<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>(
+                fwd, cam.right(), cam.upVec(), vfov, hfov);
         }
     }
 

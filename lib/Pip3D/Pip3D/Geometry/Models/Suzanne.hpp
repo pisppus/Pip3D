@@ -1,4 +1,17 @@
+/*
+ * Pip3D Model Asset — Suzanne
+ * Generated automatically by Tools/Models/Convert.py. Do not edit.
+ *
+ * Source File     : Suzanne.obj
+ * Vertices        : 1175 (18800 bytes)
+ * Triangles       : 967 (5802 bytes)
+ * Has UVs         : Yes
+ * Bounding Sphere : Center(0.0000, 0.0610, -0.2223), Radius(1.0222)
+ * Flash Memory    : 24602 bytes (24.03 KB)
+ */
+
 #pragma once
+
 #include "Geometry/Mesh.hpp"
 
 namespace pip3D
