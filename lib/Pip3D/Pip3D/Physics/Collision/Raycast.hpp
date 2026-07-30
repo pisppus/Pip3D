@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Math/Collision.hpp"
-#include "../Types.hpp"
+#include "Physics/Types.hpp"
 
 namespace pip3D
 {

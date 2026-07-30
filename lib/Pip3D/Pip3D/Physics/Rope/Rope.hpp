@@ -2,7 +2,7 @@
 
 #include "Core/Platform.hpp"
 #include "Math/Algebra.hpp"
-#include "../Dynamics/Body.hpp"
+#include "Physics/RigidBody/Body.hpp"
 
 namespace pip3D
 {

@@ -1,60 +1,62 @@
 #pragma once
 
-#include <math.h>
+#include <cmath>
 #include <float.h>
 
+#include "Core/Platform.hpp"
 #include "Math/Algebra.hpp"
-#include "../Dynamics/Body.hpp"
-#include "../Dynamics/Contacts.hpp"
-#include "GJKTypes.hpp"
-#include "Simplex.hpp"
+#include "Math/Collision.hpp"
+#include "Physics/RigidBody/Body.hpp"
+#include "Physics/RigidBody/Contacts.hpp"
+#include "Physics/Collision/Simplex.hpp"
 
 namespace pip3D
 {
-
     inline bool gjkIntersect(const RigidBody *a, const RigidBody *b,
-                             GJKVertex *outSimplex, int &outSize)
+                             GJKVertex *outSimplex, int &outSize) noexcept
     {
-
         const float bodyScale = a->radius + b->radius;
-        const float kDistEps = 1e-5f * fmaxf(bodyScale, 1.0f);
-        const float kDupEps = 1e-6f * fmaxf(bodyScale * bodyScale, 1.0f);
+        const float safeScale = (bodyScale > 1e-4f) ? bodyScale : 1e-4f;
+        const float kDistEps = 1e-5f * safeScale;
+        const float kDupEpsSq = 1e-8f * safeScale * safeScale;
 
-        Vector3 dir = v3sub(b->position, a->position);
-        if (v3dot(dir, dir) < 1e-12f)
-            dir = Vector3(1, 0, 0);
+        Vector3 dir = b->position - a->position;
+        if (dir.lengthSquared() < 1e-12f)
+            dir = Vector3(0.0f, 1.0f, 0.0f);
 
         GJKVertex simplexBuf[4];
         int size = 0;
 
         Vector3 sa = a->support(dir);
-        Vector3 sb = b->support(v3neg(dir));
-        simplexBuf[0].m = v3sub(sa, sb);
+        Vector3 sb = b->support(-dir);
+        simplexBuf[0].m = sa - sb;
         simplexBuf[0].pA = sa;
         simplexBuf[0].pB = sb;
         size = 1;
 
-        dir = v3neg(simplexBuf[0].m);
+        dir = -simplexBuf[0].m;
 
         const int kMaxGJKIters = 32;
         for (int iter = 0; iter < kMaxGJKIters; ++iter)
         {
-            float dirLen = sqrtf(v3dot(dir, dir));
-            if (dirLen < kDistEps)
+            const float dirLenSq = dir.lengthSquared();
+            if (dirLenSq < kDistEps * kDistEps)
             {
+
                 for (int i = 0; i < size; ++i)
                     outSimplex[i] = simplexBuf[i];
                 outSize = size;
                 return true;
             }
-            dir = v3scale(dir, 1.0f / dirLen);
+
+            const float invDirLen = FastMath::fastInvSqrt(dirLenSq);
+            dir = dir * invDirLen;
 
             sa = a->support(dir);
-            sb = b->support(v3neg(dir));
-            Vector3 p = v3sub(sa, sb);
+            sb = b->support(-dir);
+            const Vector3 p = sa - sb;
 
-            float proj = v3dot(p, dir);
-            if (proj < -kDistEps)
+            if (p.dot(dir) < -1e-5f)
             {
                 outSize = 0;
                 return false;
@@ -63,24 +65,23 @@ namespace pip3D
             bool duplicate = false;
             for (int i = 0; i < size; ++i)
             {
-                Vector3 d = v3sub(p, simplexBuf[i].m);
-                if (v3dot(d, d) < kDupEps)
+                if ((p - simplexBuf[i].m).lengthSquared() < kDupEpsSq)
                 {
                     duplicate = true;
                     break;
                 }
             }
+
             if (duplicate)
             {
 
-                Vector3 tmpDir;
                 GJKVertex tmp[4];
                 for (int i = 0; i < size; ++i)
                     tmp[i] = simplexBuf[i];
                 int tmpSize = size;
-                simplexClosestToOrigin(tmp, tmpSize, tmpDir);
-                float dSq = v3dot(tmpDir, tmpDir);
-                if (dSq < kDistEps * kDistEps)
+                Vector3 tmpDir;
+                const bool containsOrigin = simplexClosestToOrigin(tmp, tmpSize, tmpDir);
+                if (containsOrigin || tmpDir.lengthSquared() < kDistEps * kDistEps)
                 {
                     for (int i = 0; i < tmpSize; ++i)
                         outSimplex[i] = tmp[i];
@@ -91,18 +92,13 @@ namespace pip3D
                 return false;
             }
 
-            if (size >= 4)
-            {
-                outSize = 0;
-                return false;
-            }
             simplexBuf[size].m = p;
             simplexBuf[size].pA = sa;
             simplexBuf[size].pB = sb;
             ++size;
 
             Vector3 newDir;
-            bool containsOrigin = simplexClosestToOrigin(simplexBuf, size, newDir);
+            const bool containsOrigin = simplexClosestToOrigin(simplexBuf, size, newDir);
             if (containsOrigin)
             {
                 for (int i = 0; i < size; ++i)

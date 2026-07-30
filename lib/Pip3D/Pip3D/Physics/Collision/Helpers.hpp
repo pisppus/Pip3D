@@ -4,12 +4,12 @@
 #include <math.h>
 
 #include "Math/Collision.hpp"
-#include "../Dynamics/Body.hpp"
-#include "../Dynamics/Contacts.hpp"
-#include "../Types.hpp"
-#include "GJK.hpp"
-#include "Simplex.hpp"
-#include "EPA.hpp"
+#include "Physics/RigidBody/Body.hpp"
+#include "Physics/RigidBody/Contacts.hpp"
+#include "Physics/Types.hpp"
+#include "Physics/Collision/GJK.hpp"
+#include "Physics/Collision/Simplex.hpp"
+#include "Physics/Collision/EPA.hpp"
 
 namespace pip3D
 {

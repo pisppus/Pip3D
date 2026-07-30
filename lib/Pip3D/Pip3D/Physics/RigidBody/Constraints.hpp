@@ -2,8 +2,8 @@
 
 #include <math.h>
 
-#include "Body.hpp"
-#include "../Types.hpp"
+#include "Physics/RigidBody/Body.hpp"
+#include "Physics/Types.hpp"
 
 namespace pip3D
 {
@@ -87,8 +87,18 @@ namespace pip3D
             if (!aBody || !bBody)
                 return;
 
-            float invMassA = aBody->invMass;
-            float invMassB = bBody->invMass;
+            if (aBody->isSleeping != bBody->isSleeping)
+            {
+                if (aBody->isSleeping)
+                    aBody->wakeUp();
+                if (bBody->isSleeping)
+                    bBody->wakeUp();
+            }
+
+            const bool aImmovable = aBody->isStatic || aBody->isKinematic || aBody->isSleeping;
+            const bool bImmovable = bBody->isStatic || bBody->isKinematic || bBody->isSleeping;
+            const float invMassA = aImmovable ? 0.0f : aBody->invMass;
+            const float invMassB = bImmovable ? 0.0f : bBody->invMass;
             float invMassSum = invMassA + invMassB;
             if (invMassSum <= 0.0f)
             {
@@ -120,26 +130,41 @@ namespace pip3D
 
             Vector3 rAxn = rA.cross(n);
             Vector3 rBxn = rB.cross(n);
-            Vector3 invIA = aBody->mulWorldInvInertia(rAxn);
-            Vector3 invIB = bBody->mulWorldInvInertia(rBxn);
+            Vector3 invIA = invMassA > 0.0f ? aBody->mulWorldInvInertia(rAxn) : Vector3(0, 0, 0);
+            Vector3 invIB = invMassB > 0.0f ? bBody->mulWorldInvInertia(rBxn) : Vector3(0, 0, 0);
             float angularTerm = invIA.cross(rA).dot(n) + invIB.cross(rB).dot(n);
             float denom = invMassSum + angularTerm;
 
-            float beta, soft;
-            computeSoftConstraint(frequencyHz, dampingRatio, deltaTime, beta, soft);
+            if (denom <= 0.0f || deltaTime <= 0.0f)
+            {
+                effectiveMass = 0.0f;
+                bias = 0.0f;
+                gamma = 0.0f;
+                return;
+            }
 
-            float softOverDt = (deltaTime > 0.0f) ? soft / deltaTime : 0.0f;
-            float kPlusSoft = denom + softOverDt;
-            effectiveMass = (kPlusSoft > 0.0f) ? 1.0f / kPlusSoft : 0.0f;
-            gamma = (kPlusSoft > 0.0f) ? softOverDt * effectiveMass : 0.0f;
+            const float rigidMass = 1.0f / denom;
+            if (frequencyHz > 0.0f)
+            {
+                const float omega = 2.0f * kPi * frequencyHz;
+                const float damping = 2.0f * rigidMass * dampingRatio * omega;
+                const float stiffness = rigidMass * omega * omega;
+                const float gammaDenom = deltaTime * (damping + deltaTime * stiffness);
+                gamma = gammaDenom > 1e-12f ? 1.0f / gammaDenom : 0.0f;
+                const float beta = deltaTime * stiffness * gamma;
 
-            bias = (deltaTime > 0.0f) ? -beta * C / deltaTime : 0.0f;
+                bias = beta * C;
+            }
+            else
+            {
+                gamma = 0.0f;
+                bias = 0.20f * C / deltaTime;
+            }
+            effectiveMass = 1.0f / (denom + gamma);
 
             if (accumulatedImpulse != 0.0f)
             {
                 Vector3 impulse = n * accumulatedImpulse;
-                bool aImmovable = aBody->isStatic || aBody->isKinematic;
-                bool bImmovable = bBody->isStatic || bBody->isKinematic;
                 if (!aImmovable && invMassA > 0.0f)
                 {
                     aBody->velocity -= impulse * invMassA;
@@ -164,13 +189,13 @@ namespace pip3D
             if (effectiveMass <= 0.0f)
                 return;
 
-            bool aImmovable = aBody->isStatic || aBody->isKinematic;
-            bool bImmovable = bBody->isStatic || bBody->isKinematic;
+            bool aImmovable = aBody->isStatic || aBody->isKinematic || aBody->isSleeping;
+            bool bImmovable = bBody->isStatic || bBody->isKinematic || bBody->isSleeping;
             if (aImmovable && bImmovable)
                 return;
 
-            float invMassA = aBody->invMass;
-            float invMassB = bBody->invMass;
+            float invMassA = aImmovable ? 0.0f : aBody->invMass;
+            float invMassB = bImmovable ? 0.0f : bBody->invMass;
 
             Vector3 vA = aBody->velocity + aBody->angularVelocity.cross(rA);
             Vector3 vB = bBody->velocity + bBody->angularVelocity.cross(rB);

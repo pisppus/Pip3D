@@ -2,8 +2,9 @@
 
 #include <float.h>
 
+#include "Core/Platform.hpp"
 #include "Math/Collision.hpp"
-#include "Body.hpp"
+#include "Physics/RigidBody/Body.hpp"
 
 namespace pip3D
 {
@@ -45,7 +46,7 @@ namespace pip3D
                                           const BuoyancyZone *zones,
                                           size_t zoneCount,
                                           float effectiveGravity,
-                                          float deltaTime)
+                                          float) noexcept
     {
         if (zoneCount == 0)
             return;
@@ -53,14 +54,15 @@ namespace pip3D
         for (size_t i = 0; i < bodyCount; ++i)
         {
             RigidBody *b = bodies[i];
-            if (!b || b->isStatic || b->isKinematic || b->isSleeping || b->mass <= 0.0f)
+            if (!b || b->isStatic || b->isKinematic || b->isSleeping)
                 continue;
-
+            if (b->getInvMass() <= 0.0f)
+                continue;
             if (b->shape == BODY_SHAPE_SPHERE)
                 continue;
 
-            Vector3 half = b->size * 0.5f;
-            Vector3 localCorners[4] = {
+            const Vector3 half = b->size * 0.5f;
+            const Vector3 localCorners[4] = {
                 Vector3(-half.x, -half.y, -half.z),
                 Vector3(half.x, -half.y, -half.z),
                 Vector3(half.x, -half.y, half.z),
@@ -69,40 +71,38 @@ namespace pip3D
             for (size_t zi = 0; zi < zoneCount; ++zi)
             {
                 const BuoyancyZone &zone = zones[zi];
-
                 bool anySubmerged = false;
 
                 for (int c = 0; c < 4; ++c)
                 {
-                    Vector3 worldCorner = b->orientation.rotate(localCorners[c]) + b->position;
+                    const Vector3 worldCorner =
+                        b->orientation.rotate(localCorners[c]) + b->position;
                     if (!zone.bounds.contains(worldCorner))
                         continue;
 
-                    float depth = zone.surfaceLevel - worldCorner.y;
+                    const float depth = zone.surfaceLevel - worldCorner.y;
                     if (depth <= 0.0f)
                         continue;
                     anySubmerged = true;
 
-                    float hRef = b->size.y > 0.0f ? b->size.y : 1.0f;
+                    const float hRef = (b->size.y > 0.0f) ? b->size.y : 1.0f;
                     float depthFactor = depth / hRef;
                     if (depthFactor > 1.0f)
                         depthFactor = 1.0f;
 
-                    float cornerForceMag =
-                        (b->mass * zone.density * effectiveGravity * 0.25f) * depthFactor;
-                    Vector3 forceVec(0.0f, cornerForceMag, 0.0f);
-                    b->applyForce(forceVec);
+                    const float cornerForceMag =
+                        (b->getMass() * zone.density * effectiveGravity * 0.25f) *
+                        depthFactor;
+                    const Vector3 forceVec(0.0f, cornerForceMag, 0.0f);
 
-                    Vector3 r = worldCorner - b->position;
-                    Vector3 tau = r.cross(forceVec);
-                    Vector3 angAcc = b->mulWorldInvInertia(tau);
-                    b->angularVelocity += angAcc * deltaTime;
+                    b->applyForceAt(forceVec, worldCorner);
                 }
 
                 if (anySubmerged)
                 {
-                    float linFactor = 1.0f - zone.dragLinear * deltaTime;
-                    float angFactor = 1.0f - zone.dragAngular * deltaTime;
+
+                    float linFactor = 1.0f - zone.dragLinear * 0.016f;
+                    float angFactor = 1.0f - zone.dragAngular * 0.016f;
                     if (linFactor < 0.0f)
                         linFactor = 0.0f;
                     if (angFactor < 0.0f)
