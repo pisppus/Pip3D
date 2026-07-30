@@ -4,15 +4,15 @@
 #include <math.h>
 
 #include "Math/Collision.hpp"
-#include "../Dynamics/Body.hpp"
-#include "../Dynamics/Contacts.hpp"
-#include "../Types.hpp"
-#include "GJK.hpp"
-#include "Simplex.hpp"
-#include "EPA.hpp"
-#include "Helpers.hpp"
-#include "Primitives.hpp"
-#include "Convex.hpp"
+#include "Physics/RigidBody/Body.hpp"
+#include "Physics/RigidBody/Contacts.hpp"
+#include "Physics/Types.hpp"
+#include "Physics/Collision/GJK.hpp"
+#include "Physics/Collision/Simplex.hpp"
+#include "Physics/Collision/EPA.hpp"
+#include "Physics/Collision/Helpers.hpp"
+#include "Physics/Collision/Primitives.hpp"
+#include "Physics/Collision/Convex.hpp"
 
 namespace pip3D
 {
@@ -22,9 +22,26 @@ namespace pip3D
     inline ContactManifold detectCapsuleSphere(RigidBody *cap, RigidBody *sphere);
     inline ContactManifold detectCapsuleBox(RigidBody *cap, RigidBody *box);
     inline ContactManifold detectCapsuleCapsule(RigidBody *a, RigidBody *b);
+
     inline ContactManifold detectCollision(RigidBody *a, RigidBody *b, float currentDeltaTime)
     {
         ContactManifold info;
+        info.hasCollision = false;
+        info.hasRealContact = false;
+        info.bodyA = a;
+        info.bodyB = b;
+        info.contactCount = 0;
+        info.normal = Vector3(0, 1, 0);
+        for (int i = 0; i < PhysicsConfig::MAX_CONTACT_POINTS; ++i)
+        {
+            info.contacts[i].pos = Vector3(0, 0, 0);
+            info.contacts[i].localPointA = Vector3(0, 0, 0);
+            info.contacts[i].localPointB = Vector3(0, 0, 0);
+            info.contacts[i].penetration = 0.0f;
+            info.contacts[i].featureId = 0;
+            info.contacts[i].lifetime = 0;
+        }
+
         if (!a || !b)
             return info;
 
@@ -39,21 +56,20 @@ namespace pip3D
         BodyShape sa = a->shape;
         BodyShape sb = b->shape;
 
+        const bool aConvexLike = (sa == BODY_SHAPE_CONVEX || sa == BODY_SHAPE_BOX || sa == BODY_SHAPE_CYLINDER);
+        const bool bConvexLike = (sb == BODY_SHAPE_CONVEX || sb == BODY_SHAPE_BOX || sb == BODY_SHAPE_CYLINDER);
+
+        if (aConvexLike && bConvexLike)
+            return detectConvexConvex(a, b);
+
         auto adoptSwapped = [&](ContactManifold swapped) -> ContactManifold &
         {
             if (!swapped.hasCollision)
                 return info;
-            info.hasCollision = true;
+            info = swapped;
             info.bodyA = a;
             info.bodyB = b;
             info.normal = swapped.normal * -1.0f;
-            info.contactCount = swapped.contactCount;
-            for (int i = 0; i < swapped.contactCount && i < 4; ++i)
-            {
-                info.contacts[i].pos = swapped.contacts[i].pos;
-                info.contacts[i].penetration = swapped.contacts[i].penetration;
-                info.contacts[i].featureId = swapped.contacts[i].featureId;
-            }
             return info;
         };
 
@@ -81,13 +97,15 @@ namespace pip3D
         if (sa == BODY_SHAPE_CAPSULE && sb == BODY_SHAPE_CAPSULE)
             return detectCapsuleCapsule(a, b);
 
-        if (sa == BODY_SHAPE_CONVEX && sb == BODY_SHAPE_BOX)
-            return detectConvexBox(a, b);
-        if (sa == BODY_SHAPE_BOX && sb == BODY_SHAPE_CONVEX)
-            return adoptSwapped(detectConvexBox(b, a));
-
-        if (sa == BODY_SHAPE_CONVEX || sb == BODY_SHAPE_CONVEX)
+        if (aConvexLike && sb == BODY_SHAPE_SPHERE)
             return detectConvexConvex(a, b);
+        if (sa == BODY_SHAPE_SPHERE && bConvexLike)
+            return adoptSwapped(detectConvexConvex(b, a));
+
+        if (aConvexLike && sb == BODY_SHAPE_CAPSULE)
+            return detectConvexConvex(a, b);
+        if (sa == BODY_SHAPE_CAPSULE && bConvexLike)
+            return adoptSwapped(detectConvexConvex(b, a));
 
         return info;
     }

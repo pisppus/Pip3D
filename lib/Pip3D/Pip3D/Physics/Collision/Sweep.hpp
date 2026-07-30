@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../Dynamics/Body.hpp"
-#include "../Dynamics/Contacts.hpp"
+#include "Physics/RigidBody/Body.hpp"
+#include "Physics/RigidBody/Contacts.hpp"
 
 namespace pip3D
 {

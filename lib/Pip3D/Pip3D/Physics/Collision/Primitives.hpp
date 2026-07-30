@@ -4,9 +4,39 @@
 
 namespace pip3D
 {
-    inline ContactManifold detectSphereSphere(RigidBody *a, RigidBody *b, float currentDeltaTime)
+
+#define PIP3D_INIT_MANIFOLD(info, aPtr, bPtr)                       \
+    do                                                              \
+    {                                                               \
+        (info).hasCollision = false;                                \
+        (info).hasRealContact = false;                              \
+        (info).bodyA = (aPtr);                                      \
+        (info).bodyB = (bPtr);                                      \
+        (info).contactCount = 0;                                    \
+        (info).normal = Vector3(0, 1, 0);                           \
+        for (int i = 0; i < PhysicsConfig::MAX_CONTACT_POINTS; ++i) \
+        {                                                           \
+            (info).contacts[i].pos = Vector3(0, 0, 0);              \
+            (info).contacts[i].localPointA = Vector3(0, 0, 0);      \
+            (info).contacts[i].localPointB = Vector3(0, 0, 0);      \
+            (info).contacts[i].penetration = 0.0f;                  \
+            (info).contacts[i].accumulatedImpulse = 0.0f;           \
+            (info).contacts[i].tangentImpulse1 = 0.0f;              \
+            (info).contacts[i].tangentImpulse2 = 0.0f;              \
+            (info).contacts[i].normalMass = 0.0f;                   \
+            (info).contacts[i].tangentMass1 = 0.0f;                 \
+            (info).contacts[i].tangentMass2 = 0.0f;                 \
+            (info).contacts[i].bias = 0.0f;                         \
+            (info).contacts[i].material = 0;                        \
+            (info).contacts[i].lifetime = 0;                        \
+            (info).contacts[i].featureId = 0;                       \
+        }                                                           \
+    } while (0)
+
+    inline ContactManifold detectSphereSphere(RigidBody *a, RigidBody *b, float)
     {
         ContactManifold info;
+        PIP3D_INIT_MANIFOLD(info, a, b);
 
         Vector3 centerA = a->position;
         Vector3 centerB = b->position;
@@ -36,51 +66,13 @@ namespace pip3D
             return info;
         }
 
-        if (currentDeltaTime > 0.0f)
-        {
-            Vector3 relStart = a->previousPosition - b->previousPosition;
-            Vector3 relEnd = a->position - b->position;
-            Vector3 relDir = relEnd - relStart;
-            float relLenSq = relDir.lengthSquared();
-            if (relLenSq > 1e-8f)
-            {
-                Ray ray(relStart, relDir);
-                CollisionSphere expanded(Vector3(0, 0, 0), radiusSum);
-                float t;
-                if (ray.intersects(expanded, t) && t >= 0.0f && t <= 1.0f)
-                {
-                    Vector3 posA = a->previousPosition + (a->position - a->previousPosition) * t;
-                    Vector3 posB = b->previousPosition + (b->position - b->previousPosition) * t;
-                    Vector3 hitDelta = posB - posA;
-                    float distHitSq = hitDelta.lengthSquared();
-                    float distHit = distHitSq > 1e-8f ? sqrtf(distHitSq) : 0.0f;
-                    Vector3 normal;
-                    if (distHit > 1e-4f)
-                        normal = hitDelta * FastMath::fastInvSqrt(distHitSq);
-                    else
-                        normal = Vector3(0, 1, 0);
-                    float penetration = radiusSum - distHit;
-                    if (penetration < 0.0f)
-                        penetration = 0.0f;
-                    Vector3 contact = posA + normal * (a->radius - penetration * 0.5f);
-
-                    info.hasCollision = true;
-                    info.bodyA = a;
-                    info.bodyB = b;
-                    info.normal = normal;
-                    info.contactCount = 1;
-                    info.contacts[0].pos = contact;
-                    info.contacts[0].penetration = penetration;
-                    info.contacts[0].featureId = makeFeatureId(CONTACT_FEATURE_VERTEX, 0u);
-                }
-            }
-        }
         return info;
     }
 
-    inline ContactManifold detectSphereBox(RigidBody *sphere, RigidBody *box, float currentDeltaTime)
+    inline ContactManifold detectSphereBox(RigidBody *sphere, RigidBody *box, float)
     {
         ContactManifold info;
+        PIP3D_INIT_MANIFOLD(info, sphere, box);
 
         Vector3 sphereCenter = sphere->position;
         Vector3 boxCenter = box->position;
@@ -111,7 +103,6 @@ namespace pip3D
             }
             else
             {
-
                 float dx = halfExtents.x - fabsf(local.x);
                 float dy = halfExtents.y - fabsf(local.y);
                 float dz = halfExtents.z - fabsf(local.z);
@@ -137,72 +128,13 @@ namespace pip3D
             return info;
         }
 
-        if (currentDeltaTime > 0.0f)
-        {
-            Vector3 start = sphere->previousPosition;
-            Vector3 end = sphere->position;
-            Vector3 dir = end - start;
-            float lenSq = dir.lengthSquared();
-            if (lenSq > 1e-8f)
-            {
-                AABB expanded = box->bounds;
-                expanded.min.x -= r;
-                expanded.min.y -= r;
-                expanded.min.z -= r;
-                expanded.max.x += r;
-                expanded.max.y += r;
-                expanded.max.z += r;
-
-                Ray ray(start, dir);
-                float tMin, tMax;
-                if (ray.intersects(expanded, tMin, tMax) && tMax >= 0.0f && tMin <= 1.0f)
-                {
-                    float tHit = tMin;
-                    if (tHit < 0.0f)
-                        tHit = 0.0f;
-                    if (tHit > 1.0f)
-                        tHit = 1.0f;
-
-                    Vector3 centerHit = start + dir * tHit;
-                    Vector3 boxMin = box->bounds.min;
-                    Vector3 boxMax = box->bounds.max;
-                    Vector3 closestHit = closestPtOnAABB(centerHit, boxMin, boxMax);
-                    Vector3 diffHit = closestHit - centerHit;
-                    float distHitSq = diffHit.lengthSquared();
-                    float distHit = distHitSq > 1e-8f ? sqrtf(distHitSq) : 0.0f;
-
-                    Vector3 normal;
-                    float penetration;
-                    if (distHit > 1e-4f)
-                    {
-                        normal = diffHit * FastMath::fastInvSqrt(distHitSq);
-                        penetration = r - distHit;
-                    }
-                    else
-                    {
-                        normal = Vector3(0, -1, 0);
-                        penetration = r;
-                    }
-                    if (penetration < 0.0f)
-                        penetration = 0.0f;
-
-                    info.hasCollision = true;
-                    info.bodyA = sphere;
-                    info.bodyB = box;
-                    info.normal = normal;
-                    info.contactCount = 1;
-                    info.contacts[0].pos = closestHit;
-                    info.contacts[0].penetration = penetration;
-                    info.contacts[0].featureId = makeFeatureId(CONTACT_FEATURE_VERTEX, 0u);
-                }
-            }
-        }
         return info;
     }
 
     inline ContactManifold detectBoxBox(RigidBody *a, RigidBody *b)
     {
         ContactManifold info;
+        PIP3D_INIT_MANIFOLD(info, a, b);
 
         const float eps = 1e-4f;
         Vector3 Ca = a->position;
@@ -355,7 +287,6 @@ namespace pip3D
             info.contactCount = 1;
             info.contacts[0].pos = (c1 + c2) * 0.5f;
             info.contacts[0].penetration = minPenetration;
-
             info.contacts[0].featureId = makeFeatureId(CONTACT_FEATURE_EDGE,
                                                        (static_cast<uint32_t>(i) << 4) | static_cast<uint32_t>(j));
             return info;
@@ -438,7 +369,7 @@ namespace pip3D
         {
             Vector3 p = incidentWorld[i];
             float dist = n.dot(p) - planeD;
-            if (dist <= contactEps && info.contactCount < 4)
+            if (dist <= contactEps && info.contactCount < PhysicsConfig::MAX_CONTACT_POINTS)
             {
                 Contact &c = info.contacts[info.contactCount++];
                 c.pos = p - n * (dist > 0.0f ? 0.0f : dist);
@@ -467,6 +398,7 @@ namespace pip3D
     inline ContactManifold detectCapsuleSphere(RigidBody *cap, RigidBody *sphere)
     {
         ContactManifold info;
+        PIP3D_INIT_MANIFOLD(info, cap, sphere);
 
         Vector3 p0, p1;
         capsuleEndpoints(cap, p0, p1);
@@ -516,6 +448,7 @@ namespace pip3D
     inline ContactManifold detectCapsuleBox(RigidBody *cap, RigidBody *box)
     {
         ContactManifold info;
+        PIP3D_INIT_MANIFOLD(info, cap, box);
 
         Vector3 p0, p1;
         capsuleEndpoints(cap, p0, p1);
@@ -547,7 +480,6 @@ namespace pip3D
         }
         else
         {
-
             float dx = halfExtents.x - fabsf(segPt.x);
             float dy = halfExtents.y - fabsf(segPt.y);
             float dz = halfExtents.z - fabsf(segPt.z);
@@ -585,7 +517,7 @@ namespace pip3D
 
         for (int ei = 0; ei < 2; ++ei)
         {
-            if (info.contactCount >= 4)
+            if (info.contactCount >= PhysicsConfig::MAX_CONTACT_POINTS)
                 break;
 
             Vector3 epNormal;
@@ -621,6 +553,7 @@ namespace pip3D
     inline ContactManifold detectCapsuleCapsule(RigidBody *a, RigidBody *b)
     {
         ContactManifold info;
+        PIP3D_INIT_MANIFOLD(info, a, b);
 
         Vector3 a0, a1, b0, b1;
         capsuleEndpoints(a, a0, a1);

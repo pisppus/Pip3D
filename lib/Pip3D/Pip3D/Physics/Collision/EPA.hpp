@@ -1,7 +1,10 @@
 #pragma once
 
-#include "GJK.hpp"
-#include "Simplex.hpp"
+#include <utility>
+
+#include "Core/Platform.hpp"
+#include "Math/Algebra.hpp"
+#include "Physics/Collision/Simplex.hpp"
 
 namespace pip3D
 {
@@ -19,69 +22,64 @@ namespace pip3D
         Vector3 normal;
         float dist;
     };
+
+    struct EPAEdge
+    {
+        int v0, v1;
+    };
+
     inline bool epaPenetration(const RigidBody *a, const RigidBody *b,
                                const GJKVertex *gjkSimplex, int gjkSize,
-                               EPAResult &out)
+                               EPAResult &out) noexcept
     {
+        if (gjkSize < 4)
+            return false;
+
         const float bodyScale = a->radius + b->radius;
-        const float kEps = 1e-5f * fmaxf(bodyScale, 1.0f);
+        const float safeScale = (bodyScale > 1e-4f) ? bodyScale : 1e-4f;
+        const float kEps = 1e-5f * safeScale;
+        const float kDegenerateNormalSq = 1e-10f * safeScale * safeScale;
+        const float kDupEpsSq = 1e-8f * safeScale * safeScale;
 
-        GJKVertex verts[64];
-        int vertCount = 0;
+        static DRAM_ATTR GJKVertex verts[64];
+        static DRAM_ATTR EPAFace faces[128];
+        static DRAM_ATTR bool visible[128];
+        static DRAM_ATTR EPAEdge horizon[128];
 
-        for (int i = 0; i < gjkSize && vertCount < 4; ++i)
-            verts[vertCount++] = gjkSimplex[i];
+        int vertCount = 4;
 
-        if (vertCount < 4)
+        for (int i = 0; i < 4; ++i)
+            verts[i] = gjkSimplex[i];
+
+        const Vector3 v0 = verts[0].m;
+        const Vector3 v1 = verts[1].m;
+        const Vector3 v2 = verts[2].m;
+        const Vector3 v3 = verts[3].m;
+        const float vol = (v1 - v0).dot((v2 - v0).cross(v3 - v0));
+        if (vol < 0.0f)
         {
-            const Vector3 kExtraDirs[6] = {
-                Vector3(1, 0, 0), Vector3(-1, 0, 0),
-                Vector3(0, 1, 0), Vector3(0, -1, 0),
-                Vector3(0, 0, 1), Vector3(0, 0, -1)};
-            for (int i = 0; i < 6 && vertCount < 4; ++i)
-            {
-                Vector3 sa = a->support(kExtraDirs[i]);
-                Vector3 sb = b->support(v3neg(kExtraDirs[i]));
-                GJKVertex v;
-                v.m = v3sub(sa, sb);
-                v.pA = sa;
-                v.pB = sb;
-                bool dup = false;
-                for (int j = 0; j < vertCount; ++j)
-                {
-                    Vector3 d = v3sub(v.m, verts[j].m);
-                    if (v3dot(d, d) < 1e-10f)
-                    {
-                        dup = true;
-                        break;
-                    }
-                }
-                if (!dup)
-                    verts[vertCount++] = v;
-            }
-            if (vertCount < 4)
-                return false;
+            std::swap(verts[1], verts[2]);
         }
 
-        EPAFace faces[128];
         int faceCount = 0;
 
         auto addFace = [&](int i0, int i1, int i2)
         {
             if (faceCount >= 128)
                 return;
-            Vector3 A = verts[i0].m;
-            Vector3 B = verts[i1].m;
-            Vector3 C = verts[i2].m;
-            Vector3 n = v3cross(v3sub(B, A), v3sub(C, A));
-            float nLen = v3len(n);
-            if (nLen < 1e-10f)
+            const Vector3 A = verts[i0].m;
+            const Vector3 B = verts[i1].m;
+            const Vector3 C = verts[i2].m;
+            Vector3 n = (B - A).cross(C - A);
+            const float nLenSq = n.lengthSquared();
+            if (nLenSq < kDegenerateNormalSq)
                 return;
-            n = v3scale(n, 1.0f / nLen);
-            float d = v3dot(n, A);
+            const float nLen = sqrtf(nLenSq);
+            n = n * (1.0f / nLen);
+            float d = n.dot(A);
             if (d < 0.0f)
             {
-                n = v3neg(n);
+                n = -n;
                 d = -d;
             }
             EPAFace f;
@@ -93,193 +91,208 @@ namespace pip3D
             faces[faceCount++] = f;
         };
 
-        addFace(1, 2, 3);
-        addFace(0, 3, 2);
-        addFace(0, 1, 3);
         addFace(0, 2, 1);
+        addFace(0, 1, 3);
+        addFace(0, 3, 2);
+        addFace(1, 2, 3);
 
-        const int kMaxEPAIters = 32;
+        if (faceCount == 0)
+            return false;
 
+        const int kMaxEPAIters = 48;
         for (int iter = 0; iter < kMaxEPAIters; ++iter)
         {
-
             int bestFace = 0;
-            float bestDist = faces[0].dist;
+            float minDist = faces[0].dist;
             for (int i = 1; i < faceCount; ++i)
             {
-                if (faces[i].dist < bestDist)
+                if (faces[i].dist < minDist)
                 {
-                    bestDist = faces[i].dist;
+                    minDist = faces[i].dist;
                     bestFace = i;
                 }
             }
 
-            Vector3 dir = faces[bestFace].normal;
-            Vector3 sa = a->support(dir);
-            Vector3 sb = b->support(v3neg(dir));
+            const Vector3 dir = faces[bestFace].normal;
+            const Vector3 sa = a->support(dir);
+            const Vector3 sb = b->support(-dir);
             GJKVertex newV;
-            newV.m = v3sub(sa, sb);
+            newV.m = sa - sb;
             newV.pA = sa;
             newV.pB = sb;
 
-            float supportDist = v3dot(newV.m, dir);
-            if (supportDist - bestDist < kEps)
+            const float supportDist = newV.m.dot(dir);
+            if (supportDist - minDist < kEps)
             {
 
-                EPAFace &f = faces[bestFace];
-                Vector3 A = verts[f.a].m;
-                Vector3 B = verts[f.b].m;
-                Vector3 C = verts[f.c].m;
+                const EPAFace &f = faces[bestFace];
+                const Vector3 A = verts[f.a].m;
+                const Vector3 B = verts[f.b].m;
+                const Vector3 C = verts[f.c].m;
 
-                Vector3 AB = v3sub(B, A);
-                Vector3 AC = v3sub(C, A);
-                Vector3 AP = v3neg(A);
-                float d1 = v3dot(AB, AP);
-                float d2 = v3dot(AC, AP);
+                const Vector3 Q = dir * minDist;
+                const Vector3 v0_edge = B - A;
+                const Vector3 v1_edge = C - A;
+                const Vector3 v2_edge = Q - A;
 
-                Vector3 BP = v3neg(B);
-                float d3 = v3dot(AB, BP);
-                float d4 = v3dot(AC, BP);
+                const float d00 = v0_edge.dot(v0_edge);
+                const float d01 = v0_edge.dot(v1_edge);
+                const float d11 = v1_edge.dot(v1_edge);
+                const float d20 = v2_edge.dot(v0_edge);
+                const float d21 = v2_edge.dot(v1_edge);
 
-                Vector3 CP = v3neg(C);
-                float d5 = v3dot(AB, CP);
-                float d6 = v3dot(AC, CP);
-
-                float va = d3 * d6 - d5 * d4;
-                float vb = d5 * d2 - d1 * d6;
-                float vc = d1 * d4 - d3 * d2;
-
-                float denom = va + vb + vc;
-                if (fabsf(denom) < 1e-12f)
+                const float denom = d00 * d11 - d01 * d01;
+                float u = 1.0f, v = 0.0f, w = 0.0f;
+                if (fabsf(denom) > 1e-10f)
                 {
-
-                    out.normal = f.normal;
-                    out.depth = bestDist;
-                    out.contactPointA = verts[f.a].pA;
-                    out.contactPointB = verts[f.a].pB;
-                    return true;
+                    const float invDenom = 1.0f / denom;
+                    v = (d11 * d20 - d01 * d21) * invDenom;
+                    w = (d00 * d21 - d01 * d20) * invDenom;
+                    u = 1.0f - v - w;
                 }
-                float invDenom = 1.0f / denom;
-                float u = va * invDenom;
-                float v = vb * invDenom;
-                float w = vc * invDenom;
 
-                out.normal = f.normal;
-                out.depth = bestDist;
-                out.contactPointA = v3add(v3add(v3scale(verts[f.a].pA, u),
-                                                v3scale(verts[f.b].pA, v)),
-                                          v3scale(verts[f.c].pA, w));
-                out.contactPointB = v3add(v3add(v3scale(verts[f.a].pB, u),
-                                                v3scale(verts[f.b].pB, v)),
-                                          v3scale(verts[f.c].pB, w));
+                if (u < 0.0f)
+                {
+                    u = 0.0f;
+                    float s = v + w;
+                    if (s > 0.0f)
+                    {
+                        v /= s;
+                        w /= s;
+                    }
+                }
+                if (v < 0.0f)
+                {
+                    v = 0.0f;
+                    float s = u + w;
+                    if (s > 0.0f)
+                    {
+                        u /= s;
+                        w /= s;
+                    }
+                }
+                if (w < 0.0f)
+                {
+                    w = 0.0f;
+                    float s = u + v;
+                    if (s > 0.0f)
+                    {
+                        u /= s;
+                        v /= s;
+                    }
+                }
+
+                out.normal = dir;
+                out.depth = minDist;
+                out.contactPointA = verts[f.a].pA * u + verts[f.b].pA * v + verts[f.c].pA * w;
+                out.contactPointB = verts[f.a].pB * u + verts[f.b].pB * v + verts[f.c].pB * w;
                 return true;
             }
 
             if (vertCount >= 64)
                 break;
-            int newIdx = vertCount;
-            verts[vertCount++] = newV;
 
-            bool visible[128];
-            for (int i = 0; i < faceCount; ++i)
+            bool duplicate = false;
+            for (int i = 0; i < vertCount; ++i)
             {
-                Vector3 fv = verts[faces[i].a].m;
-                Vector3 toNew = v3sub(newV.m, fv);
-                visible[i] = (v3dot(faces[i].normal, toNew) > 0.0f);
+                if ((newV.m - verts[i].m).lengthSquared() < kDupEpsSq)
+                {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (duplicate)
+            {
+                const EPAFace &f = faces[bestFace];
+                out.normal = dir;
+                out.depth = minDist;
+                out.contactPointA = verts[f.a].pA;
+                out.contactPointB = verts[f.a].pB;
+                return true;
             }
 
-            auto edgeInVisibleFace = [&](int i, int j) -> bool
-            {
-                for (int f = 0; f < faceCount; ++f)
-                {
-                    if (!visible[f])
-                        continue;
-                    int a_ = faces[f].a, b_ = faces[f].b, c_ = faces[f].c;
-                    if ((a_ == j && b_ == i) || (b_ == j && c_ == i) || (c_ == j && a_ == i))
-                        return true;
-                }
-                return false;
-            };
+            const int newIdx = vertCount;
+            verts[vertCount++] = newV;
 
-            EPAFace newFaces[64];
-            int newFaceCount = 0;
             for (int i = 0; i < faceCount; ++i)
             {
-                if (visible[i])
-                    continue;
-                int ai = faces[i].a, bi = faces[i].b, ci = faces[i].c;
+                const Vector3 toNew = newV.m - verts[faces[i].a].m;
+                visible[i] = (faces[i].normal.dot(toNew) > 1e-5f);
+            }
 
-                if (edgeInVisibleFace(ai, bi))
+            int horizonCount = 0;
+
+            for (int i = 0; i < faceCount; ++i)
+            {
+                if (!visible[i])
+                    continue;
+
+                const int f_edges[3][2] = {
+                    {faces[i].a, faces[i].b},
+                    {faces[i].b, faces[i].c},
+                    {faces[i].c, faces[i].a}};
+
+                for (int e = 0; e < 3; ++e)
                 {
-                    EPAFace nf;
-                    nf.a = ai;
-                    nf.b = bi;
-                    nf.c = newIdx;
-                    newFaces[newFaceCount++] = nf;
-                }
-                if (edgeInVisibleFace(bi, ci))
-                {
-                    EPAFace nf;
-                    nf.a = bi;
-                    nf.b = ci;
-                    nf.c = newIdx;
-                    newFaces[newFaceCount++] = nf;
-                }
-                if (edgeInVisibleFace(ci, ai))
-                {
-                    EPAFace nf;
-                    nf.a = ci;
-                    nf.b = ai;
-                    nf.c = newIdx;
-                    newFaces[newFaceCount++] = nf;
+                    const int u_edge = f_edges[e][0];
+                    const int v_edge = f_edges[e][1];
+                    bool shared = false;
+
+                    for (int other = 0; other < faceCount; ++other)
+                    {
+                        if (other == i || !visible[other])
+                            continue;
+
+                        if ((faces[other].a == v_edge && faces[other].b == u_edge) ||
+                            (faces[other].b == v_edge && faces[other].c == u_edge) ||
+                            (faces[other].c == v_edge && faces[other].a == u_edge))
+                        {
+                            shared = true;
+                            break;
+                        }
+                    }
+
+                    if (!shared && horizonCount < 128)
+                    {
+                        horizon[horizonCount++] = {u_edge, v_edge};
+                    }
                 }
             }
 
             int writeIdx = 0;
             for (int i = 0; i < faceCount; ++i)
+            {
                 if (!visible[i])
+                {
                     faces[writeIdx++] = faces[i];
+                }
+            }
             faceCount = writeIdx;
 
-            for (int i = 0; i < newFaceCount; ++i)
+            if (horizonCount == 0 || faceCount == 0)
+                return false;
+
+            for (int i = 0; i < horizonCount; ++i)
             {
-                if (faceCount >= 128)
-                    break;
-                EPAFace &nf = newFaces[i];
-                Vector3 A = verts[nf.a].m;
-                Vector3 B = verts[nf.b].m;
-                Vector3 C = verts[nf.c].m;
-                Vector3 n = v3cross(v3sub(B, A), v3sub(C, A));
-                float nLen = v3len(n);
-                if (nLen < 1e-10f)
-                    continue;
-                n = v3scale(n, 1.0f / nLen);
-                float d = v3dot(n, A);
-                if (d < 0.0f)
-                {
-                    n = v3neg(n);
-                    d = -d;
-                }
-                nf.normal = n;
-                nf.dist = d;
-                faces[faceCount++] = nf;
+                addFace(horizon[i].v0, horizon[i].v1, newIdx);
             }
         }
 
-        if (faceCount == 0)
-            return false;
         int bestFace = 0;
-        float bestDist = faces[0].dist;
+        float minDist = faces[0].dist;
         for (int i = 1; i < faceCount; ++i)
-            if (faces[i].dist < bestDist)
+        {
+            if (faces[i].dist < minDist)
             {
-                bestDist = faces[i].dist;
+                minDist = faces[i].dist;
                 bestFace = i;
             }
-        out.normal = faces[bestFace].normal;
-        out.depth = bestDist;
-        out.contactPointA = verts[faces[bestFace].a].pA;
-        out.contactPointB = verts[faces[bestFace].a].pB;
+        }
+        const EPAFace &f = faces[bestFace];
+        out.normal = f.normal;
+        out.depth = minDist;
+        out.contactPointA = verts[f.a].pA;
+        out.contactPointB = verts[f.a].pB;
         return true;
     }
 }
