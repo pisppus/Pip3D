@@ -112,7 +112,7 @@ namespace pip3D
                     if (zBuf)
                     {
                         int16_t stored = zBuf->getRawDepth(px, localY);
-                        if (stored != 0x7F7F && (depth - 5 > stored))
+                        if (stored != ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::CLEAR_DEPTH && (depth - 5 > stored))
                             return;
                     }
 
@@ -371,7 +371,7 @@ namespace pip3D
                         if (zBuf)
                         {
                             int16_t stored_depth = zBuf->getRawDepth(x, localY);
-                            if (stored_depth != 0x7F7F && (particle_depth - 5 > stored_depth))
+                            if (stored_depth != ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::CLEAR_DEPTH && (particle_depth - 5 > stored_depth))
                                 continue;
                         }
 
@@ -809,7 +809,7 @@ namespace pip3D
 
             int cx = (int)sunScreen.x;
             int cy = (int)sunScreen.y;
-            int16_t sunDepth = static_cast<int16_t>(sunScreen.z * 32638.0f);
+            int16_t sunDepth = static_cast<int16_t>(sunScreen.z * static_cast<float>(ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::DEPTH_MAX));
             ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuf = r.getZBuffer();
 
             if (cy >= bandTop && cy < bandBottom)
@@ -829,7 +829,7 @@ namespace pip3D
                             if (sx >= 0 && sx < SCREEN_WIDTH && sy >= 0 && sy < SCREEN_BAND_HEIGHT)
                             {
                                 int16_t d = zBuf->getRawDepth(sx, sy);
-                                if (d != 0x7F7F && d < sunDepth - 10)
+                                if (d != ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::CLEAR_DEPTH && d < sunDepth - 10)
                                 {
                                     occludedCount++;
                                 }

@@ -2,8 +2,15 @@
 
 #include <cstdint>
 
+#include "Core/Platform.hpp"
+#include "Math/Algebra.hpp"
+
 namespace pip3D
 {
+
+    inline constexpr int16_t Z_SHADOW_FLAG = static_cast<int16_t>(0x8000);
+    inline constexpr uint16_t Z_DEPTH_MASK = 0x7FFFu;
+
     namespace detail
     {
         alignas(16) static constexpr int16_t kBayerMatrix10Bit[4][4] = {
@@ -15,6 +22,7 @@ namespace pip3D
 
     namespace Rasterizer
     {
+
         struct alignas(16) FogState
         {
             float worldNear = 0.0f;
@@ -35,6 +43,239 @@ namespace pip3D
         inline bool g_mipmapsEnabled = true;
         inline float g_ambientScale = 1.0f;
         inline float g_exposureScale = 1.0f;
+
+        struct alignas(16) FogLut
+        {
+
+            uint8_t alpha[257];
+            bool valid;
+        };
+
+        inline FogLut g_fogLut{};
+
+        __attribute__((hot)) inline void rebuildFogLut()
+        {
+            const FogState &f = g_fogState;
+            if (!f.enabled)
+            {
+                g_fogLut.valid = false;
+                return;
+            }
+
+            const float kVal = f.kVal;
+            const float knVal = f.knVal;
+            const float worldNear = f.worldNear;
+            const float worldScale32 = f.worldScale32;
+
+            for (uint32_t i = 0; i < 257; ++i)
+            {
+                const uint32_t d = i * 128u;
+                float denom = kVal - static_cast<float>(d);
+                if (denom < 1.0f)
+                    denom = 1.0f;
+                const float z_eye = knVal * FastMath::fastReciprocal(denom);
+                float a = (z_eye - worldNear) * worldScale32;
+                if (a < 0.0f)
+                    a = 0.0f;
+                else if (a > 32.0f)
+                    a = 32.0f;
+                g_fogLut.alpha[i] = static_cast<uint8_t>(a + 0.5f);
+            }
+            g_fogLut.valid = true;
+        }
+
+        __attribute__((always_inline, hot)) static inline void IRAM_ATTR
+        fillScanlinePlain(int16_t *__restrict__ buf,
+                          uint16_t *__restrict__ fb,
+                          uint32_t count,
+                          int32_t depthStart,
+                          int32_t depthStep,
+                          uint16_t color)
+        {
+            int32_t depth = depthStart;
+
+            while (count >= 4)
+            {
+                PIP3D_PREFETCH_W(buf + 16);
+                PIP3D_PREFETCH_W(fb + 16);
+
+                const int16_t d0 = static_cast<int16_t>(depth);
+                const int16_t d1 = static_cast<int16_t>(depth + depthStep);
+                const int16_t d2 = static_cast<int16_t>(depth + depthStep * 2);
+                const int16_t d3 = static_cast<int16_t>(depth + depthStep * 3);
+
+                const uint16_t c0 = static_cast<uint16_t>(buf[0]) & Z_DEPTH_MASK;
+                const uint16_t c1 = static_cast<uint16_t>(buf[1]) & Z_DEPTH_MASK;
+                const uint16_t c2 = static_cast<uint16_t>(buf[2]) & Z_DEPTH_MASK;
+                const uint16_t c3 = static_cast<uint16_t>(buf[3]) & Z_DEPTH_MASK;
+
+                if (d0 < c0)
+                {
+                    buf[0] = d0;
+                    fb[0] = color;
+                }
+                if (d1 < c1)
+                {
+                    buf[1] = d1;
+                    fb[1] = color;
+                }
+                if (d2 < c2)
+                {
+                    buf[2] = d2;
+                    fb[2] = color;
+                }
+                if (d3 < c3)
+                {
+                    buf[3] = d3;
+                    fb[3] = color;
+                }
+
+                depth += depthStep * 4;
+                buf += 4;
+                fb += 4;
+                count -= 4;
+            }
+
+            while (count > 0)
+            {
+                const int16_t d = static_cast<int16_t>(depth);
+                const uint16_t c = static_cast<uint16_t>(*buf) & Z_DEPTH_MASK;
+                if (d < c)
+                {
+                    *buf = d;
+                    *fb = color;
+                }
+                depth += depthStep;
+                ++buf;
+                ++fb;
+                --count;
+            }
+        }
+
+        __attribute__((always_inline, hot)) static inline void IRAM_ATTR
+        fillScanlineFog(int16_t *__restrict__ buf,
+                        uint16_t *__restrict__ fb,
+                        uint32_t count,
+                        int32_t depthStart,
+                        int32_t depthStep,
+                        uint16_t color)
+        {
+            const uint8_t *__restrict__ lutAlpha = g_fogLut.alpha;
+
+            const Rasterizer::FogState &fog = g_fogState;
+            const uint32_t src_rb = color & 0xF81Fu;
+            const uint32_t src_g = color & 0x07E0u;
+            const uint32_t fog_rb = fog.color_rb;
+            const uint32_t fog_g = fog.color_g;
+            const uint16_t fog_col = fog.color;
+
+            int32_t depth = depthStart;
+
+            while (count >= 2)
+            {
+                const int16_t d0 = static_cast<int16_t>(depth);
+                const int16_t d1 = static_cast<int16_t>(depth + depthStep);
+
+                const uint16_t c0 = static_cast<uint16_t>(buf[0]) & Z_DEPTH_MASK;
+                const uint16_t c1 = static_cast<uint16_t>(buf[1]) & Z_DEPTH_MASK;
+
+                if (d0 < c0)
+                {
+                    buf[0] = d0;
+                    const uint16_t b0 = static_cast<uint16_t>(d0);
+                    const uint16_t bucket = b0 >> 7;
+                    const uint16_t frac = b0 & 0x7Fu;
+                    const uint8_t a0 = lutAlpha[bucket];
+                    const uint8_t a1 = lutAlpha[bucket + 1];
+                    const uint8_t alpha = a0 + (static_cast<uint8_t>((a1 - a0) * frac >> 7));
+
+                    if (alpha == 0)
+                        fb[0] = color;
+                    else if (alpha == 32)
+                        fb[0] = fog_col;
+                    else
+                    {
+                        const uint32_t inv_a = 32u - alpha;
+                        const uint32_t rb = ((src_rb * inv_a + fog_rb * alpha) >> 5) & 0xF81Fu;
+                        const uint32_t g = ((src_g * inv_a + fog_g * alpha) >> 5) & 0x07E0u;
+                        fb[0] = static_cast<uint16_t>(rb | g);
+                    }
+                }
+                if (d1 < c1)
+                {
+                    buf[1] = d1;
+                    const uint16_t b1 = static_cast<uint16_t>(d1);
+                    const uint16_t bucket = b1 >> 7;
+                    const uint16_t frac = b1 & 0x7Fu;
+                    const uint8_t a0 = lutAlpha[bucket];
+                    const uint8_t a1 = lutAlpha[bucket + 1];
+                    const uint8_t alpha = a0 + (static_cast<uint8_t>((a1 - a0) * frac >> 7));
+
+                    if (alpha == 0)
+                        fb[1] = color;
+                    else if (alpha == 32)
+                        fb[1] = fog_col;
+                    else
+                    {
+                        const uint32_t inv_a = 32u - alpha;
+                        const uint32_t rb = ((src_rb * inv_a + fog_rb * alpha) >> 5) & 0xF81Fu;
+                        const uint32_t g = ((src_g * inv_a + fog_g * alpha) >> 5) & 0x07E0u;
+                        fb[1] = static_cast<uint16_t>(rb | g);
+                    }
+                }
+
+                depth += depthStep * 2;
+                buf += 2;
+                fb += 2;
+                count -= 2;
+            }
+
+            while (count > 0)
+            {
+                const int16_t d = static_cast<int16_t>(depth);
+                const uint16_t c = static_cast<uint16_t>(*buf) & Z_DEPTH_MASK;
+                if (d < c)
+                {
+                    *buf = d;
+                    const uint16_t b = static_cast<uint16_t>(d);
+                    const uint16_t bucket = b >> 7;
+                    const uint16_t frac = b & 0x7Fu;
+                    const uint8_t a0 = lutAlpha[bucket];
+                    const uint8_t a1 = lutAlpha[bucket + 1];
+                    const uint8_t alpha = a0 + (static_cast<uint8_t>((a1 - a0) * frac >> 7));
+
+                    if (alpha == 0)
+                        *fb = color;
+                    else if (alpha == 32)
+                        *fb = fog_col;
+                    else
+                    {
+                        const uint32_t inv_a = 32u - alpha;
+                        const uint32_t rb = ((src_rb * inv_a + fog_rb * alpha) >> 5) & 0xF81Fu;
+                        const uint32_t g = ((src_g * inv_a + fog_g * alpha) >> 5) & 0x07E0u;
+                        *fb = static_cast<uint16_t>(rb | g);
+                    }
+                }
+                depth += depthStep;
+                ++buf;
+                ++fb;
+                --count;
+            }
+        }
+
+        __attribute__((always_inline, hot)) static inline void IRAM_ATTR
+        fillScanline(int16_t *__restrict__ buf,
+                     uint16_t *__restrict__ fb,
+                     uint32_t count,
+                     int32_t depthStart,
+                     int32_t depthStep,
+                     uint16_t color)
+        {
+            if (g_fogState.enabled && g_fogLut.valid)
+                fillScanlineFog(buf, fb, count, depthStart, depthStep, color);
+            else
+                fillScanlinePlain(buf, fb, count, depthStart, depthStep, color);
+        }
 
         struct alignas(16) PlanarParams
         {

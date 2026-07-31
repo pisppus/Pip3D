@@ -104,7 +104,8 @@ namespace pip3D
             const float dz_dx = (dz02 * dy12 - dy02 * dz12) * invDet;
             const float dz_dy = (dx02 * dz12 - dz02 * dx12) * invDet;
 
-            constexpr float depthScale = 32638.0f;
+            constexpr float depthScale =
+                static_cast<float>(ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::DEPTH_MAX);
             const float dz_dx_scaled = dz_dx * depthScale;
             const float dz_dy_scaled = dz_dy * depthScale;
             const float z2_scaled = z2 * depthScale;
@@ -171,7 +172,7 @@ namespace pip3D
             const int32_t step_01 = (fabsf(dy01_val) > 1e-6f) ? static_cast<int32_t>(((x1 - x0) / dy01_val) * 65536.0f) : 0;
             const int32_t step_12 = (fabsf(dy12_val) > 1e-6f) ? static_cast<int32_t>(((x2 - x1) / dy12_val) * 65536.0f) : 0;
 
-            int16_t *__restrict__ zbBase = const_cast<int16_t *>(zBuffer->getBufferPtr());
+            int16_t *__restrict__ zbBase = zBuffer->data();
 
             const bool fogEnabled = g_fogState.enabled;
             const float fogKVal = g_fogState.kVal;
@@ -392,7 +393,7 @@ namespace pip3D
                         for (int16_t i = 0; i < step; ++i)
                         {
                             const int16_t d = static_cast<int16_t>(z_val >> 14);
-                            const int16_t curr = *zb & 0x7FFF;
+                            const int16_t curr = static_cast<int16_t>(static_cast<uint16_t>(*zb) & Z_DEPTH_MASK);
                             if (d < curr)
                             {
                                 *zb = d;
@@ -476,7 +477,7 @@ namespace pip3D
                         for (int16_t i = 0; i < step; ++i)
                         {
                             const int16_t d = static_cast<int16_t>(z_val >> 14);
-                            const int16_t curr = *zb & 0x7FFF;
+                            const int16_t curr = static_cast<int16_t>(static_cast<uint16_t>(*zb) & Z_DEPTH_MASK);
                             if (d < curr)
                             {
                                 *zb = d;

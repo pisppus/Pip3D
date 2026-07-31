@@ -66,7 +66,8 @@ namespace pip3D
             const float dz_dx = (dz02 * dy12 - dy02 * dz12) * invDet;
             const float dz_dy = (dx02 * dz12 - dz02 * dx12) * invDet;
 
-            constexpr float depthScale = 32638.0f;
+            constexpr float depthScale =
+                static_cast<float>(ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::DEPTH_MAX);
             const float dz_dx_scaled = dz_dx * depthScale;
             const float dz_dy_scaled = dz_dy * depthScale;
 
@@ -95,6 +96,9 @@ namespace pip3D
             const int32_t step_12 = (fabsf(dy12_val) > 1e-6f) ? static_cast<int32_t>(((x2 - x1) / dy12_val) * 65536.0f) : 0;
 
             const int32_t depthStep = static_cast<int32_t>(dz_dx_scaled);
+
+            const bool fogOn = Rasterizer::g_fogState.enabled;
+            int16_t *__restrict__ zbBase = zBuffer->data();
 
             if (runTop)
             {
@@ -129,13 +133,15 @@ namespace pip3D
                     {
                         const int32_t depthStart = static_cast<int32_t>(zRowBase + static_cast<float>(x_start) * dz_dx_scaled);
 
-                        zBuffer->testAndSetScanline(static_cast<uint16_t>(y),
-                                                    static_cast<uint16_t>(x_start),
-                                                    static_cast<uint16_t>(x_end),
-                                                    depthStart,
-                                                    depthStep,
-                                                    frameBuffer,
-                                                    color);
+                        const size_t idx = static_cast<size_t>(y) * width + x_start;
+                        const uint32_t cnt = static_cast<uint32_t>(x_end - x_start + 1);
+
+                        if (fogOn)
+                            Rasterizer::fillScanlineFog(zbBase + idx, frameBuffer + idx,
+                                                        cnt, depthStart, depthStep, color);
+                        else
+                            Rasterizer::fillScanlinePlain(zbBase + idx, frameBuffer + idx,
+                                                          cnt, depthStart, depthStep, color);
                     }
 
                     zRowBase += dz_dy_scaled;
@@ -178,13 +184,15 @@ namespace pip3D
                     {
                         const int32_t depthStart = static_cast<int32_t>(zRowBase + static_cast<float>(x_start) * dz_dx_scaled);
 
-                        zBuffer->testAndSetScanline(static_cast<uint16_t>(y),
-                                                    static_cast<uint16_t>(x_start),
-                                                    static_cast<uint16_t>(x_end),
-                                                    depthStart,
-                                                    depthStep,
-                                                    frameBuffer,
-                                                    color);
+                        const size_t idx = static_cast<size_t>(y) * width + x_start;
+                        const uint32_t cnt = static_cast<uint32_t>(x_end - x_start + 1);
+
+                        if (fogOn)
+                            Rasterizer::fillScanlineFog(zbBase + idx, frameBuffer + idx,
+                                                        cnt, depthStart, depthStep, color);
+                        else
+                            Rasterizer::fillScanlinePlain(zbBase + idx, frameBuffer + idx,
+                                                          cnt, depthStart, depthStep, color);
                     }
 
                     zRowBase += dz_dy_scaled;

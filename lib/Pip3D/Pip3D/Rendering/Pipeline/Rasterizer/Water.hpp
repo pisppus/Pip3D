@@ -1,5 +1,15 @@
 #pragma once
 
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+
+#include "Core/Platform.hpp"
+#include "Math/Algebra.hpp"
+#include "Rendering/Display/ZBuffer.hpp"
+#include "Rendering/Display/Sky.hpp"
+#include "Rendering/Pipeline/Rasterizer/Common.hpp"
+
 namespace pip3D
 {
     namespace Rasterizer
@@ -24,7 +34,7 @@ namespace pip3D
             if (unlikely(!frameBuffer || !zBuffer))
                 return;
 
-            int16_t *__restrict__ zBufferPtr = const_cast<int16_t *>(zBuffer->getBufferPtr());
+            int16_t *__restrict__ zBufferPtr = zBuffer->data();
             if (unlikely(!zBufferPtr))
                 return;
 
@@ -68,7 +78,8 @@ namespace pip3D
             const float dz_dx = (dz02 * dy12 - dy02 * dz12) * invDet;
             const float dz_dy = (dx02 * dz12 - dz02 * dx12) * invDet;
 
-            constexpr float depthScale = 32638.0f;
+            constexpr float depthScale =
+                static_cast<float>(ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::DEPTH_MAX);
             const float dz_dx_scaled = dz_dx * depthScale;
             const float dz_dy_scaled = dz_dy * depthScale;
             const float z2_scaled = z2 * depthScale;

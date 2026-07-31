@@ -110,7 +110,8 @@ namespace pip3D
                 return;
             const float invDet = FastMath::fastReciprocal(det);
 
-            constexpr float depthScale = 32638.0f;
+            constexpr float depthScale =
+                static_cast<float>(ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::DEPTH_MAX);
             const float dz02 = z0 - z2;
             const float dz12 = z1 - z2;
             const float dz_dx = (dz02 * dy12 - dy02 * dz12) * invDet;
@@ -189,7 +190,7 @@ namespace pip3D
             const uint32_t fogColorRb = g_fogState.color_rb;
             const uint32_t fogColorG = g_fogState.color_g;
 
-            int16_t *__restrict__ zbBase = const_cast<int16_t *>(zBuffer->getBufferPtr());
+            int16_t *__restrict__ zbBase = zBuffer->data();
 
 #if PIP3D_DEBUG_BILLBOARD
             uint32_t dbgSpan = 0, dbgCutout = 0, dbgZFail = 0, dbgWritten = 0;
@@ -256,7 +257,7 @@ namespace pip3D
                     }
 
                     const int16_t d = static_cast<int16_t>(z_val >> 14);
-                    const int16_t cur = *zb & 0x7FFF;
+                    const int16_t cur = static_cast<int16_t>(static_cast<uint16_t>(*zb) & Z_DEPTH_MASK);
 
                     if (blendMode == BB_BLEND_ALPHA && doBlend)
                     {

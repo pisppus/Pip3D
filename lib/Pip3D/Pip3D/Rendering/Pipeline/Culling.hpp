@@ -114,7 +114,7 @@ namespace pip3D
             const int16_t bandBottom = bandTop + static_cast<int16_t>(cfg.height);
             const int16_t cfgW = static_cast<int16_t>(cfg.width);
 
-            const int16_t *zb = zBuffer->getBufferPtr();
+            const int16_t *zb = zBuffer->data();
 
             int validSamples = 0;
 
@@ -123,8 +123,8 @@ namespace pip3D
 
             const auto sampleOccluded = [&](int16_t sx, int16_t localSy) -> bool
             {
-                const int16_t d = zb[static_cast<size_t>(localSy) * SCREEN_WIDTH + sx] & 0x7FFF;
-                return (d != 0x7F7F && d < objDepthInt);
+                const int16_t d = static_cast<int16_t>(static_cast<uint16_t>(zb[static_cast<size_t>(localSy) * SCREEN_WIDTH + sx]) & Z_DEPTH_MASK);
+                return (d != ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::CLEAR_DEPTH && d < objDepthInt);
             };
 
             if (cyInBand && cxInScr)

@@ -1,5 +1,14 @@
 #pragma once
 
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+
+#include "Core/Platform.hpp"
+#include "Math/Algebra.hpp"
+#include "Rendering/Display/ZBuffer.hpp"
+#include "Rendering/Pipeline/Rasterizer/Common.hpp"
+
 namespace pip3D
 {
     namespace Rasterizer
@@ -91,7 +100,7 @@ namespace pip3D
 
                         {
                             const int16_t stored = zPtr[0];
-                            const int16_t depthNoShadow = static_cast<int16_t>(stored & 0x7FFF);
+                            const int16_t depthNoShadow = static_cast<int16_t>(static_cast<uint16_t>(stored) & Z_DEPTH_MASK);
                             const int16_t d = static_cast<int16_t>(depth_fixed >> 14);
 
                             if (d < depthNoShadow)
@@ -116,7 +125,7 @@ namespace pip3D
 
                         {
                             const int16_t stored = zPtr[1];
-                            const int16_t depthNoShadow = static_cast<int16_t>(stored & 0x7FFF);
+                            const int16_t depthNoShadow = static_cast<int16_t>(static_cast<uint16_t>(stored) & Z_DEPTH_MASK);
                             const int16_t d = static_cast<int16_t>(depth_fixed >> 14);
 
                             if (d < depthNoShadow)
@@ -141,7 +150,7 @@ namespace pip3D
 
                         {
                             const int16_t stored = zPtr[2];
-                            const int16_t depthNoShadow = static_cast<int16_t>(stored & 0x7FFF);
+                            const int16_t depthNoShadow = static_cast<int16_t>(static_cast<uint16_t>(stored) & Z_DEPTH_MASK);
                             const int16_t d = static_cast<int16_t>(depth_fixed >> 14);
 
                             if (d < depthNoShadow)
@@ -166,7 +175,7 @@ namespace pip3D
 
                         {
                             const int16_t stored = zPtr[3];
-                            const int16_t depthNoShadow = static_cast<int16_t>(stored & 0x7FFF);
+                            const int16_t depthNoShadow = static_cast<int16_t>(static_cast<uint16_t>(stored) & Z_DEPTH_MASK);
                             const int16_t d = static_cast<int16_t>(depth_fixed >> 14);
 
                             if (d < depthNoShadow)
@@ -198,7 +207,7 @@ namespace pip3D
                     while (count > 0)
                     {
                         const int16_t stored = zPtr[0];
-                        const int16_t depthNoShadow = static_cast<int16_t>(stored & 0x7FFF);
+                        const int16_t depthNoShadow = static_cast<int16_t>(static_cast<uint16_t>(stored) & Z_DEPTH_MASK);
                         const int16_t d = static_cast<int16_t>(depth_fixed >> 14);
 
                         if (d < depthNoShadow)
@@ -255,7 +264,7 @@ namespace pip3D
             if (unlikely(!frameBuffer || !zBuffer))
                 return;
 
-            int16_t *const zBufferData = const_cast<int16_t *>(zBuffer->getBufferPtr());
+            int16_t *const zBufferData = zBuffer->data();
             if (unlikely(!zBufferData))
                 return;
 
@@ -323,7 +332,8 @@ namespace pip3D
             float db_dx = (db02 * dy12 - dy02 * db12) * invDet;
             float db_dy = (dx02 * db12 - db02 * dx12) * invDet;
 
-            const float depthScale = 32638.0f * 16384.0f;
+            constexpr float depthScale =
+                static_cast<float>(ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::DEPTH_MAX) * 16384.0f;
             const float r_scale = 31.0f * 1024.0f;
             const float g_scale = 63.0f * 1024.0f;
             const float b_scale = 31.0f * 1024.0f;
