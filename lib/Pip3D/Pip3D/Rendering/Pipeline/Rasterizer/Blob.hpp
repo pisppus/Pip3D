@@ -132,7 +132,7 @@ namespace pip3D
                             if (alpha > 0)
                             {
                                 const int16_t stored = zPtr[0];
-                                const int16_t depthNoShadow = static_cast<int16_t>(stored & 0x7FFF);
+                                const int16_t depthNoShadow = static_cast<int16_t>(static_cast<uint16_t>(stored) & Z_DEPTH_MASK);
                                 const int16_t d = static_cast<int16_t>(depth_fixed >> 14);
 
                                 if (d <= depthNoShadow + kBlobDepthTolerance)
@@ -245,7 +245,8 @@ namespace pip3D
             const float dv_dx = (dv02 * dy12 - dy02 * dv12) * invDet;
             const float dv_dy = (dx02 * dv12 - dv02 * dx12) * invDet;
 
-            constexpr float depthScale = 32638.0f * 16384.0f;
+            constexpr float depthScale =
+                static_cast<float>(ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::DEPTH_MAX) * 16384.0f;
             const float dz_dx_scaled = dz_dx * depthScale;
             const float dz_dy_scaled = dz_dy * depthScale;
             const float z2_scaled = z2 * depthScale;
@@ -261,7 +262,7 @@ namespace pip3D
 
             BlobParams params;
             params.frameBuffer = frameBuffer;
-            params.zbBase = const_cast<int16_t *>(zBuffer->getBufferPtr());
+            params.zbBase = zBuffer->data();
             params.width = width;
             params.height = height;
             params.dz_dx_fixed = static_cast<int32_t>(dz_dx_scaled);

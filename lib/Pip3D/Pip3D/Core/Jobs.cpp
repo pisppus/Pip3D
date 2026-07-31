@@ -9,7 +9,7 @@ namespace pip3D
     static constexpr int MAX_JOBS = 32;
     static constexpr int JOB_MASK = MAX_JOBS - 1;
     static constexpr uint32_t STACK_SIZE = 4096;
-    static constexpr UBaseType_t WORKER_PRIORITY = 1;
+    static constexpr UBaseType_t WORKER_PRIORITY = 7;
     static constexpr BaseType_t WORKER_CORE = 0;
 
     static Job s_jobQueue[MAX_JOBS];

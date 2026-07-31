@@ -12,10 +12,10 @@ namespace pip3D
 {
     namespace Rasterizer
     {
-        static constexpr int16_t kPlanarClearDepth = 0x7F7F;
-        static constexpr int16_t kPlanarShadowFlag = static_cast<int16_t>(0x8000);
-        static constexpr uint32_t kClearPack = static_cast<uint32_t>(kPlanarClearDepth) | (static_cast<uint32_t>(kPlanarClearDepth) << 16);
-        static constexpr uint32_t kFlagMaskPack = static_cast<uint32_t>(kPlanarShadowFlag) | (static_cast<uint32_t>(kPlanarShadowFlag) << 16);
+        static constexpr int16_t kPlanarClearDepth = ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::CLEAR_DEPTH;
+        static constexpr int16_t kPlanarShadowFlag = Z_SHADOW_FLAG;
+        static constexpr uint32_t kClearPack = ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::CLEAR_PACK32;
+        static constexpr uint32_t kFlagMaskPack = static_cast<uint32_t>(Z_SHADOW_FLAG) | (static_cast<uint32_t>(Z_SHADOW_FLAG) << 16);
 
         struct alignas(16) PlanarBlend
         {
@@ -294,7 +294,8 @@ namespace pip3D
             const float dz_dx = (dz02 * dy12 - dy02 * dz12) * invDet;
             const float dz_dy = (dx02 * dz12 - dz02 * dx12) * invDet;
 
-            constexpr float depthScale = 32638.0f;
+            constexpr float depthScale =
+                static_cast<float>(ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::DEPTH_MAX);
             const float dz_dx_scaled = dz_dx * depthScale;
             const float dz_dy_scaled = dz_dy * depthScale;
             const float z2_scaled = z2 * depthScale;
@@ -318,7 +319,7 @@ namespace pip3D
 
             PlanarParams params;
             params.frameBuffer = frameBuffer;
-            params.zbBase = const_cast<int16_t *>(zBuffer->getBufferPtr());
+            params.zbBase = zBuffer->data();
             params.width = width;
             params.height = height;
             params.dz_dx_fixed = dz_dx_fixed;

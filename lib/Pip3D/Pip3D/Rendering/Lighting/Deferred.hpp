@@ -26,7 +26,7 @@ namespace pip3D
         if (unlikely(!frameBuffer || !zBuffer || !pointLights || lightCount <= 0))
             return;
 
-        static constexpr int16_t kDepthMask = 0x7FFF;
+        static constexpr int16_t kDepthMask = static_cast<int16_t>(Z_DEPTH_MASK);
 
         static constexpr int16_t kBayer4[4][4] = {
             {0, 512, 128, 640},
@@ -37,7 +37,7 @@ namespace pip3D
         const int16_t screenW = SCREEN_WIDTH;
         const int16_t bandTop = g_bandOffsetY;
         const int16_t bandBottom = static_cast<int16_t>(bandTop + SCREEN_BAND_HEIGHT);
-        const int16_t *const zbBase = zBuffer->getBufferPtr();
+        const int16_t *const zbBase = zBuffer->data();
         if (!zbBase)
             return;
 
@@ -55,7 +55,7 @@ namespace pip3D
         const float camFar = camera.farPlane;
         const float denomFarNear = camFar - camNear;
         const float safeDenom = (denomFarNear > 1e-4f) ? denomFarNear : 1.0f;
-        const float k = 32638.0f * (camFar / safeDenom);
+        const float k = static_cast<float>(ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::DEPTH_MAX) * (camFar / safeDenom);
         const float fogKVal = k;
         const float fogKnVal = k * camNear;
 

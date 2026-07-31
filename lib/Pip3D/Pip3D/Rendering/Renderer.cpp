@@ -329,10 +329,11 @@ namespace pip3D
 
                 const float denomFarNear = camFar - camNear;
                 const float safeDenom = (denomFarNear > 1e-4f) ? denomFarNear : 1.0f;
-                const float k = 32638.0f * (camFar / safeDenom);
+                const float k = static_cast<float>(ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::DEPTH_MAX) * (camFar / safeDenom);
                 Rasterizer::g_fogState.kVal = k;
                 Rasterizer::g_fogState.knVal = k * camNear;
             }
+            Rasterizer::rebuildFogLut();
         }
 
         if (zBuffer)
