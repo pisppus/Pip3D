@@ -55,7 +55,7 @@ namespace pip3D
         static constexpr int BAND_HEIGHT = SCREEN_BAND_HEIGHT;
 
         FrameBuffer framebuffer;
-        ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer;
+        alignas(32) ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> zBuffer;
         uint16_t *reflectBuffer;
         uint16_t *reflectWriteBuffer;
         static constexpr uint16_t REFLECT_WIDTH = SCREEN_WIDTH / 4;
@@ -196,13 +196,7 @@ namespace pip3D
 
         bool isInitialized() const
         {
-            return initialized &&
-#if defined(PIP3D_PC)
-                   pcDisplayReady &&
-#else
-                   display != nullptr &&
-#endif
-                   zBuffer != nullptr;
+            return initialized;
         }
 
         void setPhysicsWorld(PhysicsWorld *world) { physicsWorld = world; }
@@ -213,7 +207,8 @@ namespace pip3D
         int getActiveCameraIndex() const { return activeCameraIndex; }
         int getCameraCount() const { return cameras.size(); }
         uint16_t *getFrameBuffer() const { return const_cast<uint16_t *>(framebuffer.getBuffer()); }
-        ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *getZBuffer() const { return zBuffer; }
+        ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> &getZBuffer() { return zBuffer; }
+        const ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> &getZBuffer() const { return zBuffer; }
         const Frustum &getFrustum() const { return frustum; }
         const Matrix4x4 &getViewProjMatrix() const { return viewProjMatrix; }
 
@@ -267,9 +262,13 @@ namespace pip3D
         bool isSkyboxEnabled() const { return framebuffer.isSkyboxEnabled(); }
         void invalidateSkyboxCache() { framebuffer.invalidateSkyboxCache(); }
 
-        void setCloudsEnabled(bool enabled) { framebuffer.setCloudsEnabled(enabled); }
+                void setCloudsEnabled(bool enabled) { framebuffer.setCloudsEnabled(enabled); }
         void setCloudColor(const Color &c) { framebuffer.setCloudColor(c); }
         void setCloudAlpha(float a) { framebuffer.setCloudAlpha(a); }
+        void setCloudHeight(float meters) { framebuffer.setCloudHeight(meters); }
+        void setCloudScale(float meters)  { framebuffer.setCloudScale(meters); }
+        void setCloudDrift(float sxMps, float szMps) { framebuffer.setCloudDrift(sxMps, szMps); }
+        void updateClouds(float dtSeconds) { framebuffer.updateClouds(dtSeconds); }
         bool areCloudsEnabled() const { return framebuffer.areCloudsEnabled(); }
         void generateClouds(uint32_t seed = 0xC10Du, float coverage = 0.45f)
         {

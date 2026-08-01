@@ -4,13 +4,10 @@
 
 #include "Core/Platform.hpp"
 #include "Math/Algebra.hpp"
+#include "Rendering/Display/ZBuffer.hpp"
 
 namespace pip3D
 {
-
-    inline constexpr int16_t Z_SHADOW_FLAG = static_cast<int16_t>(0x8000);
-    inline constexpr uint16_t Z_DEPTH_MASK = 0x7FFFu;
-
     namespace detail
     {
         alignas(16) static constexpr int16_t kBayerMatrix10Bit[4][4] = {
@@ -22,7 +19,6 @@ namespace pip3D
 
     namespace Rasterizer
     {
-
         struct alignas(16) FogState
         {
             float worldNear = 0.0f;
@@ -44,9 +40,8 @@ namespace pip3D
         inline float g_ambientScale = 1.0f;
         inline float g_exposureScale = 1.0f;
 
-        struct alignas(16) FogLut
+        struct FogLut
         {
-
             uint8_t alpha[257];
             bool valid;
         };

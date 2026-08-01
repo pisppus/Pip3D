@@ -21,11 +21,10 @@ def _tag(msg):
     return f"\033[36m[Pip3D]\033[0m {msg}"
 
 
-PANO_W            = 512
-PANO_H            = 192
+TILE_W            = 256
+TILE_H            = 256
 DEFAULT_SCREEN_W  = 480
 DEFAULT_SCREEN_H  = 320
-NOMINAL_HFOV_FRAC = 0.233
 DEFAULT_COVERAGE  = 0.42
 DEFAULT_SEED      = 0xC10D
 DEFAULT_CLOUD     = "250,250,252"
@@ -43,7 +42,7 @@ def _hash_grid(ix, iy, seed):
     return h.astype(np.float32) * (1.0 / 4294967296.0)
 
 
-def value_noise_2d(xs, ys, wrap_x, seed):
+def value_noise_2d(xs, ys, wrap_x, wrap_y, seed):
     x0  = np.floor(xs).astype(np.int32)
     y0  = np.floor(ys).astype(np.int32)
     tx  = (xs - x0).astype(np.float32)
@@ -52,21 +51,23 @@ def value_noise_2d(xs, ys, wrap_x, seed):
     v   = ty * ty * ty * (ty * (ty * 6 - 15) + 10)
     x0w = x0 % wrap_x
     x1w = (x0 + 1) % wrap_x
-    c00 = _hash_grid(x0w, y0,     seed)
-    c10 = _hash_grid(x1w, y0,     seed)
-    c01 = _hash_grid(x0w, y0 + 1, seed)
-    c11 = _hash_grid(x1w, y0 + 1, seed)
+    y0w = y0 % wrap_y
+    y1w = (y0 + 1) % wrap_y
+    c00 = _hash_grid(x0w, y0w, seed)
+    c10 = _hash_grid(x1w, y0w, seed)
+    c01 = _hash_grid(x0w, y1w, seed)
+    c11 = _hash_grid(x1w, y1w, seed)
     a   = c00 + (c10 - c00) * u
     b   = c01 + (c11 - c01) * u
     return a + (b - a) * v
 
 
-def fbm2d(xs, ys, wrap_x, octaves, seed):
+def fbm2d(xs, ys, wrap_x, wrap_y, octaves, seed):
     d    = np.zeros_like(xs, dtype=np.float32)
     amp  = 0.5
     norm = 0.0
     for o in range(octaves):
-        d   += value_noise_2d(xs, ys, wrap_x, seed ^ (o * 7919)) * amp
+        d   += value_noise_2d(xs, ys, wrap_x, wrap_y, seed ^ (o * 7919)) * amp
         norm += amp
         xs   = xs * 2.0
         ys   = ys * 2.0
@@ -94,7 +95,7 @@ def _worley_hash2(ix, iy, seed):
     return ux, uy
 
 
-def worley_f1(xs, ys, nx_cells, seed):
+def worley_f1(xs, ys, nx_cells, ny_cells, seed):
     ix  = np.floor(xs).astype(np.int32)
     iy  = np.floor(ys).astype(np.int32)
     fx  = (xs - ix).astype(np.float32)
@@ -103,31 +104,23 @@ def worley_f1(xs, ys, nx_cells, seed):
     for dy in (-1, 0, 1):
         for dx in (-1, 0, 1):
             cxw      = (ix + dx) % nx_cells
-            cy       = iy + dy
-            ux, uy   = _worley_hash2(cxw, cy, seed)
+            cyw      = (iy + dy) % ny_cells
+            ux, uy   = _worley_hash2(cxw, cyw, seed)
             d2       = (fx - dx - ux) ** 2 + (fy - dy - uy) ** 2
             f1       = np.where(d2 < f1, d2, f1)
     return np.sqrt(f1)
 
 
-def cloud_density(xs, ys, nx, seed):
-    wx      = fbm2d(xs + 1.7, ys + 9.2, nx, 3, seed ^ 0xAABB) * 2.0 - 1.0
-    wy      = fbm2d(xs + 8.3, ys + 2.8, nx, 3, seed ^ 0xCCDD) * 2.0 - 1.0
+def cloud_density(xs, ys, nx, ny, seed):
+    wx      = fbm2d(xs + 1.7, ys + 9.2, nx, ny, 3, seed ^ 0xAABB) * 2.0 - 1.0
+    wy      = fbm2d(xs + 8.3, ys + 2.8, nx, ny, 3, seed ^ 0xCCDD) * 2.0 - 1.0
     xs2     = xs + wx * 0.6
     ys2     = ys + wy * 0.4
     cell_size = 0.50
-    f1      = worley_f1(xs2, ys2, nx, seed)
+    f1      = worley_f1(xs2, ys2, nx, ny, seed)
     density = np.clip(1.0 - f1 / cell_size, 0.0, 1.0)
-    detail  = fbm2d(xs2 * 3.0, ys2 * 3.0, nx, 4, seed ^ 0xF00D) * 0.35
+    detail  = fbm2d(xs2 * 3.0, ys2 * 3.0, nx, ny, 4, seed ^ 0xF00D) * 0.35
     return np.clip(density + detail * density, 0.0, 1.0)
-
-
-def to565(r, g, b):
-    return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
-
-
-def compute_repeats(screen_w):
-    return max(1, round(float(screen_w) / (PANO_W * NOMINAL_HFOV_FRAC)))
 
 
 SHADE_MIN = 0.72
@@ -136,28 +129,20 @@ SHADE_MAX = 1.07
 
 def gen_cloud_mask(coverage, seed):
     nx     = 8
-    ny     = 4
-    xs_lin = np.linspace(0, nx, PANO_W, endpoint=False, dtype=np.float32)
-    ys_lin = np.linspace(0, ny, PANO_H, endpoint=False, dtype=np.float32)
+    ny     = 8
+    xs_lin = np.linspace(0, nx, TILE_W, endpoint=False, dtype=np.float32)
+    ys_lin = np.linspace(0, ny, TILE_H, endpoint=False, dtype=np.float32)
     xs, ys = np.meshgrid(xs_lin, ys_lin)
 
-    density = cloud_density(xs, ys, nx, seed)
+    density = cloud_density(xs, ys, nx, ny, seed)
 
     cov_w   = coverage * 0.36
     d       = np.clip((density - cov_w) / (1.0 - cov_w), 0.0, 1.0)
     d_sharp = np.power(d, 0.6)
     alpha   = d_sharp * d_sharp * (3.0 - 2.0 * d_sharp)
 
-    v_norm     = np.linspace(0.0, 1.0, PANO_H, dtype=np.float32)[:, None]
-    
-    t_h        = np.clip(v_norm / 0.92, 0.0, 1.0)
-    horiz_fade = 1.0 - t_h * t_h * (3.0 - 2.0 * t_h)
-
-    alpha      = np.clip(alpha * horiz_fade, 0.0, 1.0)
-
-    ht    = 1.0 - v_norm
     inner = np.clip(alpha - 0.55, 0.0, 1.0) * 0.20
-    shade = np.clip(0.78 + 0.22 * ht - inner, SHADE_MIN, SHADE_MAX)
+    shade = np.clip(0.85 - inner, SHADE_MIN, SHADE_MAX)
     rim   = np.clip(1.0 - np.abs(alpha - 0.22) * 6.0, 0.0, 1.0) * 0.07
     shade = np.clip(shade + rim, SHADE_MIN, SHADE_MAX)
 
@@ -173,21 +158,22 @@ def mask_to_preview(alpha_plane, shade_plane, cloud_rgb):
     r = np.clip(cr * s_norm * a_norm, 0, 255)
     g = np.clip(cg * s_norm * a_norm, 0, 255)
     b = np.clip(cb * s_norm * a_norm, 0, 255)
-    return np.stack([r, g, b], axis=-1).astype(np.uint8)
+    tiled = np.tile(np.stack([r, g, b], axis=-1).astype(np.uint8), (4, 4, 1))
+    return tiled
 
 
 def fmt_array_chunked(plane, items_per_line=16):
     lines = []
-    for y in range(PANO_H):
+    for y in range(TILE_H):
         row = plane[y]
-        for i in range(0, PANO_W, items_per_line):
+        for i in range(0, TILE_W, items_per_line):
             chunk = row[i:i + items_per_line]
             hex_str = ", ".join(f"0x{v:02X}" for v in chunk)
             lines.append(f"            {hex_str},")
     return "\n".join(lines)
 
 
-def write_mask_header(alpha_plane, shade_plane, cloud_rgb, repeats, coverage, seed, out_path):
+def write_mask_header(alpha_plane, shade_plane, cloud_rgb, coverage, seed, out_path):
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
     cr, cg, cb = cloud_rgb
@@ -196,36 +182,41 @@ def write_mask_header(alpha_plane, shade_plane, cloud_rgb, repeats, coverage, se
 
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("/*\n")
-        f.write(" * Pip3D Cloud Mask Asset\n")
+        f.write(" * Pip3D Cloud Mask Asset — Square Tileable\n")
         f.write(" * Generated automatically by Tools/Textures/Skygen.py. Do not edit.\n")
         f.write(" *\n")
-        f.write(f" * Panorama Size : {PANO_W}x{PANO_H} (2 Planes: Alpha + Shade)\n")
-        f.write(f" * Parameters    : Coverage={coverage:.2f}, Seed={seed:#x}, Repeats={repeats}\n")
-        f.write(f" * Default Color : RGB({cr}, {cg}, {cb}) -> 0x{default565:04X}\n")
-        f.write(f" * Flash Memory  : {total} bytes ({total / 1024.0:.2f} KB)\n")
+        f.write(f" * Tile Size      : {TILE_W}x{TILE_H} (2 Planes: Alpha + Shade)\n")
+        f.write(f" * Wrap           : Seamless on both axes (periodic noise)\n")
+        f.write(f" * Parameters     : Coverage={coverage:.2f}, Seed={seed:#x}\n")
+        f.write(f" * Default Color  : RGB({cr}, {cg}, {cb}) -> 0x{default565:04X}\n")
+        f.write(f" * Flash Memory   : {total} bytes ({total / 1024.0:.2f} KB)\n")
         f.write(" */\n\n")
         f.write("#pragma once\n\n")
         f.write("#include <cstdint>\n\n")
         f.write("namespace pip3D\n{\n")
         f.write("    namespace detail\n    {\n")
-        f.write(f"        // Alpha Channel Map ({PANO_W}x{PANO_H})\n")
-        f.write(f"        alignas(16) static const uint8_t s_cloudsAlphaData[{PANO_H}][{PANO_W}] =\n        {{\n")
+        f.write(f"        // Alpha Channel Map ({TILE_W}x{TILE_H}, tileable)\n")
+        f.write(f"        alignas(16) static const uint8_t s_cloudsAlphaData[{TILE_H}][{TILE_W}] =\n        {{\n")
         f.write(fmt_array_chunked(alpha_plane) + "\n")
         f.write("        };\n\n")
-        f.write(f"        // Shade Factor Map ({PANO_W}x{PANO_H})\n")
-        f.write(f"        alignas(16) static const uint8_t s_cloudsShadeData[{PANO_H}][{PANO_W}] =\n        {{\n")
+        f.write(f"        // Shade Factor Map ({TILE_W}x{TILE_H}, tileable)\n")
+        f.write(f"        alignas(16) static const uint8_t s_cloudsShadeData[{TILE_H}][{TILE_W}] =\n        {{\n")
         f.write(fmt_array_chunked(shade_plane) + "\n")
         f.write("        };\n    }\n\n")
-        f.write(f"    inline constexpr uint16_t        CLOUDS_PANO_W        = {PANO_W};\n")
-        f.write(f"    inline constexpr uint16_t        CLOUDS_PANO_H        = {PANO_H};\n")
-        f.write(f"    inline constexpr uint16_t        CLOUDS_PANO_REPEATS  = {repeats};\n")
+        f.write(f"    inline constexpr uint16_t        CLOUDS_PANO_W        = {TILE_W};\n")
+        f.write(f"    inline constexpr uint16_t        CLOUDS_PANO_H        = {TILE_H};\n")
+        f.write(f"    inline constexpr uint16_t        CLOUDS_PANO_REPEATS  = 1;\n")
         f.write(f"    inline constexpr uint16_t        CLOUDS_DEFAULT_COLOR = 0x{default565:04X};\n")
         f.write("}\n")
     return out_path, total
 
 
+def to565(r, g, b):
+    return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
+
+
 def main():
-    p = argparse.ArgumentParser(description="pip3D cloud mask generator")
+    p = argparse.ArgumentParser(description="pip3D cloud mask generator (square tileable)")
     p.add_argument("output",      nargs="?")
     p.add_argument("--coverage",  type=float, default=DEFAULT_COVERAGE)
     p.add_argument("--seed",      type=lambda x: int(x, 0), default=DEFAULT_SEED)
@@ -235,10 +226,9 @@ def main():
     args = p.parse_args()
 
     cloud_rgb = tuple(int(v) for v in args.cloud.split(","))
-    repeats   = compute_repeats(args.screen_w)
 
-    print(_tag(f"Skygen: cloud mask coverage={args.coverage}  seed={args.seed:#x}  cloud={cloud_rgb}"))
-    print(_tag(f"Skygen: texture={PANO_W}x{PANO_H}  repeats={repeats}  (screen {args.screen_w}x{args.screen_h})"))
+    print(_tag(f"Skygen: square tileable cloud mask coverage={args.coverage}  seed={args.seed:#x}  cloud={cloud_rgb}"))
+    print(_tag(f"Skygen: texture={TILE_W}x{TILE_H}  (screen {args.screen_w}x{args.screen_h})"))
 
     alpha_plane, shade_plane = gen_cloud_mask(args.coverage, args.seed)
 
@@ -247,10 +237,10 @@ def main():
     os.makedirs(sources_dir, exist_ok=True)
     preview_path = os.path.join(sources_dir, PREVIEW_FILENAME)
     Image.fromarray(mask_to_preview(alpha_plane, shade_plane, cloud_rgb), "RGB").save(preview_path)
-    print(_tag(f"Skygen: Preview: {preview_path}"))
+    print(_tag(f"Skygen: Preview (4x4 tiled): {preview_path}"))
 
     if args.output:
-        hpp, total = write_mask_header(alpha_plane, shade_plane, cloud_rgb, repeats, args.coverage, args.seed, args.output)
+        hpp, total = write_mask_header(alpha_plane, shade_plane, cloud_rgb, args.coverage, args.seed, args.output)
         print(_tag(f"Skygen: Flash header: {hpp}  ({total} bytes total, 0 RAM)"))
 
 

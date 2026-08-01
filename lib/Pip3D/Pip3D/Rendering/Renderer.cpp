@@ -8,8 +8,7 @@
 
 namespace pip3D
 {
-    Renderer::Renderer() : zBuffer(nullptr),
-                           reflectBuffer(nullptr),
+    Renderer::Renderer() : reflectBuffer(nullptr),
                            reflectWriteBuffer(nullptr),
 #if defined(PIP3D_PC)
                            pcDisplayReady(false),
@@ -48,8 +47,6 @@ namespace pip3D
 
     Renderer::~Renderer()
     {
-        if (zBuffer)
-            delete zBuffer;
         if (reflectBuffer)
             MemUtils::freeData(reflectBuffer);
         if (reflectWriteBuffer)
@@ -187,21 +184,6 @@ namespace pip3D
             return false;
         }
 
-        zBuffer = new ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>();
-        if (!zBuffer || !zBuffer->init())
-        {
-            if (zBuffer)
-            {
-                delete zBuffer;
-                zBuffer = nullptr;
-            }
-#if !defined(PIP3D_PC)
-            display = nullptr;
-#endif
-            initialized = false;
-            return false;
-        }
-
         viewport = Viewport(0, 0, cfg.width, cfg.height);
         reflectBuffer = nullptr;
         reflectWriteBuffer = nullptr;
@@ -216,6 +198,9 @@ namespace pip3D
     {
         if (!isInitialized())
             return;
+
+        framebuffer.updateClouds(static_cast<float>(perfCounter.getFrameTime()) * 0.001f);
+
         beginFrameBand(0);
     }
 
@@ -336,8 +321,7 @@ namespace pip3D
             Rasterizer::rebuildFogLut();
         }
 
-        if (zBuffer)
-            zBuffer->clear();
+        zBuffer.clear();
 
 #if PIP3D_ENABLE_GIZMOS
         if (bandIndex == 0)
@@ -477,7 +461,7 @@ namespace pip3D
         {
             const float hfov = ensureHfovCached();
             framebuffer.drawClouds<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>(
-                fwd, cam.right(), cam.upVec(), vfov, hfov);
+                cam.position, fwd, cam.right(), cam.upVec(), vfov, hfov);
         }
     }
 
@@ -641,7 +625,7 @@ namespace pip3D
 
         ::pip3D::applyDeferred3DLighting(
             framebuffer.getBuffer(),
-            zBuffer,
+            &zBuffer,
             pointLights.data(),
             static_cast<int>(pointLights.size()),
             cameras[activeCameraIndex],

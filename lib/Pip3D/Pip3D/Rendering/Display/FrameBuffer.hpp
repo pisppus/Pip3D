@@ -230,6 +230,10 @@ namespace pip3D
         __attribute__((always_inline)) inline void setCloudsEnabled(bool e) { clouds.enabled = e; }
         __attribute__((always_inline)) inline void setCloudColor(Color c) { clouds.setCloudColor(c); }
         __attribute__((always_inline)) inline void setCloudAlpha(float a) { clouds.setCloudAlpha(a); }
+        __attribute__((always_inline)) inline void setCloudHeight(float m) { clouds.setCloudHeight(m); }
+        __attribute__((always_inline)) inline void setCloudScale(float m) { clouds.setCloudScale(m); }
+        __attribute__((always_inline)) inline void setCloudDrift(float sx, float sz) { clouds.setDrift(sx, sz); }
+        __attribute__((always_inline)) inline void updateClouds(float dt) { clouds.update(dt); }
 
         __attribute__((always_inline)) inline void generateClouds(uint32_t seed, float coverage)
         {
@@ -238,10 +242,12 @@ namespace pip3D
 
         template <uint16_t WIDTH, uint16_t HEIGHT>
         __attribute__((always_inline, hot)) inline void
-        drawClouds(float yawRad, float pitchShiftRows, float hfovRad)
+        drawClouds(const Vector3 &camPos,
+                   const Vector3 &fwd, const Vector3 &right, const Vector3 &up,
+                   float vfovRad, float hfovRad)
         {
             clouds.drawClouds<WIDTH, HEIGHT>(buffer[activeSlot], g_bandOffsetY,
-                                             yawRad, pitchShiftRows, hfovRad);
+                                             camPos, fwd, right, up, vfovRad, hfovRad);
         }
 
         __attribute__((always_inline)) inline void endFrame()

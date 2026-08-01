@@ -63,7 +63,7 @@ namespace pip3D
                                                viewProjMatrix,
                                                viewport,
                                                framebuffer,
-                                               zBuffer,
+                                               &zBuffer,
                                                backfaceCullingEnabled,
                                                cache,
                                                cacheGen);
@@ -159,7 +159,7 @@ namespace pip3D
             1.0f, -1.0f,
             1.0f, 1.0f,
             finalShadowColor, baseAlpha,
-            framebuffer.getBuffer(), zBuffer, cfg);
+            framebuffer.getBuffer(), &zBuffer, cfg);
 
         Rasterizer::fillTriangleBlob(
             p0.x, p0.y, p0.z,
@@ -169,6 +169,6 @@ namespace pip3D
             1.0f, 1.0f,
             -1.0f, 1.0f,
             finalShadowColor, baseAlpha,
-            framebuffer.getBuffer(), zBuffer, cfg);
+            framebuffer.getBuffer(), &zBuffer, cfg);
     }
 }
