@@ -353,7 +353,7 @@ namespace pip3D
 
         const DisplayConfig &framebufferConfig = framebuffer.getConfig();
         if (occlusionCullingEnabled &&
-            Culling::isInstanceOccluded(center, radius, cam, viewport, viewProjMatrix, zBuffer, framebufferConfig))
+            Culling::isInstanceOccluded(center, radius, cam, viewport, viewProjMatrix, &zBuffer, framebufferConfig))
         {
             statsInstancesOcclusionCulled++;
             return;
@@ -688,7 +688,7 @@ namespace pip3D
                         lr2, lg2, lb2,
                         *mesh->getTexture(),
                         framebuffer.getBuffer(),
-                        zBuffer,
+                        &zBuffer,
                         framebufferConfig);
                     g_drawTelemetry.facesDrawnTextured++;
                 }
@@ -701,7 +701,7 @@ namespace pip3D
                     bool drew = clipAndDrawNearTextured(
                         cv, nearClip,
                         cam, viewport, viewProjMatrix,
-                        framebuffer, zBuffer,
+                        framebuffer, &zBuffer,
                         *mesh->getTexture(),
                         mesh, i, currentFrame);
                     if (drew)
@@ -746,16 +746,17 @@ namespace pip3D
                 lp1.y -= (float)bandTop;
                 lp2.y -= (float)bandTop;
 
-                Rasterizer::fillTriangleSmooth((int16_t)lp0.x, (int16_t)lp0.y, lp0.z, (int16_t)lp1.x, (int16_t)lp1.y, lp1.z, (int16_t)lp2.x, (int16_t)lp2.y, lp2.z, c0.x, c0.y, c0.z, c1.x, c1.y, c1.z, c2.x, c2.y, c2.z, framebuffer.getBuffer(), zBuffer, framebufferConfig);
+                Rasterizer::fillTriangleSmooth((int16_t)lp0.x, (int16_t)lp0.y, lp0.z, (int16_t)lp1.x, (int16_t)lp1.y, lp1.z, (int16_t)lp2.x, (int16_t)lp2.y, lp2.z, c0.x, c0.y, c0.z, c1.x, c1.y, c1.z, c2.x, c2.y, c2.z, framebuffer.getBuffer(), &zBuffer, framebufferConfig);
                 continue;
             }
 
-            MeshRenderer::drawTriangle3D_Preprojected(v0, v1, v2, p0, p1, p2, instColor565, cam, viewport, viewProjMatrix, framebuffer, zBuffer, activeLights, actualLightCount, backfaceCullingEnabled, statsTrianglesTotal, statsTrianglesBackfaceCulled, useUniformColor, uniformColor);
+            MeshRenderer::drawTriangle3D_Preprojected(v0, v1, v2, p0, p1, p2, instColor565,
+                                                      cam, viewport, viewProjMatrix, framebuffer, &zBuffer, activeLights, actualLightCount, backfaceCullingEnabled, statsTrianglesTotal, statsTrianglesBackfaceCulled, useUniformColor, uniformColor);
         }
     }
 
     void Renderer::drawTriangle3D(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2, uint16_t color)
     {
-        MeshRenderer::drawTriangle3D(v0, v1, v2, color, cameras[activeCameraIndex], viewport, viewProjMatrix, framebuffer, zBuffer, lights.data(), activeLightCount, backfaceCullingEnabled, statsTrianglesTotal, statsTrianglesBackfaceCulled, false, 0);
+        MeshRenderer::drawTriangle3D(v0, v1, v2, color, cameras[activeCameraIndex], viewport, viewProjMatrix, framebuffer, &zBuffer, lights.data(), activeLightCount, backfaceCullingEnabled, statsTrianglesTotal, statsTrianglesBackfaceCulled, false, 0);
     }
 }

@@ -120,7 +120,7 @@ namespace pip3D
                                           waterYGlobal,
                                           framebuffer.getSkybox(),
                                           framebuffer.getBuffer(),
-                                          zBuffer,
+                                          &zBuffer,
                                           framebufferConfig,
                                           bandTop,
                                           reflectBuffer,
@@ -132,7 +132,7 @@ namespace pip3D
     void Renderer::drawWater(float yLevel, float size, Color color, float alpha, float time)
     {
         uint16_t *fb = framebuffer.getBuffer();
-        if (!fb || !zBuffer)
+        if (!fb)
             return;
 
         if (alpha <= 0.0f)
@@ -221,12 +221,12 @@ namespace pip3D
         drawBillboardQuadsRaw(
             quads, count,
             framebuffer.getBuffer(),
-            zBuffer,
+            &zBuffer,
             framebuffer,
             bandTop, bandHeight,
             static_cast<int16_t>(viewport.width),
             static_cast<int16_t>(viewport.height),
-            /*writeZForAlpha=*/true);
+            true);
     }
 
     void Renderer::drawSunSprite(const Vector3 &worldPos, const Color &color, float glow, float sizeScale)
@@ -267,8 +267,8 @@ namespace pip3D
 
         if (!buildBillboardQuadGeometry(
                 worldPos, diameter, diameter,
-                BB_SCREEN_ALIGNED, /*yawDeg=*/0.0f,
-                /*screenSpaceSize=*/true, color,
+                BB_SCREEN_ALIGNED, 0.0f,
+                true, color,
                 ctx, q))
             return;
 
