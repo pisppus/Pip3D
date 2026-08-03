@@ -13,12 +13,11 @@ namespace pip3D
     namespace Rasterizer
     {
         static constexpr int32_t kBlobDistSqMax = 1 << 24;
-        static constexpr int32_t kBlobDepthTolerance = 250;
 
         struct alignas(16) BlobParams
         {
             uint16_t *frameBuffer;
-            int16_t *zbBase;
+            uint16_t *zbBase;
             int32_t dz_dx_fixed;
             int32_t dz_dy_fixed;
             int32_t du_dx_fixed;
@@ -112,7 +111,7 @@ namespace pip3D
 
                     int32_t depth_fixed = z_row_fixed + dz_dx * xStart;
 
-                    int16_t *__restrict__ zPtr = params.zbBase + static_cast<size_t>(y) * width + xStart;
+                    uint16_t *__restrict__ zPtr = params.zbBase + static_cast<size_t>(y) * width + xStart;
                     uint16_t *__restrict__ fbPtr = params.frameBuffer + static_cast<size_t>(y) * width + xStart;
 
                     int16_t count = xEnd - xStart + 1;
@@ -131,11 +130,12 @@ namespace pip3D
                             const uint32_t alpha = (baseAlpha * factor) >> 8;
                             if (alpha > 0)
                             {
-                                const int16_t stored = zPtr[0];
-                                const int16_t depthNoShadow = static_cast<int16_t>(static_cast<uint16_t>(stored) & Z_DEPTH_MASK);
-                                const int16_t d = static_cast<int16_t>(depth_fixed >> 14);
+                                const uint16_t stored = zPtr[0];
+                                const uint16_t depthNoShadow = stored & Z_DEPTH_MASK;
+                                const uint16_t d = static_cast<uint16_t>(depth_fixed >> 14);
 
-                                if (d <= depthNoShadow + kBlobDepthTolerance)
+                                const int32_t depthTolerance = (depthNoShadow >> 6) + 4;
+                                if (d + depthTolerance >= depthNoShadow)
                                 {
                                     const uint16_t dst = fbPtr[0];
                                     const uint32_t a = alpha >> 3;
@@ -182,7 +182,7 @@ namespace pip3D
             uint16_t shadowColor,
             uint8_t alpha,
             uint16_t *frameBuffer,
-            ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+            ZBuffer *zBuffer,
             const DisplayConfig &config)
         {
             const int16_t width = config.width;
@@ -245,8 +245,7 @@ namespace pip3D
             const float dv_dx = (dv02 * dy12 - dy02 * dv12) * invDet;
             const float dv_dy = (dx02 * dv12 - dv02 * dx12) * invDet;
 
-            constexpr float depthScale =
-                static_cast<float>(ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::DEPTH_MAX) * 16384.0f;
+            constexpr float depthScale = 16384.0f;
             const float dz_dx_scaled = dz_dx * depthScale;
             const float dz_dy_scaled = dz_dy * depthScale;
             const float z2_scaled = z2 * depthScale;

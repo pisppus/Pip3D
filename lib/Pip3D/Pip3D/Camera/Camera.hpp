@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "Core/Platform.hpp"
 #include "Animation.hpp"
 #include "Frustum.hpp"
 #include "Math/Algebra.hpp"
@@ -10,26 +11,15 @@
 
 namespace pip3D
 {
-  enum ProjectionType
-  {
-    PERSPECTIVE,
-    ORTHOGRAPHIC
-  };
-
   struct Camera
   {
     Vector3 position;
     Vector3 target;
     Vector3 up;
 
-    ProjectionType projectionType = PERSPECTIVE;
-
     float fov = 60.0f;
     float nearPlane = 0.1f;
     float farPlane = 100.0f;
-
-    float orthoWidth = 10.0f;
-    float orthoHeight = 10.0f;
 
     CameraAnimation anim;
     CameraShake shakeState;
@@ -40,8 +30,6 @@ namespace pip3D
     {
       uint8_t flags = CameraDirty::ALL;
       float lastAspect = 0.0f;
-      float halfW = 0.0f;
-      float halfH = 0.0f;
       Vector3 cachedForward;
       Vector3 cachedRight;
       Matrix4x4 view;
@@ -258,19 +246,7 @@ namespace pip3D
       fov = fmaxf(1.0f, fminf(179.0f, fovDegrees));
       nearPlane = fmaxf(0.001f, n);
       farPlane = fmaxf(nearPlane + 0.1f, f);
-      projectionType = PERSPECTIVE;
       invalidateProjection();
-    }
-
-    PIP3D_FORCE_INLINE void setOrtho(float width = 10.0f, float height = 10.0f,
-                                     float n = 0.1f, float f = 100.0f)
-    {
-      orthoWidth = fmaxf(0.1f, width);
-      orthoHeight = fmaxf(0.1f, height);
-      nearPlane = fmaxf(0.001f, n);
-      farPlane = fmaxf(nearPlane + 0.1f, f);
-      projectionType = ORTHOGRAPHIC;
-      invalidateOrtho();
     }
 
     PIP3D_FORCE_INLINE void animateTo(const Vector3 &newPos, const Vector3 &newTgt,
@@ -352,11 +328,6 @@ namespace pip3D
     {
       cache.flags |= CameraDirty::PROJ | CameraDirty::VP;
     }
-    PIP3D_FORCE_INLINE void invalidateOrtho()
-    {
-      cache.flags |= CameraDirty::ORTHO;
-      invalidateProjection();
-    }
 
     PIP3D_FORCE_INLINE void recomputeView() const
     {
@@ -405,25 +376,8 @@ namespace pip3D
 
     PIP3D_FORCE_INLINE void recomputeProj(float aspect) const
     {
-      switch (projectionType)
-      {
-      case PERSPECTIVE:
-        cache.proj.setPerspective(fov * kDegToRad, aspect, nearPlane, farPlane);
-        break;
-      case ORTHOGRAPHIC:
-      default:
-        if (cache.flags & CameraDirty::ORTHO)
-        {
-          cache.halfW = orthoWidth * 0.5f;
-          cache.halfH = orthoHeight * 0.5f;
-          cache.flags &= ~CameraDirty::ORTHO;
-        }
-        const float aspectFactor = fmaxf(1.0f, aspect);
-        const float adjW = cache.halfW * aspectFactor;
-        const float adjH = cache.halfH * FastMath::fastReciprocal(aspectFactor);
-        cache.proj.setOrthographic(-adjW, adjW, -adjH, adjH, nearPlane, farPlane);
-        break;
-      }
+
+      cache.proj.setPerspective(fov * kDegToRad, aspect, nearPlane, farPlane);
       cache.flags &= ~CameraDirty::PROJ;
       cache.lastAspect = aspect;
     }
@@ -469,16 +423,16 @@ namespace pip3D
       const float *PIP3D_RESTRICT m = vp.m;
       const float clipX = m[0] * v.x + m[4] * v.y + m[8] * v.z + m[12];
       const float clipY = m[1] * v.x + m[5] * v.y + m[9] * v.z + m[13];
-      const float clipZ = m[2] * v.x + m[6] * v.y + m[10] * v.z + m[14];
       const float clipW = m[3] * v.x + m[7] * v.y + m[11] * v.z + m[15];
       const float invW = FastMath::fastReciprocal(clipW);
       const float ndcX = clipX * invW;
       const float ndcY = clipY * invW;
-      const float ndcZ = clipZ * invW;
+
+      const float wDepth = g_wBufferScale * invW;
       return Vector3(
           (ndcX + 1.0f) * halfWidth + static_cast<float>(viewportX),
           (1.0f - ndcY) * halfHeight + static_cast<float>(viewportY),
-          (ndcZ + 1.0f) * 0.5f);
+          wDepth);
     }
 
     PIP3D_FORCE_INLINE static Vector3 project(const Vector3 &v,

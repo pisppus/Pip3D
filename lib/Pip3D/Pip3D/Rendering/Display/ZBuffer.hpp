@@ -1,56 +1,43 @@
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
+#include <cstring>
+
+#include "Core/Platform.hpp"
 
 namespace pip3D
 {
 
-    inline constexpr int16_t Z_SHADOW_FLAG = static_cast<int16_t>(0x8000);
     inline constexpr uint16_t Z_DEPTH_MASK = 0x7FFFu;
+    inline constexpr uint16_t Z_SHADOW_FLAG = 0x8000u;
+    inline constexpr uint16_t Z_DEPTH_MAX = 0x7FFEu;
+    inline constexpr uint16_t Z_CLEAR_VALUE = 0x0000u;
+    inline constexpr uint32_t Z_CLEAR_PACK32 = 0x00000000u;
 
-    template <uint16_t WIDTH, uint16_t HEIGHT>
     class ZBuffer
     {
     public:
-        static constexpr int16_t CLEAR_DEPTH = 0x7FFF;
-        static constexpr int16_t DEPTH_MAX = 0x7FFE;
-        static constexpr uint32_t CLEAR_PACK32 = 0x7FFF7FFFu;
+        ZBuffer() = default;
 
-    private:
-        static constexpr size_t BUFFER_SIZE = static_cast<size_t>(WIDTH) * HEIGHT;
-
-        alignas(32) int16_t storage[BUFFER_SIZE];
-
-    public:
-        ZBuffer() { clear(); }
         ZBuffer(const ZBuffer &) = delete;
         ZBuffer &operator=(const ZBuffer &) = delete;
 
-        inline void clear()
-        {
-            uint32_t *p = reinterpret_cast<uint32_t *>(storage);
-            uint32_t n = BUFFER_SIZE / 2;
+        void clear();
 
-            while (n >= 8)
-            {
-                p[0] = p[1] = p[2] = p[3] =
-                    p[4] = p[5] = p[6] = p[7] = CLEAR_PACK32;
-                p += 8;
-                n -= 8;
-            }
-            while (n--)
-                *p++ = CLEAR_PACK32;
-        }
+        PIP3D_FORCE_INLINE uint16_t *data() { return storage; }
+        PIP3D_FORCE_INLINE const uint16_t *data() const { return storage; }
 
-        __attribute__((always_inline)) int16_t *data() { return storage; }
-        __attribute__((always_inline)) const int16_t *data() const { return storage; }
+        static constexpr uint32_t kPixelCount =
+            static_cast<uint32_t>(SCREEN_WIDTH) * SCREEN_BAND_HEIGHT;
+        static constexpr uint32_t kByteSize = kPixelCount * sizeof(uint16_t);
+        static constexpr uint32_t kStride = SCREEN_WIDTH;
 
-        __attribute__((always_inline)) int16_t
-        getRawDepth(uint16_t x, uint16_t y) const
-        {
-            return static_cast<int16_t>(
-                static_cast<uint16_t>(storage[static_cast<size_t>(y) * WIDTH + x]) & Z_DEPTH_MASK);
-        }
+    private:
+        alignas(PIP3D_CACHELINE_SIZE) uint16_t storage[kPixelCount];
     };
+
+    inline void ZBuffer::clear()
+    {
+        std::memset(storage, 0, kByteSize);
+    }
 }

@@ -326,32 +326,6 @@ namespace pip3D
             m[15] = 0.0f;
         }
 
-        PIP3D_FORCE_INLINE void setOrthographic(float left, float right,
-                                                float bottom, float top,
-                                                float nearPlane, float farPlane) noexcept
-        {
-            const float rl = FastMath::fastReciprocal(right - left);
-            const float tb = FastMath::fastReciprocal(top - bottom);
-            const float fn = FastMath::fastReciprocal(farPlane - nearPlane);
-
-            m[0] = 2.0f * rl;
-            m[1] = 0.0f;
-            m[2] = 0.0f;
-            m[3] = 0.0f;
-            m[4] = 0.0f;
-            m[5] = 2.0f * tb;
-            m[6] = 0.0f;
-            m[7] = 0.0f;
-            m[8] = 0.0f;
-            m[9] = 0.0f;
-            m[10] = -2.0f * fn;
-            m[11] = 0.0f;
-            m[12] = -(right + left) * rl;
-            m[13] = -(top + bottom) * tb;
-            m[14] = -(farPlane + nearPlane) * fn;
-            m[15] = 1.0f;
-        }
-
         PIP3D_FORCE_INLINE void lookAt(const Vector3 &eye,
                                        const Vector3 &target,
                                        const Vector3 &up) noexcept

@@ -35,7 +35,7 @@ namespace pip3D
                                                 const Viewport &viewport,
                                                 const Matrix4x4 &viewProjMatrix,
                                                 FrameBuffer &framebuffer,
-                                                ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+                                                ZBuffer *zBuffer,
                                                 const Light *lights,
                                                 int activeLightCount,
                                                 bool backfaceCullingEnabled,
@@ -68,7 +68,7 @@ namespace pip3D
                                    const Viewport &viewport,
                                    const Matrix4x4 &viewProjMatrix,
                                    FrameBuffer &framebuffer,
-                                   ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+                                   ZBuffer *zBuffer,
                                    const Light *lights,
                                    int activeLightCount,
                                    bool backfaceCullingEnabled,
@@ -103,7 +103,7 @@ namespace pip3D
                                                       const Camera &camera,
                                                       const Viewport &viewport,
                                                       FrameBuffer &framebuffer,
-                                                      ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+                                                      ZBuffer *zBuffer,
                                                       const Light *lights,
                                                       int activeLightCount,
                                                       bool useUniformColor,
@@ -209,7 +209,7 @@ namespace pip3D
                                             const Viewport &viewport,
                                             const Matrix4x4 &viewProjMatrix,
                                             FrameBuffer &framebuffer,
-                                            ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+                                            ZBuffer *zBuffer,
                                             const Texture &tex)
         {
             ClipVert clipped[4];
@@ -322,7 +322,7 @@ namespace pip3D
                                     const Viewport &viewport,
                                     const Matrix4x4 &viewProjMatrix,
                                     FrameBuffer &framebuffer,
-                                    ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+                                    ZBuffer *zBuffer,
                                     const Light *lights,
                                     int activeLightCount,
                                     bool useUniformColor,
@@ -416,7 +416,7 @@ namespace pip3D
                                                         const Viewport &viewport,
                                                         const Matrix4x4 &viewProjMatrix,
                                                         FrameBuffer &framebuffer,
-                                                        ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+                                                        ZBuffer *zBuffer,
                                                         const Light *lights,
                                                         int activeLightCount,
                                                         bool backfaceCullingEnabled,
@@ -429,7 +429,6 @@ namespace pip3D
             (void)statsTrianglesTotal;
             (void)statsTrianglesBackfaceCulled;
 
-            if (camera.projectionType == PERSPECTIVE)
             {
                 const Vector3 camPos = camera.position;
                 const Vector3 camFwd = camera.forward();
@@ -466,15 +465,6 @@ namespace pip3D
                                 uniformColor);
                 return;
             }
-
-            drawTriangle3D_Color_Preprojected(v0, v1, v2,
-                                              p0, p1, p2,
-                                              baseR, baseG, baseB,
-                                              camera, viewport,
-                                              framebuffer, zBuffer,
-                                              lights, activeLightCount,
-                                              useUniformColor,
-                                              uniformColor);
         }
 
         static void drawTriangle3D_Clipped(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2,
@@ -485,7 +475,7 @@ namespace pip3D
                                            const Viewport &viewport,
                                            const Matrix4x4 &viewProjMatrix,
                                            FrameBuffer &framebuffer,
-                                           ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+                                           ZBuffer *zBuffer,
                                            const Light *lights,
                                            int activeLightCount,
                                            bool backfaceCullingEnabled,
@@ -498,7 +488,6 @@ namespace pip3D
             (void)statsTrianglesTotal;
             (void)statsTrianglesBackfaceCulled;
 
-            if (camera.projectionType == PERSPECTIVE)
             {
                 const Vector3 camPos = camera.position;
                 const Vector3 camFwd = camera.forward();
@@ -546,26 +535,6 @@ namespace pip3D
                                 uniformColor);
                 return;
             }
-
-            const float viewportHalfWidth = static_cast<float>(viewport.width) * 0.5f;
-            const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
-            Vector3 p0 = CameraController::project(v0, viewProjMatrix,
-                                                   viewportHalfWidth, viewportHalfHeight,
-                                                   viewport.x, viewport.y);
-            Vector3 p1 = CameraController::project(v1, viewProjMatrix,
-                                                   viewportHalfWidth, viewportHalfHeight,
-                                                   viewport.x, viewport.y);
-            Vector3 p2 = CameraController::project(v2, viewProjMatrix,
-                                                   viewportHalfWidth, viewportHalfHeight,
-                                                   viewport.x, viewport.y);
-            drawTriangle3D_Color_Preprojected(v0, v1, v2,
-                                              p0, p1, p2,
-                                              baseR, baseG, baseB,
-                                              camera, viewport,
-                                              framebuffer, zBuffer,
-                                              lights, activeLightCount,
-                                              useUniformColor,
-                                              uniformColor);
         }
     };
 }

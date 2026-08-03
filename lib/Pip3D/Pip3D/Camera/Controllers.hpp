@@ -131,13 +131,6 @@ namespace pip3D
       return *this;
     }
 
-    PIP3D_FORCE_INLINE CameraBuilder &ortho(float w = 10.0f, float h = 10.0f,
-                                            float n = 0.1f, float f = 100.0f)
-    {
-      cam.setOrtho(w, h, n, f);
-      return *this;
-    }
-
     PIP3D_FORCE_INLINE Camera build()
     {
       cam.markDirty();

@@ -24,8 +24,8 @@ namespace pip3D
             float worldNear = 0.0f;
             float worldScale = 0.0f;
             float worldScale32 = 0.0f;
-            float kVal = 0.0f;
-            float knVal = 0.0f;
+            float wScale = 0.0f;
+            float invWScale = 0.0f;
             float color_r = 0.0f;
             float color_g_f = 0.0f;
             float color_b_f = 0.0f;
@@ -57,18 +57,20 @@ namespace pip3D
                 return;
             }
 
-            const float kVal = f.kVal;
-            const float knVal = f.knVal;
+            const float wScale = f.wScale;
             const float worldNear = f.worldNear;
             const float worldScale32 = f.worldScale32;
 
             for (uint32_t i = 0; i < 257; ++i)
             {
                 const uint32_t d = i * 128u;
-                float denom = kVal - static_cast<float>(d);
-                if (denom < 1.0f)
-                    denom = 1.0f;
-                const float z_eye = knVal * FastMath::fastReciprocal(denom);
+                if (d == 0u)
+                {
+
+                    g_fogLut.alpha[i] = 32u;
+                    continue;
+                }
+                const float z_eye = wScale * FastMath::fastReciprocal(static_cast<float>(d));
                 float a = (z_eye - worldNear) * worldScale32;
                 if (a < 0.0f)
                     a = 0.0f;
@@ -80,7 +82,7 @@ namespace pip3D
         }
 
         __attribute__((always_inline, hot)) static inline void IRAM_ATTR
-        fillScanlinePlain(int16_t *__restrict__ buf,
+        fillScanlinePlain(uint16_t *__restrict__ buf,
                           uint16_t *__restrict__ fb,
                           uint32_t count,
                           int32_t depthStart,
@@ -94,32 +96,32 @@ namespace pip3D
                 PIP3D_PREFETCH_W(buf + 16);
                 PIP3D_PREFETCH_W(fb + 16);
 
-                const int16_t d0 = static_cast<int16_t>(depth);
-                const int16_t d1 = static_cast<int16_t>(depth + depthStep);
-                const int16_t d2 = static_cast<int16_t>(depth + depthStep * 2);
-                const int16_t d3 = static_cast<int16_t>(depth + depthStep * 3);
+                const uint16_t d0 = static_cast<uint16_t>(depth);
+                const uint16_t d1 = static_cast<uint16_t>(depth + depthStep);
+                const uint16_t d2 = static_cast<uint16_t>(depth + depthStep * 2);
+                const uint16_t d3 = static_cast<uint16_t>(depth + depthStep * 3);
 
-                const uint16_t c0 = static_cast<uint16_t>(buf[0]) & Z_DEPTH_MASK;
-                const uint16_t c1 = static_cast<uint16_t>(buf[1]) & Z_DEPTH_MASK;
-                const uint16_t c2 = static_cast<uint16_t>(buf[2]) & Z_DEPTH_MASK;
-                const uint16_t c3 = static_cast<uint16_t>(buf[3]) & Z_DEPTH_MASK;
+                const uint16_t c0 = buf[0] & Z_DEPTH_MASK;
+                const uint16_t c1 = buf[1] & Z_DEPTH_MASK;
+                const uint16_t c2 = buf[2] & Z_DEPTH_MASK;
+                const uint16_t c3 = buf[3] & Z_DEPTH_MASK;
 
-                if (d0 < c0)
+                if (d0 > c0)
                 {
                     buf[0] = d0;
                     fb[0] = color;
                 }
-                if (d1 < c1)
+                if (d1 > c1)
                 {
                     buf[1] = d1;
                     fb[1] = color;
                 }
-                if (d2 < c2)
+                if (d2 > c2)
                 {
                     buf[2] = d2;
                     fb[2] = color;
                 }
-                if (d3 < c3)
+                if (d3 > c3)
                 {
                     buf[3] = d3;
                     fb[3] = color;
@@ -133,9 +135,9 @@ namespace pip3D
 
             while (count > 0)
             {
-                const int16_t d = static_cast<int16_t>(depth);
-                const uint16_t c = static_cast<uint16_t>(*buf) & Z_DEPTH_MASK;
-                if (d < c)
+                const uint16_t d = static_cast<uint16_t>(depth);
+                const uint16_t c = *buf & Z_DEPTH_MASK;
+                if (d > c)
                 {
                     *buf = d;
                     *fb = color;
@@ -148,7 +150,7 @@ namespace pip3D
         }
 
         __attribute__((always_inline, hot)) static inline void IRAM_ATTR
-        fillScanlineFog(int16_t *__restrict__ buf,
+        fillScanlineFog(uint16_t *__restrict__ buf,
                         uint16_t *__restrict__ fb,
                         uint32_t count,
                         int32_t depthStart,
@@ -168,16 +170,16 @@ namespace pip3D
 
             while (count >= 2)
             {
-                const int16_t d0 = static_cast<int16_t>(depth);
-                const int16_t d1 = static_cast<int16_t>(depth + depthStep);
+                const uint16_t d0 = static_cast<uint16_t>(depth);
+                const uint16_t d1 = static_cast<uint16_t>(depth + depthStep);
 
-                const uint16_t c0 = static_cast<uint16_t>(buf[0]) & Z_DEPTH_MASK;
-                const uint16_t c1 = static_cast<uint16_t>(buf[1]) & Z_DEPTH_MASK;
+                const uint16_t c0 = buf[0] & Z_DEPTH_MASK;
+                const uint16_t c1 = buf[1] & Z_DEPTH_MASK;
 
-                if (d0 < c0)
+                if (d0 > c0)
                 {
                     buf[0] = d0;
-                    const uint16_t b0 = static_cast<uint16_t>(d0);
+                    const uint16_t b0 = d0;
                     const uint16_t bucket = b0 >> 7;
                     const uint16_t frac = b0 & 0x7Fu;
                     const uint8_t a0 = lutAlpha[bucket];
@@ -196,10 +198,10 @@ namespace pip3D
                         fb[0] = static_cast<uint16_t>(rb | g);
                     }
                 }
-                if (d1 < c1)
+                if (d1 > c1)
                 {
                     buf[1] = d1;
-                    const uint16_t b1 = static_cast<uint16_t>(d1);
+                    const uint16_t b1 = d1;
                     const uint16_t bucket = b1 >> 7;
                     const uint16_t frac = b1 & 0x7Fu;
                     const uint8_t a0 = lutAlpha[bucket];
@@ -227,12 +229,12 @@ namespace pip3D
 
             while (count > 0)
             {
-                const int16_t d = static_cast<int16_t>(depth);
-                const uint16_t c = static_cast<uint16_t>(*buf) & Z_DEPTH_MASK;
-                if (d < c)
+                const uint16_t d = static_cast<uint16_t>(depth);
+                const uint16_t c = *buf & Z_DEPTH_MASK;
+                if (d > c)
                 {
                     *buf = d;
-                    const uint16_t b = static_cast<uint16_t>(d);
+                    const uint16_t b = d;
                     const uint16_t bucket = b >> 7;
                     const uint16_t frac = b & 0x7Fu;
                     const uint8_t a0 = lutAlpha[bucket];
@@ -259,7 +261,7 @@ namespace pip3D
         }
 
         __attribute__((always_inline, hot)) static inline void IRAM_ATTR
-        fillScanline(int16_t *__restrict__ buf,
+        fillScanline(uint16_t *__restrict__ buf,
                      uint16_t *__restrict__ fb,
                      uint32_t count,
                      int32_t depthStart,
@@ -275,7 +277,7 @@ namespace pip3D
         struct alignas(16) PlanarParams
         {
             uint16_t *frameBuffer;
-            int16_t *zbBase;
+            uint16_t *zbBase;
             int32_t dz_dx_fixed;
             int32_t dz_dy_fixed;
             uint32_t s_rb;
@@ -292,7 +294,7 @@ namespace pip3D
         struct alignas(16) SmoothParams
         {
             uint16_t *frameBuffer;
-            int16_t *zbBase;
+            uint16_t *zbBase;
             int32_t dz_dx_fixed;
             int32_t dz_dy_fixed;
             int32_t dr_dx_fixed;

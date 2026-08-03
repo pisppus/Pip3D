@@ -71,7 +71,7 @@ namespace pip3D
                                            const Matrix4x4 &viewProjMatrix,
                                            const Viewport &viewport,
                                            FrameBuffer &framebuffer,
-                                           ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+                                           ZBuffer *zBuffer,
                                            bool &backfaceCullingEnabled,
                                            DrawCache *drawCache,
                                            uint32_t shadowCacheGen)
@@ -166,7 +166,7 @@ namespace pip3D
             int16_t bandTop, int16_t bandBottom,
             uint16_t shadowColor, uint8_t baseAlpha,
             uint16_t *frameBuffer,
-            ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+            ZBuffer *zBuffer,
             const DisplayConfig &framebufferConfig,
             float depthBias)
         {
@@ -177,9 +177,9 @@ namespace pip3D
             if (!isShadowProjectionReasonable(p0, p1, p2, viewport))
                 return;
 
-            p0.z -= depthBias;
-            p1.z -= depthBias;
-            p2.z -= depthBias;
+            p0.z += depthBias;
+            p1.z += depthBias;
+            p2.z += depthBias;
 
             const float minY = fminf(p0.y, fminf(p1.y, p2.y));
             const float maxY = fmaxf(p0.y, fmaxf(p1.y, p2.y));
@@ -211,92 +211,82 @@ namespace pip3D
             int16_t bandTop, int16_t bandBottom,
             uint16_t shadowColor, uint8_t baseAlpha,
             uint16_t *frameBuffer,
-            ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+            ZBuffer *zBuffer,
             const DisplayConfig &framebufferConfig,
             float depthBias)
         {
-            if (camera.projectionType == PERSPECTIVE)
+            const Vector3 camPos = camera.position;
+            const Vector3 camFwd = camera.forward();
+            const float nearD = camera.nearPlane;
+
+            Vector3 inVerts[3] = {sv0, sv1, sv2};
+            float dist[3];
+            for (int i = 0; i < 3; ++i)
             {
-                const Vector3 camPos = camera.position;
-                const Vector3 camFwd = camera.forward();
-                const float nearD = camera.nearPlane;
+                dist[i] = (inVerts[i] - camPos).dot(camFwd);
+            }
 
-                Vector3 inVerts[3] = {sv0, sv1, sv2};
-                float dist[3];
-                for (int i = 0; i < 3; ++i)
+            auto isInside = [&](int i) -> bool
+            { return dist[i] >= nearD; };
+
+            auto intersect = [&](const Vector3 &a, const Vector3 &b, float da, float db) -> Vector3
+            {
+                float denom = (db - da);
+                if (fabsf(denom) < 1e-6f)
+                    return a;
+                float t = (nearD - da) / denom;
+                if (t < 0.0f)
+                    t = 0.0f;
+                if (t > 1.0f)
+                    t = 1.0f;
+                return a + (b - a) * t;
+            };
+
+            Vector3 clipped[4];
+            int outCount = 0;
+
+            for (int i = 0; i < 3; ++i)
+            {
+                int j = (i + 1) % 3;
+                bool in0 = isInside(i);
+                bool in1 = isInside(j);
+                const Vector3 &P0 = inVerts[i];
+                const Vector3 &P1 = inVerts[j];
+                float d0 = dist[i];
+                float d1 = dist[j];
+
+                if (in0 && in1)
                 {
-                    dist[i] = (inVerts[i] - camPos).dot(camFwd);
+                    clipped[outCount++] = P1;
                 }
-
-                auto isInside = [&](int i) -> bool
-                { return dist[i] >= nearD; };
-
-                auto intersect = [&](const Vector3 &a, const Vector3 &b, float da, float db) -> Vector3
+                else if (in0 && !in1)
                 {
-                    float denom = (db - da);
-                    if (fabsf(denom) < 1e-6f)
-                        return a;
-                    float t = (nearD - da) / denom;
-                    if (t < 0.0f)
-                        t = 0.0f;
-                    if (t > 1.0f)
-                        t = 1.0f;
-                    return a + (b - a) * t;
-                };
-
-                Vector3 clipped[4];
-                int outCount = 0;
-
-                for (int i = 0; i < 3; ++i)
-                {
-                    int j = (i + 1) % 3;
-                    bool in0 = isInside(i);
-                    bool in1 = isInside(j);
-                    const Vector3 &P0 = inVerts[i];
-                    const Vector3 &P1 = inVerts[j];
-                    float d0 = dist[i];
-                    float d1 = dist[j];
-
-                    if (in0 && in1)
-                    {
-                        clipped[outCount++] = P1;
-                    }
-                    else if (in0 && !in1)
-                    {
-                        clipped[outCount++] = intersect(P0, P1, d0, d1);
-                    }
-                    else if (!in0 && in1)
-                    {
-                        clipped[outCount++] = intersect(P0, P1, d0, d1);
-                        clipped[outCount++] = P1;
-                    }
+                    clipped[outCount++] = intersect(P0, P1, d0, d1);
                 }
-
-                if (outCount < 3)
-                    return;
-
-                if (outCount == 3)
+                else if (!in0 && in1)
                 {
-                    renderShadowTriangleInternal(clipped[0], clipped[1], clipped[2],
-                                                 viewProjMatrix, viewport, viewportHalfWidth, viewportHalfHeight,
-                                                 bandTop, bandBottom, shadowColor, baseAlpha,
-                                                 frameBuffer, zBuffer, framebufferConfig, depthBias);
-                }
-                else if (outCount == 4)
-                {
-                    renderShadowTriangleInternal(clipped[0], clipped[1], clipped[2],
-                                                 viewProjMatrix, viewport, viewportHalfWidth, viewportHalfHeight,
-                                                 bandTop, bandBottom, shadowColor, baseAlpha,
-                                                 frameBuffer, zBuffer, framebufferConfig, depthBias);
-                    renderShadowTriangleInternal(clipped[0], clipped[2], clipped[3],
-                                                 viewProjMatrix, viewport, viewportHalfWidth, viewportHalfHeight,
-                                                 bandTop, bandBottom, shadowColor, baseAlpha,
-                                                 frameBuffer, zBuffer, framebufferConfig, depthBias);
+                    clipped[outCount++] = intersect(P0, P1, d0, d1);
+                    clipped[outCount++] = P1;
                 }
             }
-            else
+
+            if (outCount < 3)
+                return;
+
+            if (outCount == 3)
             {
-                renderShadowTriangleInternal(sv0, sv1, sv2,
+                renderShadowTriangleInternal(clipped[0], clipped[1], clipped[2],
+                                             viewProjMatrix, viewport, viewportHalfWidth, viewportHalfHeight,
+                                             bandTop, bandBottom, shadowColor, baseAlpha,
+                                             frameBuffer, zBuffer, framebufferConfig, depthBias);
+            }
+            else if (outCount == 4)
+            {
+                renderShadowTriangleInternal(clipped[0], clipped[1], clipped[2],
+                                             viewProjMatrix, viewport, viewportHalfWidth, viewportHalfHeight,
+                                             bandTop, bandBottom, shadowColor, baseAlpha,
+                                             frameBuffer, zBuffer, framebufferConfig, depthBias);
+                renderShadowTriangleInternal(clipped[0], clipped[2], clipped[3],
                                              viewProjMatrix, viewport, viewportHalfWidth, viewportHalfHeight,
                                              bandTop, bandBottom, shadowColor, baseAlpha,
                                              frameBuffer, zBuffer, framebufferConfig, depthBias);
@@ -354,7 +344,7 @@ namespace pip3D
             int16_t bandTop, int16_t bandBottom,
             uint16_t shadowColor, uint8_t baseAlpha,
             uint16_t *frameBuffer,
-            ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+            ZBuffer *zBuffer,
             const DisplayConfig &framebufferConfig,
             bool &backfaceCullingEnabled,
             DrawCache *drawCache,
@@ -422,7 +412,7 @@ namespace pip3D
             backfaceCullingEnabled = false;
 
             const float offsetY = shadowSettings.shadowOffset;
-            const float depthBias = 0.0015f;
+            const float depthBias = 2.0f;
 
             const uint16_t vertexCount = shadowMesh->numVertices();
             const uint16_t faceCount = shadowMesh->numFaces();

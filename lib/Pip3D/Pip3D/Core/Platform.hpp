@@ -91,13 +91,13 @@
 #endif
 
 #ifndef PIP3D_SCREEN_WIDTH
-  #define PIP3D_SCREEN_WIDTH 320
+#define PIP3D_SCREEN_WIDTH 480
 #endif
 #ifndef PIP3D_SCREEN_HEIGHT
-  #define PIP3D_SCREEN_HEIGHT 240
+#define PIP3D_SCREEN_HEIGHT 320
 #endif
 #ifndef PIP3D_SCREEN_BAND_COUNT
-  #define PIP3D_SCREEN_BAND_COUNT 2
+#define PIP3D_SCREEN_BAND_COUNT 4
 #endif
 
 #if PIP3D_TARGET_PC
@@ -120,27 +120,30 @@ namespace pip3D
         return value < min_val ? min_val : (value > max_val ? max_val : value);
     }
 
-    inline constexpr uint16_t SCREEN_WIDTH       = PIP3D_SCREEN_WIDTH;
-    inline constexpr uint16_t SCREEN_HEIGHT      = PIP3D_SCREEN_HEIGHT;
-    inline constexpr uint16_t SCREEN_BAND_COUNT  = PIP3D_SCREEN_BAND_COUNT;
+    inline constexpr uint16_t SCREEN_WIDTH = PIP3D_SCREEN_WIDTH;
+    inline constexpr uint16_t SCREEN_HEIGHT = PIP3D_SCREEN_HEIGHT;
+    inline constexpr uint16_t SCREEN_BAND_COUNT = PIP3D_SCREEN_BAND_COUNT;
     inline constexpr uint16_t SCREEN_BAND_HEIGHT = SCREEN_HEIGHT / SCREEN_BAND_COUNT;
 
-    inline int16_t  g_bandOffsetY = 0;
-    inline int16_t  g_bandHeight  = static_cast<int16_t>(SCREEN_HEIGHT);
-    inline uint32_t g_frameStamp  = 0;
+    inline int16_t g_bandOffsetY = 0;
+    inline int16_t g_bandHeight = static_cast<int16_t>(SCREEN_HEIGHT);
+    inline uint32_t g_frameStamp = 0;
+
+    inline float g_wBufferScale = 1.0f;
+    inline float g_wBufferInvScale = 1.0f;
 
     struct Display
     {
-        uint16_t width     = PIP3D_SCREEN_WIDTH;
-        uint16_t height    = PIP3D_SCREEN_HEIGHT;
-        int8_t   cs        = 10;
-        int8_t   dc        = 9;
-        int8_t   rst       = 8;
-        int8_t   bl        = -1;
-        int8_t   mosi      = 11;
-        int8_t   sclk      = 12;
-        uint8_t  rotation  = 1;
-        uint32_t spi_freq  = 80000000;
+        uint16_t width = PIP3D_SCREEN_WIDTH;
+        uint16_t height = PIP3D_SCREEN_HEIGHT;
+        int8_t cs = 10;
+        int8_t dc = 9;
+        int8_t rst = 8;
+        int8_t bl = -1;
+        int8_t mosi = 11;
+        int8_t sclk = 12;
+        uint8_t rotation = 1;
+        uint32_t spi_freq = 80000000;
 
         Display() = default;
         Display(uint16_t w, uint16_t h) : width(w), height(h) {}
@@ -151,9 +154,9 @@ namespace pip3D
 
     struct Viewport
     {
-        int16_t  x      = 0;
-        int16_t  y      = 0;
-        uint16_t width  = SCREEN_WIDTH;
+        int16_t x = 0;
+        int16_t y = 0;
+        uint16_t width = SCREEN_WIDTH;
         uint16_t height = SCREEN_HEIGHT;
 
         Viewport() = default;

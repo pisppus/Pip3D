@@ -16,6 +16,7 @@ if os.name == 'nt':
     kernel32 = ctypes.windll.kernel32
     kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
 
+
 def _pixel_to_rgb565(r, g, b):
     r5 = (r >> 3) & 0x1F
     g6 = (g >> 2) & 0x3F
@@ -41,6 +42,15 @@ def _write_hex_array_chunked(out, data, items_per_line=12, indent="            "
         out.write(f"{indent}{hex_str},\n")
 
 
+def prev_power_of_two(n):
+    if n <= 1:
+        return 1
+    p = 1
+    while (p << 1) <= n:
+        p <<= 1
+    return p
+
+
 def convert_png2tex(img_path, force_output_path=None, target_size=None):
     if not os.path.exists(img_path):
         print(f"\033[91m[-] Error: Source image {img_path} not found!\033[0m")
@@ -57,12 +67,12 @@ def convert_png2tex(img_path, force_output_path=None, target_size=None):
     try:
         resample_lanczos = Image.Resampling.LANCZOS
     except AttributeError:
-        resample_lanczos = Image.LANCZOS if hasattr(Image, 'LANCZOS') else Image.ANTIALIAS
+        resample_lanczos = Image.LANCZOS if hasattr(Image, "LANCZOS") else Image.ANTIALIAS
 
     try:
         resample_bilinear = Image.Resampling.BILINEAR
     except AttributeError:
-        resample_bilinear = Image.BILINEAR if hasattr(Image, 'BILINEAR') else Image.ANTIALIAS
+        resample_bilinear = Image.BILINEAR if hasattr(Image, "BILINEAR") else Image.ANTIALIAS
 
     raw_name = os.path.splitext(os.path.basename(img_path))[0]
     name_parts = raw_name.split('_')
@@ -78,34 +88,29 @@ def convert_png2tex(img_path, force_output_path=None, target_size=None):
         except ValueError:
             pass
 
-    def prev_power_of_two(n):
-        if n <= 0: return 1
-        return 1 << (n).bit_length() - 1
-
+    src_square = min(orig_width, orig_height)
     if detected_size:
-        width = min(detected_size, orig_width)
-        height = min(detected_size, orig_height)
-        width = prev_power_of_two(width)
-        height = prev_power_of_two(height)
+        tex_size = min(detected_size, src_square)
     else:
-        width = prev_power_of_two(orig_width)
-        height = prev_power_of_two(orig_height)
+        tex_size = src_square
 
-    width = min(max(width, 16), 128)
-    height = min(max(height, 16), 128)
+    tex_size = prev_power_of_two(tex_size)
+    tex_size = max(16, min(128, tex_size))
 
-    if (width != orig_width) or (height != orig_height):
-        img = img.resize((width, height), resample_lanczos)
+    crop_size = min(orig_width, orig_height)
+    left = (orig_width - crop_size) // 2
+    top = (orig_height - crop_size) // 2
+    img = img.crop((left, top, left + crop_size, top + crop_size))
+
+    if img.size != (tex_size, tex_size):
+        img = img.resize((tex_size, tex_size), resample_lanczos)
 
     base_array = _image_to_rgb565_array(img)
-
-    width_shift = int(math.log2(width))
-    height_shift = int(math.log2(height))
-    width_mask = width - 1
-    height_mask = height - 1
+    width = height = tex_size
+    shift = int(math.log2(tex_size))
 
     mip_levels = []
-    mip_w, mip_h = width, height
+    mip_w, mip_h = tex_size, tex_size
     mip_img = img
     while mip_w > 1 or mip_h > 1:
         next_w = mip_w >> 1
@@ -118,8 +123,7 @@ def convert_png2tex(img_path, force_output_path=None, target_size=None):
 
     mip_count = len(mip_levels)
 
-    class_name = clean_name[0].upper() + clean_name[1:] if clean_name else "Texture"
-    var_name = class_name.lower()
+    var_name = clean_name.lower()
 
     if force_output_path:
         header_path = force_output_path
@@ -150,9 +154,9 @@ def convert_png2tex(img_path, force_output_path=None, target_size=None):
             out.write(" * Generated automatically by Tools/Textures/Convert.py. Do not edit.\n")
             out.write(" *\n")
             out.write(f" * Source File   : {os.path.basename(img_path)} ({orig_width}x{orig_height})\n")
-            out.write(f" * Texture Size : {width}x{height} (RGB565)\n")
-            out.write(f" * Mipmaps       : {mip_count} level(s)\n")
-            out.write(f" * Flash Memory  : {base_bytes} bytes base + {mip_bytes} bytes mips = {total_bytes} bytes ({total_bytes / 1024.0:.2f} KB)\n")
+            out.write(f" * Texture Size : {width}x{height} (square, RGB565)\n")
+            out.write(f" * Mipmaps      : {mip_count} level(s)\n")
+            out.write(f" * Flash Memory : {base_bytes} bytes base + {mip_bytes} bytes mips = {total_bytes} bytes ({total_bytes / 1024.0:.2f} KB)\n")
             out.write(" */\n\n")
             out.write("#pragma once\n\n")
             out.write("#include \"Rendering/Display/Texture.hpp\"\n\n")
@@ -175,22 +179,18 @@ def convert_png2tex(img_path, force_output_path=None, target_size=None):
             out.write("    }\n\n")
 
             out.write(f"    inline Texture g_{var_name}Texture = {{\n")
-            out.write(f"        .data = detail::s_{var_name}TextureData,\n")
-            out.write(f"        .widthShift = {width_shift},\n")
-            out.write(f"        .heightShift = {height_shift},\n")
-            out.write(f"        .widthMask = {width_mask},\n")
-            out.write(f"        .heightMask = {height_mask},\n")
-            out.write(f"        .palette = nullptr,\n")
+            out.write(f"        .data     = detail::s_{var_name}TextureData,\n")
             if mip_count > 0:
-                out.write(f"        .mipData = detail::s_{var_name}MipData,\n")
+                out.write(f"        .mipData  = detail::s_{var_name}MipData,\n")
             else:
-                out.write(f"        .mipData = nullptr,\n")
+                out.write(f"        .mipData  = nullptr,\n")
+            out.write(f"        .shift    = {shift},\n")
             out.write(f"        .mipCount = {mip_count}\n")
             out.write("    };\n}\n")
 
         rel_img = os.path.join("Textures", "Sources", os.path.basename(img_path)).replace("\\", "/")
         rel_hpp = os.path.join("Rendering", "Display", "Textures", os.path.basename(header_path)).replace("\\", "/")
-        print(f"\033[36m[Pip3D]\033[0m Converting: {rel_img} -> {rel_hpp} ({width}x{height} POT, {base_bytes / 1024.0:.2f} KB + {mip_count} mips = {mip_bytes / 1024.0:.2f} KB, {total_bytes / 1024.0:.2f} KB total)")
+        print(f"\033[36m[Pip3D]\033[0m Converting: {rel_img} -> {rel_hpp} ({width}x{height} square POT, {base_bytes / 1024.0:.2f} KB + {mip_count} mips = {mip_bytes / 1024.0:.2f} KB, {total_bytes / 1024.0:.2f} KB total)")
 
     except Exception as e:
         print(f"\033[91m[-] Error exporting texture: {str(e)}\033[0m")
@@ -198,12 +198,13 @@ def convert_png2tex(img_path, force_output_path=None, target_size=None):
 
     return True
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pip3D Image -> C++ RGB565 Texture Converter")
     parser.prog = "Convert"
     parser.add_argument("input", help="Path to the input image")
     parser.add_argument("output", nargs="?", help="Path to the output .hpp file")
-    parser.add_argument("--size", type=int, help="Force specific texture size")
-    
+    parser.add_argument("--size", type=int, help="Force specific (square) texture size")
+
     args = parser.parse_args()
     convert_png2tex(args.input, args.output, (args.size if args.size else None))

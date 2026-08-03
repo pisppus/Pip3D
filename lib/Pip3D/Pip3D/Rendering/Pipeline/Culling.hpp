@@ -11,38 +11,17 @@ namespace pip3D
     {
         float projFactor = 1.0f;
         float lastFov = -1.0f;
-        float lastOrthoH = -1.0f;
-        uint16_t lastVpW = 0;
         uint16_t lastVpH = 0;
 
         IRAM_ATTR void update(const Camera &cam, const Viewport &vp)
         {
-            if (cam.projectionType == PERSPECTIVE)
+            if (unlikely(cam.fov != lastFov || vp.height != lastVpH))
             {
-                if (unlikely(cam.fov != lastFov || vp.height != lastVpH))
-                {
-                    lastFov = cam.fov;
-                    lastVpH = vp.height;
-                    float s, c;
-                    FastMath::fastSinCos(cam.fov * 0.5f * kDegToRad, s, c);
-                    projFactor = c * FastMath::fastReciprocal(s) * (static_cast<float>(vp.height) * 0.5f);
-                }
-            }
-            else
-            {
-                if (unlikely(cam.orthoHeight != lastOrthoH ||
-                             vp.width != lastVpW ||
-                             vp.height != lastVpH))
-                {
-                    lastOrthoH = cam.orthoHeight;
-                    lastVpW = vp.width;
-                    lastVpH = vp.height;
-
-                    const float aspect = static_cast<float>(vp.width) * FastMath::fastReciprocal(static_cast<float>(vp.height));
-                    const float aspectFactor = fmaxf(1.0f, aspect);
-
-                    projFactor = static_cast<float>(vp.height) * aspectFactor * FastMath::fastReciprocal(cam.orthoHeight);
-                }
+                lastFov = cam.fov;
+                lastVpH = vp.height;
+                float s, c;
+                FastMath::fastSinCos(cam.fov * 0.5f * kDegToRad, s, c);
+                projFactor = c * FastMath::fastReciprocal(s) * (static_cast<float>(vp.height) * 0.5f);
             }
         }
     };
@@ -56,7 +35,7 @@ namespace pip3D
             const Camera &camera,
             const Viewport &viewport,
             const Matrix4x4 &viewProjMatrix,
-            ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+            ZBuffer *zBuffer,
             const DisplayConfig &cfg)
         {
             if (unlikely(!zBuffer || radius <= 0.0f))
@@ -73,10 +52,7 @@ namespace pip3D
                 return false;
 
             float rScr;
-            if (likely(camera.projectionType == PERSPECTIVE))
-                rScr = radius * cache.projFactor * FastMath::fastReciprocal(zEye);
-            else
-                rScr = radius * cache.projFactor;
+            rScr = radius * cache.projFactor * FastMath::fastReciprocal(zEye);
 
             const float *m = viewProjMatrix.m;
 
@@ -97,14 +73,10 @@ namespace pip3D
             const float fy = cy_w - dCamFwdY * radius;
             const float fz = cz_w - dCamFwdZ * radius;
 
-            const float clipZf = m[2] * fx + m[6] * fy + m[10] * fz + m[14];
             const float clipWf = m[3] * fx + m[7] * fy + m[11] * fz + m[15];
             const float invFrontW = FastMath::fastReciprocal(clipWf);
-
-            float objDepth = clipZf * (invFrontW * 0.5f) + 0.499f;
-            if (objDepth < 0.0f)
-                objDepth = 0.0f;
-            const int16_t objDepthInt = static_cast<int16_t>(objDepth * 32767.0f);
+            const float objDepth = g_wBufferScale * invFrontW;
+            const uint16_t objDepthInt = static_cast<uint16_t>(objDepth);
 
             const int16_t cx = static_cast<int16_t>(cx_f);
             const int16_t cy = static_cast<int16_t>(cy_f);
@@ -114,7 +86,7 @@ namespace pip3D
             const int16_t bandBottom = bandTop + static_cast<int16_t>(cfg.height);
             const int16_t cfgW = static_cast<int16_t>(cfg.width);
 
-            const int16_t *zb = zBuffer->data();
+            const uint16_t *zb = zBuffer->data();
 
             int validSamples = 0;
 
@@ -123,8 +95,8 @@ namespace pip3D
 
             const auto sampleOccluded = [&](int16_t sx, int16_t localSy) -> bool
             {
-                const int16_t d = static_cast<int16_t>(static_cast<uint16_t>(zb[static_cast<size_t>(localSy) * SCREEN_WIDTH + sx]) & Z_DEPTH_MASK);
-                return (d != ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::CLEAR_DEPTH && d < objDepthInt);
+                const uint16_t d = zb[static_cast<size_t>(localSy) * SCREEN_WIDTH + sx] & Z_DEPTH_MASK;
+                return (d != 0 && d > objDepthInt);
             };
 
             if (cyInBand && cxInScr)

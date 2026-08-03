@@ -37,7 +37,7 @@ namespace pip3D
                                          float lr2, float lg2, float lb2,
                                          const Texture &tex,
                                          uint16_t *frameBuffer,
-                                         ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+                                         ZBuffer *zBuffer,
                                          const DisplayConfig &config)
         {
             const int16_t width = config.width;
@@ -104,14 +104,12 @@ namespace pip3D
             const float dz_dx = (dz02 * dy12 - dy02 * dz12) * invDet;
             const float dz_dy = (dx02 * dz12 - dz02 * dx12) * invDet;
 
-            constexpr float depthScale =
-                static_cast<float>(ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::DEPTH_MAX);
-            const float dz_dx_scaled = dz_dx * depthScale;
-            const float dz_dy_scaled = dz_dy * depthScale;
-            const float z2_scaled = z2 * depthScale;
+            const float dz_dx_scaled = dz_dx;
+            const float dz_dy_scaled = dz_dy;
+            const float z2_scaled = z2;
 
-            const float texW = static_cast<float>(tex.widthMask + 1);
-            const float texH = static_cast<float>(tex.heightMask + 1);
+            const float texW = tex.dimFlt();
+            const float texH = tex.dimFlt();
 
             const float tu0 = u0 * texW;
             const float tu1 = u1 * texW;
@@ -120,10 +118,9 @@ namespace pip3D
             const float tv1 = v1 * texH;
             const float tv2 = v2 * texH;
 
-            const float q0 = 1.0f / w0;
-            const float q1 = 1.0f / w1;
-            const float q2 = 1.0f / w2;
-
+            const float q0 = FastMath::fastReciprocal(w0);
+            const float q1 = FastMath::fastReciprocal(w1);
+            const float q2 = FastMath::fastReciprocal(w2);
             const float u_over_z0 = tu0 * q0;
             const float u_over_z1 = tu1 * q1;
             const float u_over_z2 = tu2 * q2;
@@ -172,11 +169,10 @@ namespace pip3D
             const int32_t step_01 = (fabsf(dy01_val) > 1e-6f) ? static_cast<int32_t>(((x1 - x0) / dy01_val) * 65536.0f) : 0;
             const int32_t step_12 = (fabsf(dy12_val) > 1e-6f) ? static_cast<int32_t>(((x2 - x1) / dy12_val) * 65536.0f) : 0;
 
-            int16_t *__restrict__ zbBase = zBuffer->data();
+            uint16_t *__restrict__ zbBase = zBuffer->data();
 
             const bool fogEnabled = g_fogState.enabled;
-            const float fogKVal = g_fogState.kVal;
-            const float fogKnVal = g_fogState.knVal;
+            const float fogWScale = g_fogState.wScale;
             const float fogWorldNear = g_fogState.worldNear;
             const float fogWorldScale32 = g_fogState.worldScale32;
             const uint16_t fogColor = g_fogState.color;
@@ -184,15 +180,15 @@ namespace pip3D
             const uint32_t fogColorG = g_fogState.color_g;
 
             const uint16_t *const __restrict__ texData = tex.data;
-            const uint32_t texShiftU = tex.widthShift;
-            const uint32_t texMaskU = tex.widthMask;
-            const uint32_t texMaskV = tex.heightMask;
-            const int32_t z_step = static_cast<int32_t>(dz_dx_scaled * 16384.0f);
+            const uint32_t texShiftU = tex.shift;
+            const uint32_t texMaskU = tex.mask();
+            const uint32_t texMaskV = tex.mask();
+            const int32_t z_step = static_cast<int32_t>(dz_dx * 16384.0f);
 
             const uint16_t *const __restrict__ mipData = tex.mipData;
             const uint8_t maxMipLevel = tex.mipCount;
             const bool hasMipmaps = (maxMipLevel > 0 && mipData != nullptr && g_mipmapsEnabled);
-            const uint8_t baseShift = tex.widthShift;
+            const uint8_t baseShift = tex.shift;
 
             uint32_t mipOffsets[8];
             {
@@ -248,7 +244,7 @@ namespace pip3D
                     return;
 
                 const float dy_factor = (static_cast<float>(y) + 0.5f - y2);
-                const float z_dy_term = z2_scaled + dy_factor * dz_dy_scaled;
+                const float z_dy_term = z2 + dy_factor * dz_dy;
 
                 float q = q2 + dy_factor * dq_dy + ((static_cast<float>(x_start) + 0.5f) - x2) * dq_dx;
                 float u_over_z = u_over_z2 + dy_factor * du_over_z_dy + ((static_cast<float>(x_start) + 0.5f) - x2) * du_over_z_dx;
@@ -261,7 +257,7 @@ namespace pip3D
                 int16_t cur_x = x_start;
 
                 size_t index = static_cast<size_t>(y) * width + cur_x;
-                int16_t *__restrict__ zb = zbBase + index;
+                uint16_t *__restrict__ zb = zbBase + index;
                 uint16_t *__restrict__ fb = frameBuffer + index;
 
                 while (count > 0)
@@ -366,7 +362,7 @@ namespace pip3D
                         }
                     }
 
-                    const float z_scaled_start = z_dy_term + (static_cast<float>(cur_x) + 0.5f - x2) * dz_dx_scaled;
+                    const float z_scaled_start = z_dy_term + (static_cast<float>(cur_x) + 0.5f - x2) * dz_dx;
                     int32_t z_val = static_cast<int32_t>(z_scaled_start * 16384.0f);
 
                     if (!flatLight)
@@ -392,9 +388,9 @@ namespace pip3D
 
                         for (int16_t i = 0; i < step; ++i)
                         {
-                            const int16_t d = static_cast<int16_t>(z_val >> 14);
-                            const int16_t curr = static_cast<int16_t>(static_cast<uint16_t>(*zb) & Z_DEPTH_MASK);
-                            if (d < curr)
+                            const uint16_t d = static_cast<uint16_t>(z_val >> 14);
+                            const uint16_t curr = *zb & Z_DEPTH_MASK;
+                            if (d > curr)
                             {
                                 *zb = d;
 #if PIP3D_DEBUG_MIPMAP
@@ -429,10 +425,11 @@ namespace pip3D
                                 }
                                 if (fogEnabled)
                                 {
-                                    float denom = fogKVal - static_cast<float>(d);
-                                    if (unlikely(denom < 1.0f))
-                                        denom = 1.0f;
-                                    const float z_eye = fogKnVal * FastMath::fastReciprocal(denom);
+                                    float z_eye;
+                                    if (d == 0)
+                                        z_eye = 1e30f;
+                                    else
+                                        z_eye = fogWScale * FastMath::fastReciprocal(static_cast<float>(d));
                                     const float fogF = (z_eye - fogWorldNear) * fogWorldScale32;
                                     const int32_t f_alpha = static_cast<int32_t>(fogF);
                                     if (f_alpha <= 0)
@@ -476,9 +473,9 @@ namespace pip3D
 
                         for (int16_t i = 0; i < step; ++i)
                         {
-                            const int16_t d = static_cast<int16_t>(z_val >> 14);
-                            const int16_t curr = static_cast<int16_t>(static_cast<uint16_t>(*zb) & Z_DEPTH_MASK);
-                            if (d < curr)
+                            const uint16_t d = static_cast<uint16_t>(z_val >> 14);
+                            const uint16_t curr = *zb & Z_DEPTH_MASK;
+                            if (d > curr)
                             {
                                 *zb = d;
                                 const int16_t px_x = cur_x + i;
@@ -537,10 +534,11 @@ namespace pip3D
                                 }
                                 if (fogEnabled)
                                 {
-                                    float denom = fogKVal - static_cast<float>(d);
-                                    if (unlikely(denom < 1.0f))
-                                        denom = 1.0f;
-                                    const float z_eye = fogKnVal * FastMath::fastReciprocal(denom);
+                                    float z_eye;
+                                    if (d == 0)
+                                        z_eye = 1e30f;
+                                    else
+                                        z_eye = fogWScale * FastMath::fastReciprocal(static_cast<float>(d));
                                     const float fogF = (z_eye - fogWorldNear) * fogWorldScale32;
                                     const int32_t f_alpha = static_cast<int32_t>(fogF);
                                     if (f_alpha <= 0)

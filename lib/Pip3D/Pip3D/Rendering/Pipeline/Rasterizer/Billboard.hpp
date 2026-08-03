@@ -43,7 +43,7 @@ namespace pip3D
             uint8_t alphaByte,
             bool writeZ,
             uint16_t *frameBuffer,
-            ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+            ZBuffer *zBuffer,
             const DisplayConfig &cfg)
         {
             const int16_t width = cfg.width;
@@ -110,25 +110,23 @@ namespace pip3D
                 return;
             const float invDet = FastMath::fastReciprocal(det);
 
-            constexpr float depthScale =
-                static_cast<float>(ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::DEPTH_MAX);
             const float dz02 = z0 - z2;
             const float dz12 = z1 - z2;
             const float dz_dx = (dz02 * dy12 - dy02 * dz12) * invDet;
             const float dz_dy = (dx02 * dz12 - dz02 * dx12) * invDet;
-            const float dz_dx_scaled = dz_dx * depthScale;
-            const float dz_dy_scaled = dz_dy * depthScale;
-            const float z2_scaled = z2 * depthScale;
+            const float dz_dx_scaled = dz_dx;
+            const float dz_dy_scaled = dz_dy;
+            const float z2_scaled = z2;
             const int32_t z_step = static_cast<int32_t>(dz_dx_scaled * 16384.0f);
 
-            const float texW = static_cast<float>(tex.widthMask + 1);
-            const float texH = static_cast<float>(tex.heightMask + 1);
+            const float texW = tex.dimFlt();
+            const float texH = tex.dimFlt();
             const float tu0 = u0 * texW, tu1 = u1 * texW, tu2 = u2 * texW;
             const float tv0 = v0 * texH, tv1 = v1 * texH, tv2 = v2 * texH;
 
-            const float q0 = 1.0f / w0;
-            const float q1 = 1.0f / w1;
-            const float q2 = 1.0f / w2;
+            const float q0 = FastMath::fastReciprocal(w0);
+            const float q1 = FastMath::fastReciprocal(w1);
+            const float q2 = FastMath::fastReciprocal(w2);
             const float uoz0 = tu0 * q0, uoz1 = tu1 * q1, uoz2 = tu2 * q2;
             const float voz0 = tv0 * q0, voz1 = tv1 * q1, voz2 = tv2 * q2;
 
@@ -170,9 +168,9 @@ namespace pip3D
             }
 
             const uint16_t *const __restrict__ texData = tex.data;
-            const uint32_t texShiftU = tex.widthShift;
-            const uint32_t texMaskU = tex.widthMask;
-            const uint32_t texMaskV = tex.heightMask;
+            const uint32_t texShiftU = tex.shift;
+            const uint32_t texMaskU = tex.mask();
+            const uint32_t texMaskV = tex.mask();
 
             const bool doBlend = (blendMode == BB_BLEND_ALPHA) && (alphaByte > 0) && (alphaByte < 255);
             const uint32_t alpha5 = doBlend ? static_cast<uint32_t>(alphaByte >> 3) : 0u;
@@ -182,15 +180,14 @@ namespace pip3D
             const uint32_t addI5 = isAdditive ? static_cast<uint32_t>(alphaByte >> 3) : 0u;
 
             const bool fogEnabled = g_fogState.enabled;
-            const float fogKVal = g_fogState.kVal;
-            const float fogKnVal = g_fogState.knVal;
+            const float fogWScale = g_fogState.wScale;
             const float fogWorldNear = g_fogState.worldNear;
             const float fogWorldScale32 = g_fogState.worldScale32;
             const uint16_t fogColor = g_fogState.color;
             const uint32_t fogColorRb = g_fogState.color_rb;
             const uint32_t fogColorG = g_fogState.color_g;
 
-            int16_t *__restrict__ zbBase = zBuffer->data();
+            uint16_t *__restrict__ zbBase = zBuffer->data();
 
 #if PIP3D_DEBUG_BILLBOARD
             uint32_t dbgSpan = 0, dbgCutout = 0, dbgZFail = 0, dbgWritten = 0;
@@ -221,7 +218,7 @@ namespace pip3D
                 }
 
                 size_t index = static_cast<size_t>(y) * width + x_start;
-                int16_t *__restrict__ zb = zbBase + index;
+                uint16_t *__restrict__ zb = zbBase + index;
                 uint16_t *__restrict__ fb = frameBuffer + index;
 
                 for (int16_t x = x_start; x <= x_end; ++x)
@@ -256,12 +253,13 @@ namespace pip3D
                         continue;
                     }
 
-                    const int16_t d = static_cast<int16_t>(z_val >> 14);
-                    const int16_t cur = static_cast<int16_t>(static_cast<uint16_t>(*zb) & Z_DEPTH_MASK);
+                    const uint16_t d = static_cast<uint16_t>(z_val >> 14);
+                    const uint16_t cur = *zb & Z_DEPTH_MASK;
 
                     if (blendMode == BB_BLEND_ALPHA && doBlend)
                     {
-                        if (d >= cur)
+
+                        if (d <= cur)
                         {
 #if PIP3D_DEBUG_BILLBOARD
                             ++dbgZFail;
@@ -308,11 +306,13 @@ namespace pip3D
 
                         if (fogEnabled)
                         {
-                            float dnom = fogKVal - static_cast<float>(d);
-                            if (unlikely(dnom < 1.0f))
-                                dnom = 1.0f;
-                            const float zeye = fogKnVal * FastMath::fastReciprocal(dnom);
-                            const int32_t fa = static_cast<int32_t>((zeye - fogWorldNear) * fogWorldScale32);
+                            float z_eye;
+                            if (d == 0)
+                                z_eye = 1e30f;
+                            else
+                                z_eye = fogWScale * FastMath::fastReciprocal(static_cast<float>(d));
+                            const float fogF = (z_eye - fogWorldNear) * fogWorldScale32;
+                            const int32_t fa = static_cast<int32_t>(fogF);
                             if (fa >= 32)
                                 lit = fogColor;
                             else if (fa > 0)
@@ -355,7 +355,7 @@ namespace pip3D
                             continue;
                         }
 
-                        if (d >= cur)
+                        if (d <= cur)
                         {
 #if PIP3D_DEBUG_BILLBOARD
                             ++dbgZFail;
@@ -399,11 +399,13 @@ namespace pip3D
 
                         if (fogEnabled)
                         {
-                            float dnom = fogKVal - static_cast<float>(d);
-                            if (unlikely(dnom < 1.0f))
-                                dnom = 1.0f;
-                            const float zeye = fogKnVal * FastMath::fastReciprocal(dnom);
-                            const int32_t fa = static_cast<int32_t>((zeye - fogWorldNear) * fogWorldScale32);
+                            float z_eye;
+                            if (d == 0)
+                                z_eye = 1e30f;
+                            else
+                                z_eye = fogWScale * FastMath::fastReciprocal(static_cast<float>(d));
+                            const float fogF = (z_eye - fogWorldNear) * fogWorldScale32;
+                            const int32_t fa = static_cast<int32_t>(fogF);
                             if (fa >= 32)
                                 lit = fogColor;
                             else if (fa > 0)
@@ -432,7 +434,8 @@ namespace pip3D
                     }
                     else
                     {
-                        if (d < cur)
+
+                        if (d > cur)
                         {
                             *zb = d;
 
@@ -460,11 +463,13 @@ namespace pip3D
 
                             if (fogEnabled)
                             {
-                                float dnom = fogKVal - static_cast<float>(d);
-                                if (unlikely(dnom < 1.0f))
-                                    dnom = 1.0f;
-                                const float zeye = fogKnVal * FastMath::fastReciprocal(dnom);
-                                const int32_t fa = static_cast<int32_t>((zeye - fogWorldNear) * fogWorldScale32);
+                                float z_eye;
+                                if (d == 0)
+                                    z_eye = 1e30f;
+                                else
+                                    z_eye = fogWScale * FastMath::fastReciprocal(static_cast<float>(d));
+                                const float fogF = (z_eye - fogWorldNear) * fogWorldScale32;
+                                const int32_t fa = static_cast<int32_t>(fogF);
                                 if (fa >= 32)
                                     lit = fogColor;
                                 else if (fa > 0)

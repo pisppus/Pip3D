@@ -10,8 +10,6 @@ namespace pip3D
             return false;
 
         const Camera &cam = cameras[activeCameraIndex];
-        if (cam.projectionType != PERSPECTIVE)
-            return true;
 
         Vector3 toCenter = center - cam.position;
         float distSq = toCenter.lengthSquared();
@@ -125,7 +123,6 @@ namespace pip3D
         Vector3 p3 = CameraController::project(v3, viewProjMatrix, viewport);
 
         const Camera &cam = cameras[activeCameraIndex];
-        if (cam.projectionType == PERSPECTIVE)
         {
             const Vector3 camFwd = cam.forward();
             if ((v0 - cam.position).dot(camFwd) < cam.nearPlane ||

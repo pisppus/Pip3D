@@ -87,7 +87,7 @@ namespace pip3D
         float emitAccumulator;
         bool enabled;
 
-        static void drawThickLineAdditive(uint16_t *fb, ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> &zBuf, int16_t depth,
+        static void drawThickLineAdditive(uint16_t *fb, ZBuffer &zBuf, int16_t depth,
                                           int x0, int y0, int x1, int y1,
                                           uint16_t color, uint8_t alpha, int width,
                                           int bandTop, int bandBottom)
@@ -109,8 +109,8 @@ namespace pip3D
                 {
                     int localY = py - bandTop;
 
-                    int16_t stored = zBuf.getRawDepth(px, localY);
-                    if (stored != ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::CLEAR_DEPTH && (depth - 5 > stored))
+                    const uint16_t stored = zBuf.data()[static_cast<size_t>(localY) * SCREEN_WIDTH + px] & Z_DEPTH_MASK;
+                    if (stored != 0 && stored > depth + 5)
                         return;
 
                     size_t idx = (size_t)localY * width + px;
@@ -280,11 +280,11 @@ namespace pip3D
                 Color col = p.startColor.blend(p.endColor, (uint8_t)(t * COLOR_BYTE_MAX_F));
 
                 Vector3 screen = renderer.project(p.position);
-                if (screen.z <= 0.0f || screen.z >= 1.0f)
+                if (screen.z <= 0.0f || screen.z >= static_cast<float>(Z_DEPTH_MAX))
                     continue;
 
-                int16_t particle_depth = static_cast<int16_t>(screen.z * static_cast<float>(ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::DEPTH_MAX));
-                ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> &zBuf = renderer.getZBuffer();
+                const uint16_t particle_depth = static_cast<uint16_t>(screen.z);
+                ZBuffer &zBuf = renderer.getZBuffer();
 
                 if (config.type == PARTICLE_SPARK_STRETCH)
                 {
@@ -365,8 +365,8 @@ namespace pip3D
                         if (dist2 > r2)
                             continue;
 
-                        int16_t stored_depth = zBuf.getRawDepth(x, localY);
-                        if (stored_depth != ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::CLEAR_DEPTH && (particle_depth - 5 > stored_depth))
+                        const uint16_t stored_depth = zBuf.data()[static_cast<size_t>(localY) * SCREEN_WIDTH + x] & Z_DEPTH_MASK;
+                        if (stored_depth != 0 && stored_depth > particle_depth + 5)
                             continue;
 
                         uint32_t dist_scaled = dist2 * inv_r2;
@@ -665,7 +665,7 @@ namespace pip3D
     class LensFlareRenderer
     {
     private:
-        static void drawCorona(uint16_t *fb, ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> &zBuf, int16_t sourceDepth,
+        static void drawCorona(uint16_t *fb, ZBuffer &zBuf, int16_t sourceDepth,
                                int cx, int cy, int rx, int ry, uint16_t color, uint8_t alpha, int bandTop, int bandBottom)
         {
             if (rx <= 0 || ry <= 0)
@@ -726,7 +726,7 @@ namespace pip3D
             }
         }
 
-        static void drawHollowRing(uint16_t *fb, ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> &zBuf, int16_t sourceDepth,
+        static void drawHollowRing(uint16_t *fb, ZBuffer &zBuf, int16_t sourceDepth,
                                    int cx, int cy, int r_inner, int r_outer, uint16_t color, uint8_t alpha, int bandTop, int bandBottom)
         {
             if (r_outer <= r_inner || r_outer <= 0)
@@ -798,13 +798,13 @@ namespace pip3D
                 return;
 
             Vector3 sunScreen = r.project(sunPos);
-            if (sunScreen.z <= 0.0f || sunScreen.z >= 1.0f)
+            if (sunScreen.z <= 0.0f || sunScreen.z >= static_cast<float>(Z_DEPTH_MAX))
                 return;
 
             int cx = (int)sunScreen.x;
             int cy = (int)sunScreen.y;
-            int16_t sunDepth = static_cast<int16_t>(sunScreen.z * static_cast<float>(ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::DEPTH_MAX));
-            ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> &zBuf = r.getZBuffer();
+            const uint16_t sunDepth = static_cast<uint16_t>(sunScreen.z);
+            ZBuffer &zBuf = r.getZBuffer();
 
             if (cy >= bandTop && cy < bandBottom)
             {
@@ -820,8 +820,8 @@ namespace pip3D
                         int sy = localY + dy;
                         if (sx >= 0 && sx < SCREEN_WIDTH && sy >= 0 && sy < SCREEN_BAND_HEIGHT)
                         {
-                            int16_t d = zBuf.getRawDepth(sx, sy);
-                            if (d != ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::CLEAR_DEPTH && d < sunDepth - 10)
+                            const uint16_t d = zBuf.data()[static_cast<size_t>(sy) * SCREEN_WIDTH + sx] & Z_DEPTH_MASK;
+                            if (d != 0 && d > sunDepth + 10)
                             {
                                 occludedCount++;
                             }

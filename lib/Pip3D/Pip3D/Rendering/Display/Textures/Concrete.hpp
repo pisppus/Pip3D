@@ -3,9 +3,9 @@
  * Generated automatically by Tools/Textures/Convert.py. Do not edit.
  *
  * Source File   : Concrete_32.png (128x128)
- * Texture Size : 32x32 (RGB565)
- * Mipmaps       : 5 level(s)
- * Flash Memory  : 2048 bytes base + 682 bytes mips = 2730 bytes (2.67 KB)
+ * Texture Size : 32x32 (square, RGB565)
+ * Mipmaps      : 5 level(s)
+ * Flash Memory : 2048 bytes base + 682 bytes mips = 2730 bytes (2.67 KB)
  */
 
 #pragma once
@@ -150,13 +150,9 @@ namespace pip3D
     }
 
     inline Texture g_concreteTexture = {
-        .data = detail::s_concreteTextureData,
-        .widthShift = 5,
-        .heightShift = 5,
-        .widthMask = 31,
-        .heightMask = 31,
-        .palette = nullptr,
-        .mipData = detail::s_concreteMipData,
+        .data     = detail::s_concreteTextureData,
+        .mipData  = detail::s_concreteMipData,
+        .shift    = 5,
         .mipCount = 5
     };
 }

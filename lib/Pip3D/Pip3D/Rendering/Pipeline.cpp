@@ -151,7 +151,7 @@ namespace pip3D
                                            const Viewport &viewport,
                                            const Matrix4x4 &viewProjMatrix,
                                            FrameBuffer &framebuffer,
-                                           ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+                                           ZBuffer *zBuffer,
                                            const Texture &tex,
                                            const Mesh *meshForTelemetry,
                                            uint16_t faceIdxForTelemetry,
@@ -322,30 +322,27 @@ namespace pip3D
         }
 
         const Camera &cam = cameras[activeCameraIndex];
-        if (cam.projectionType == PERSPECTIVE)
+        Vector3 toCenter = center - cam.position;
+        float distForward = toCenter.dot(cam.forward());
+        if (distForward > cam.nearPlane)
         {
-            Vector3 toCenter = center - cam.position;
-            float distForward = toCenter.dot(cam.forward());
-            if (distForward > cam.nearPlane)
+            static float cachedFov = -1.0f;
+            static float cachedProjScale = 1.0f;
+            if (unlikely(cam.fov != cachedFov))
             {
-                static float cachedFov = -1.0f;
-                static float cachedProjScale = 1.0f;
-                if (unlikely(cam.fov != cachedFov))
-                {
-                    cachedFov = cam.fov;
-                    float s, c;
-                    FastMath::fastSinCos(cam.fov * 0.5f * kDegToRad, s, c);
-                    cachedProjScale = c * FastMath::fastReciprocal(s);
-                }
+                cachedFov = cam.fov;
+                float s, c;
+                FastMath::fastSinCos(cam.fov * 0.5f * kDegToRad, s, c);
+                cachedProjScale = c * FastMath::fastReciprocal(s);
+            }
 
-                const float invDist = FastMath::fastReciprocal(distForward);
-                const float radiusPixels = radius * cachedProjScale * invDist * (static_cast<float>(viewport.height) * 0.5f);
+            const float invDist = FastMath::fastReciprocal(distForward);
+            const float radiusPixels = radius * cachedProjScale * invDist * (static_cast<float>(viewport.height) * 0.5f);
 
-                if (radiusPixels < 1.0f)
-                {
-                    statsInstancesTotal++;
-                    return;
-                }
+            if (radiusPixels < 1.0f)
+            {
+                statsInstancesTotal++;
+                return;
             }
         }
 
@@ -509,7 +506,6 @@ namespace pip3D
         const Vector3 &camFwd = cam.forward();
         const Vector3 camPos = cam.position;
         const float nearPlane = cam.nearPlane;
-        const bool usePerspectiveFacing = cam.projectionType == PERSPECTIVE;
         const bool isTextured = mesh->isTextured();
         const bool doBackfaceCull = backfaceCullingEnabled;
         const bool gouraudShading = (shadingMode == SHADING_GOURAUD) && !useUniformColor;

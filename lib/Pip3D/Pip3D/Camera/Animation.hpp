@@ -9,9 +9,8 @@ namespace pip3D
     static constexpr uint8_t VIEW = 0x01;
     static constexpr uint8_t PROJ = 0x02;
     static constexpr uint8_t VP = 0x04;
-    static constexpr uint8_t ORTHO = 0x08;
     static constexpr uint8_t VECTORS = 0x10;
-    static constexpr uint8_t ALL = VIEW | PROJ | VP | ORTHO | VECTORS;
+    static constexpr uint8_t ALL = VIEW | PROJ | VP | VECTORS;
   };
 
   struct CameraAnimation
