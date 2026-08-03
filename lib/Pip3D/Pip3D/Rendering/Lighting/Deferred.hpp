@@ -16,7 +16,7 @@ namespace pip3D
 {
     __attribute__((always_inline)) inline void IRAM_ATTR applyDeferred3DLighting(
         uint16_t *frameBuffer,
-        ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+        ZBuffer *zBuffer,
         const Light *pointLights,
         int lightCount,
         const Camera &camera,
@@ -25,8 +25,6 @@ namespace pip3D
     {
         if (unlikely(!frameBuffer || !zBuffer || !pointLights || lightCount <= 0))
             return;
-
-        static constexpr int16_t kDepthMask = static_cast<int16_t>(Z_DEPTH_MASK);
 
         static constexpr int16_t kBayer4[4][4] = {
             {0, 512, 128, 640},
@@ -37,7 +35,7 @@ namespace pip3D
         const int16_t screenW = SCREEN_WIDTH;
         const int16_t bandTop = g_bandOffsetY;
         const int16_t bandBottom = static_cast<int16_t>(bandTop + SCREEN_BAND_HEIGHT);
-        const int16_t *const zbBase = zBuffer->data();
+        const uint16_t *const zbBase = zBuffer->data();
         if (!zbBase)
             return;
 
@@ -55,9 +53,7 @@ namespace pip3D
         const float camFar = camera.farPlane;
         const float denomFarNear = camFar - camNear;
         const float safeDenom = (denomFarNear > 1e-4f) ? denomFarNear : 1.0f;
-        const float k = static_cast<float>(ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::DEPTH_MAX) * (camFar / safeDenom);
-        const float fogKVal = k;
-        const float fogKnVal = k * camNear;
+        const float wScale = g_wBufferScale;
 
         const float stepU_base = 2.0f / (float)viewport.width;
         const float stepU_tanX = stepU_base * tanHalfFovX;
@@ -120,8 +116,8 @@ namespace pip3D
             const float lightZMax = distToLight + range;
             const float zMin = fmaxf(camNear, lightZMin);
             const float zMax = fminf(camFar, lightZMax);
-            const int16_t dMin = static_cast<int16_t>(fogKVal - (fogKnVal / zMin));
-            const int16_t dMax = static_cast<int16_t>(fogKVal - (fogKnVal / zMax));
+            const uint16_t dNear = static_cast<uint16_t>(wScale * FastMath::fastReciprocal(zMin));
+            const uint16_t dFar = static_cast<uint16_t>(wScale * FastMath::fastReciprocal(zMax));
 
             const Vector3 D = camPos - lpos;
             const float D2 = D.lengthSquared();
@@ -139,7 +135,7 @@ namespace pip3D
                 const int localY = y - bandTop;
                 const size_t rowOff = static_cast<size_t>(localY) * screenW;
                 uint16_t *__restrict__ fbRow = frameBuffer + rowOff;
-                const int16_t *__restrict__ zbRow = zbBase + rowOff;
+                const uint16_t *__restrict__ zbRow = zbBase + rowOff;
 
                 const float v = 1.0f - 2.0f * (float)y / (float)viewport.height;
                 const float rowV2 = 1.0f + (v * v) * tan2Y;
@@ -147,7 +143,7 @@ namespace pip3D
                 const float rowD_dot_V = D_dot_F + v * D_dot_U;
                 float curD_dot_V = rowD_dot_V + D_dot_Right * u_tanX_start;
 
-                const int16_t *__restrict__ zbPtr = zbRow + xMin;
+                const uint16_t *__restrict__ zbPtr = zbRow + xMin;
                 uint16_t *__restrict__ fbPtr = fbRow + xMin;
                 float u_tanX = u_tanX_start;
 
@@ -155,14 +151,16 @@ namespace pip3D
 
                 for (int x = xMin; x <= xMax; ++x)
                 {
-                    const int16_t dRaw = *zbPtr;
-                    const int16_t dValue = dRaw & kDepthMask;
+                    const uint16_t dRaw = *zbPtr;
+                    const uint16_t dValue = dRaw & Z_DEPTH_MASK;
 
-                    if (dValue >= dMin && dValue <= dMax)
+                    if (dValue >= dFar && dValue <= dNear)
                     {
-                        float denom = fogKVal - static_cast<float>(dValue);
-                        denom = fmaxf(denom, 1.0f);
-                        const float zEye = fogKnVal * FastMath::fastReciprocal(denom);
+                        float zEye;
+                        if (dValue == 0)
+                            zEye = camFar;
+                        else
+                            zEye = wScale * FastMath::fastReciprocal(static_cast<float>(dValue));
 
                         const float zEye2 = zEye * zEye;
                         const float zEye_two = 2.0f * zEye;

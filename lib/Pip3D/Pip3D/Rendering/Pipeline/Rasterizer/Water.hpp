@@ -21,7 +21,7 @@ namespace pip3D
                                       float waterYGlobal,
                                       const Sky &skybox,
                                       uint16_t *frameBuffer,
-                                      ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+                                      ZBuffer *zBuffer,
                                       const DisplayConfig &config,
                                       int16_t bandTop,
                                       const uint16_t *reflectionBuffer,
@@ -34,7 +34,7 @@ namespace pip3D
             if (unlikely(!frameBuffer || !zBuffer))
                 return;
 
-            int16_t *__restrict__ zBufferPtr = zBuffer->data();
+            uint16_t *__restrict__ zBufferPtr = zBuffer->data();
             if (unlikely(!zBufferPtr))
                 return;
 
@@ -78,11 +78,9 @@ namespace pip3D
             const float dz_dx = (dz02 * dy12 - dy02 * dz12) * invDet;
             const float dz_dy = (dx02 * dz12 - dz02 * dx12) * invDet;
 
-            constexpr float depthScale =
-                static_cast<float>(ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::DEPTH_MAX);
-            const float dz_dx_scaled = dz_dx * depthScale;
-            const float dz_dy_scaled = dz_dy * depthScale;
-            const float z2_scaled = z2 * depthScale;
+            const float dz_dx_scaled = dz_dx;
+            const float dz_dy_scaled = dz_dy;
+            const float z2_scaled = z2;
 
             const int startTop = static_cast<int>(ceilf(y0 - 0.5f));
             int endTopExclusive = static_cast<int>(ceilf(y1 - 0.5f));
@@ -110,7 +108,7 @@ namespace pip3D
             const int32_t step_01 = (fabsf(dy01_val) > 1e-6f) ? static_cast<int32_t>(((x1 - x0) / dy01_val) * 65536.0f) : 0;
             const int32_t step_12 = (fabsf(dy12_val) > 1e-6f) ? static_cast<int32_t>(((x2 - x1) / dy12_val) * 65536.0f) : 0;
 
-            const int16_t invFlagsMask = static_cast<int16_t>(~Z_SHADOW_FLAG);
+            const uint16_t invFlagsMask = Z_DEPTH_MASK;
 
             const int16_t wl = static_cast<int16_t>(waterYGlobal);
             const int32_t wl2 = static_cast<int32_t>(wl) * 2;
@@ -175,18 +173,18 @@ namespace pip3D
                                                            : skybox.getColorAtY(mirrorY, SCREEN_HEIGHT).rgb565;
 
                 const size_t offsetBase = static_cast<size_t>(y) * width;
-                int16_t *__restrict__ zbRow = zBufferPtr + offsetBase;
+                uint16_t *__restrict__ zbRow = zBufferPtr + offsetBase;
                 uint16_t *__restrict__ fbRow = frameBuffer + offsetBase;
 
                 const int16_t feedbackGuard = wl;
 
                 for (int16_t x = x_start; x <= x_end; ++x)
                 {
-                    const int16_t stored = zbRow[x];
-                    const int16_t depthNoShadow = stored & invFlagsMask;
-                    const int16_t d = static_cast<int16_t>(depth);
+                    const uint16_t stored = zbRow[x];
+                    const uint16_t depthNoShadow = stored & invFlagsMask;
+                    const uint16_t d = static_cast<uint16_t>(depth);
 
-                    if (d < depthNoShadow)
+                    if (d > depthNoShadow)
                     {
                         const float xf = static_cast<float>(x);
                         const float sx = FastMath::fastSin(xf * 0.34f + shimmerPhaseX);
@@ -263,9 +261,9 @@ namespace pip3D
 
                     if (x_start <= x_end)
                     {
-                        const float z_row_base = z2_scaled + (static_cast<float>(y) + 0.5f - y2) * dz_dy_scaled - x2 * dz_dx_scaled + dz_dx_scaled * 0.5f;
-                        const int32_t depthStart = static_cast<int32_t>(z_row_base + static_cast<float>(x_start) * dz_dx_scaled);
-                        const int32_t depthStep = static_cast<int32_t>(dz_dx_scaled);
+                        const float z_row_base = z2 + (static_cast<float>(y) + 0.5f - y2) * dz_dy - x2 * dz_dx + dz_dx * 0.5f;
+                        const int32_t depthStart = static_cast<int32_t>(z_row_base + static_cast<float>(x_start) * dz_dx);
+                        const int32_t depthStep = static_cast<int32_t>(dz_dx);
 
                         drawSpan(y, x_start, x_end, depthStart, depthStep);
                     }
@@ -303,9 +301,9 @@ namespace pip3D
 
                     if (x_start <= x_end)
                     {
-                        const float z_row_base = z2_scaled + (static_cast<float>(y) + 0.5f - y2) * dz_dy_scaled - x2 * dz_dx_scaled + dz_dx_scaled * 0.5f;
-                        const int32_t depthStart = static_cast<int32_t>(z_row_base + static_cast<float>(x_start) * dz_dx_scaled);
-                        const int32_t depthStep = static_cast<int32_t>(dz_dx_scaled);
+                        const float z_row_base = z2 + (static_cast<float>(y) + 0.5f - y2) * dz_dy - x2 * dz_dx + dz_dx * 0.5f;
+                        const int32_t depthStart = static_cast<int32_t>(z_row_base + static_cast<float>(x_start) * dz_dx);
+                        const int32_t depthStep = static_cast<int32_t>(dz_dx);
 
                         drawSpan(y, x_start, x_end, depthStart, depthStep);
                     }

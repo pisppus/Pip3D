@@ -2,7 +2,7 @@
  * Pip3D Sun Texture Asset
  * Generated automatically by Tools/Textures/Sungen.py. Do not edit.
  *
- * Dimensions    : 32x32 (Grayscale RGB565)
+ * Dimensions    : 32x32 (Grayscale RGB565, square)
  * Parameters    : Disk Radius=4.5px, Halo Radius=15.5px
  * Flash Memory  : 2048 bytes (2.00 KB)
  */
@@ -105,14 +105,12 @@ namespace pip3D
         };
     }
 
+    // Texture struct layout (12 bytes):
+    //   data, mipData, shift, mipCount
     inline Texture g_sunTexture = {
-        .data = detail::s_sunTextureData,
-        .widthShift = 5,
-        .heightShift = 5,
-        .widthMask = 31,
-        .heightMask = 31,
-        .palette = nullptr,
-        .mipData = nullptr,
+        .data     = detail::s_sunTextureData,
+        .mipData  = nullptr,
+        .shift    = 5,
         .mipCount = 0
     };
 }

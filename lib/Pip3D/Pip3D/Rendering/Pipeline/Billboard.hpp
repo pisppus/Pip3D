@@ -52,7 +52,6 @@ namespace pip3D
         Vector3 camUp;
         Vector3 camUpProjected;
         Vector3 camRightXZnormalized;
-        bool perspective;
         float projScale;
         float halfViewportHeight;
         float halfViewportWidth;
@@ -74,7 +73,6 @@ namespace pip3D
         ctx.camFwd = cam.forward();
         ctx.camRight = cam.right();
         ctx.camUp = cam.upVec();
-        ctx.perspective = (cam.projectionType == PERSPECTIVE);
 
         {
             const float d = ctx.camUp.dot(ctx.camFwd);
@@ -85,9 +83,7 @@ namespace pip3D
         }
 
         const float fovRad = cam.fov * kDegToRad;
-        ctx.projScale = ctx.perspective
-                            ? FastMath::fastReciprocal(tanf(fovRad * 0.5f))
-                            : 1.0f;
+        ctx.projScale = FastMath::fastReciprocal(tanf(fovRad * 0.5f));
         ctx.halfViewportHeight = static_cast<float>(vp.height) * 0.5f;
         ctx.halfViewportWidth = static_cast<float>(vp.width) * 0.5f;
         ctx.invHalfVPHeight = FastMath::fastReciprocal(ctx.halfViewportHeight);
@@ -131,16 +127,13 @@ namespace pip3D
             return false;
 
         const float zView = toObj.dot(ctx.camFwd);
-        if (ctx.perspective)
-        {
-            if (zView <= 0.01f)
-                return false;
-        }
+        if (zView <= 0.01f)
+            return false;
         outQuad.distSq = zView * zView;
 
         float halfW = width * 0.5f;
         float halfH = height * 0.5f;
-        if (screenSpaceSize && ctx.perspective)
+        if (screenSpaceSize)
         {
             const float scale = zView * ctx.invHalfVPHeight *
                                 FastMath::fastReciprocal(ctx.projScale);
@@ -205,7 +198,7 @@ namespace pip3D
                 cw = 0.01f;
             outQuad.camW[i] = cw;
 
-            if (sp.z > 0.0f && sp.z < 1.0f)
+            if (sp.z > 0.0f && sp.z < static_cast<float>(Z_DEPTH_MAX))
                 anyValid = true;
         }
         if (!anyValid)
@@ -243,7 +236,7 @@ namespace pip3D
     inline void drawBillboardQuadsRaw(
         const BillboardQuad *quads, size_t count,
         uint16_t *frameBuffer,
-        ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+        ZBuffer *zBuffer,
         const FrameBuffer &framebuffer,
         int16_t bandTop, int16_t bandHeight,
         int16_t viewportWidth, int16_t viewportHeight,

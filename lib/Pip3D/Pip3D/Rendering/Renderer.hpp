@@ -55,7 +55,7 @@ namespace pip3D
         static constexpr int BAND_HEIGHT = SCREEN_BAND_HEIGHT;
 
         FrameBuffer framebuffer;
-        alignas(32) ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> zBuffer;
+        alignas(32) ZBuffer zBuffer;
         uint16_t *reflectBuffer;
         uint16_t *reflectWriteBuffer;
         static constexpr uint16_t REFLECT_WIDTH = SCREEN_WIDTH / 4;
@@ -207,8 +207,8 @@ namespace pip3D
         int getActiveCameraIndex() const { return activeCameraIndex; }
         int getCameraCount() const { return cameras.size(); }
         uint16_t *getFrameBuffer() const { return const_cast<uint16_t *>(framebuffer.getBuffer()); }
-        ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> &getZBuffer() { return zBuffer; }
-        const ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> &getZBuffer() const { return zBuffer; }
+        ZBuffer &getZBuffer() { return zBuffer; }
+        const ZBuffer &getZBuffer() const { return zBuffer; }
         const Frustum &getFrustum() const { return frustum; }
         const Matrix4x4 &getViewProjMatrix() const { return viewProjMatrix; }
 
@@ -262,11 +262,11 @@ namespace pip3D
         bool isSkyboxEnabled() const { return framebuffer.isSkyboxEnabled(); }
         void invalidateSkyboxCache() { framebuffer.invalidateSkyboxCache(); }
 
-                void setCloudsEnabled(bool enabled) { framebuffer.setCloudsEnabled(enabled); }
+        void setCloudsEnabled(bool enabled) { framebuffer.setCloudsEnabled(enabled); }
         void setCloudColor(const Color &c) { framebuffer.setCloudColor(c); }
         void setCloudAlpha(float a) { framebuffer.setCloudAlpha(a); }
         void setCloudHeight(float meters) { framebuffer.setCloudHeight(meters); }
-        void setCloudScale(float meters)  { framebuffer.setCloudScale(meters); }
+        void setCloudScale(float meters) { framebuffer.setCloudScale(meters); }
         void setCloudDrift(float sxMps, float szMps) { framebuffer.setCloudDrift(sxMps, szMps); }
         void updateClouds(float dtSeconds) { framebuffer.updateClouds(dtSeconds); }
         bool areCloudsEnabled() const { return framebuffer.areCloudsEnabled(); }
@@ -336,7 +336,7 @@ namespace pip3D
                                      const Viewport &viewport,
                                      const Matrix4x4 &viewProjMatrix,
                                      FrameBuffer &framebuffer,
-                                     ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+                                     ZBuffer *zBuffer,
                                      const Texture &tex,
                                      const Mesh *meshForTelemetry,
                                      uint16_t faceIdxForTelemetry,

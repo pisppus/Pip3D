@@ -315,8 +315,8 @@ namespace pip3D
             pushLine(p0 + rv, p1 + rv, color, categories, lifetimeFrames);
             pushLine(p0 - rv, p1 - rv, color, categories, lifetimeFrames);
 
-            addCircle(p0, n, radius, color, categories, lifetimeFrames, 8);
-            addCircle(p1, n, radius, color, categories, lifetimeFrames, 8);
+            addCircle(p0, n, radius, color, categories, lifetimeFrames, 12);
+            addCircle(p1, n, radius, color, categories, lifetimeFrames, 12);
         }
 
         void Gizmos::addAxes(const Vector3 &origin, float size,
@@ -459,7 +459,8 @@ namespace pip3D
                                                        float halfW, float preHalfW,
                                                        float halfH, float preHalfH,
                                                        const Vector3 &world,
-                                                       int &sx, int &sy)
+                                                       int &sx, int &sy,
+                                                       float &outZ) noexcept
         {
             const float *PIP3D_RESTRICT m = vp.m;
             const float clipW = m[3] * world.x + m[7] * world.y + m[11] * world.z + m[15];
@@ -472,13 +473,15 @@ namespace pip3D
 
             sx = static_cast<int>(ndcX * halfW + preHalfW);
             sy = static_cast<int>(-ndcY * halfH + preHalfH);
+            outZ = g_wBufferScale * invW;
             return true;
         }
 
         static PIP3D_FORCE_INLINE void drawLine2D(uint16_t *PIP3D_RESTRICT fb,
-                                                  int vpW,
-                                                  int x0, int y0, int x1, int y1,
-                                                  uint16_t color)
+                                                  const uint16_t *PIP3D_RESTRICT zb,
+                                                  int vpW, int x0, int y0, int x1, int y1,
+                                                  float z0, float z1,
+                                                  uint16_t color) noexcept
         {
             int dx = (x1 > x0) ? (x1 - x0) : (x0 - x1);
             int dy = (y1 > y0) ? (y1 - y0) : (y0 - y1);
@@ -487,25 +490,53 @@ namespace pip3D
             int err = dx - dy;
 
             uint16_t *PIP3D_RESTRICT p = fb + static_cast<size_t>(y0) * vpW + x0;
+            const uint16_t *PIP3D_RESTRICT zp = zb ? (zb + static_cast<size_t>(y0) * vpW + x0) : nullptr;
             const int rowStep = sy * vpW;
+
+            const int32_t z0Fixed = static_cast<int32_t>(z0);
+            const int32_t z1Fixed = static_cast<int32_t>(z1);
+
+            const int totalSteps = (dx > dy) ? dx : dy;
+            if (totalSteps == 0)
+            {
+
+                if (!zp || (z0Fixed > (zp[0] & Z_DEPTH_MASK)))
+                    *p = color;
+                return;
+            }
+
+            const int32_t zStep = (z1Fixed - z0Fixed) / totalSteps;
+            int32_t zCur = z0Fixed;
 
             while (true)
             {
-                *p = color;
+
+                if (!zp || (zCur > (zp[0] & Z_DEPTH_MASK)))
+                {
+                    *p = color;
+                }
+
                 if (x0 == x1 && y0 == y1)
                     break;
+
                 const int e2 = err * 2;
                 if (e2 > -dy)
                 {
                     err -= dy;
                     x0 += sx;
                     p += sx;
+                    if (zp)
+                        zp += sx;
+                    zCur += zStep;
                 }
                 if (e2 < dx)
                 {
                     err += dx;
                     y0 += sy;
                     p += rowStep;
+                    if (zp)
+                        zp += rowStep;
+                    zCur += zStep;
                 }
             }
         }
@@ -518,6 +549,10 @@ namespace pip3D
             uint16_t *PIP3D_RESTRICT fb = renderer.getFrameBuffer();
             if (!fb)
                 return;
+
+            const uint16_t *PIP3D_RESTRICT zb = nullptr;
+            auto &zBuf = renderer.getZBuffer();
+            zb = zBuf.data();
 
             const Viewport &vp = renderer.getViewport();
             if (vp.width == 0 || vp.height == 0)
@@ -539,9 +574,10 @@ namespace pip3D
                 const DebugLine &ln = g_lines[i];
 
                 int x0, y0, x1, y1;
-                if (!projectToScreen(viewProj, halfW, preHalfW, halfH, preHalfH, ln.a, x0, y0))
+                float z0, z1;
+                if (!projectToScreen(viewProj, halfW, preHalfW, halfH, preHalfH, ln.a, x0, y0, z0))
                     continue;
-                if (!projectToScreen(viewProj, halfW, preHalfW, halfH, preHalfH, ln.b, x1, y1))
+                if (!projectToScreen(viewProj, halfW, preHalfW, halfH, preHalfH, ln.b, x1, y1, z1))
                     continue;
 
                 y0 -= bandTop;
@@ -550,7 +586,7 @@ namespace pip3D
                 if (!clipLineLocal(x0, y0, x1, y1, vpW, bandH))
                     continue;
 
-                drawLine2D(fb, vpW, x0, y0, x1, y1, ln.color);
+                drawLine2D(fb, zb, vpW, x0, y0, x1, y1, z0, z1, ln.color);
             }
         }
     }

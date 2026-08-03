@@ -289,6 +289,17 @@ namespace pip3D
             }
 
             Rasterizer::g_fogState.enabled = fogEnabled;
+
+            {
+                const Camera &cam = cameras[activeCameraIndex];
+                const float camNear = cam.nearPlane;
+                const float wScale = static_cast<float>(Z_DEPTH_MAX) * camNear;
+                g_wBufferScale = wScale;
+                g_wBufferInvScale = FastMath::fastReciprocal(wScale);
+                Rasterizer::g_fogState.wScale = wScale;
+                Rasterizer::g_fogState.invWScale = g_wBufferInvScale;
+            }
+
             if (fogEnabled)
             {
                 const Color activeFogColor = skyEnabled ? skyHorizon : fogColor;
@@ -307,16 +318,6 @@ namespace pip3D
                 Rasterizer::g_fogState.color_r = static_cast<float>((fogRGB >> 11) & 0x1F) * (1.0f / 31.0f);
                 Rasterizer::g_fogState.color_g_f = static_cast<float>((fogRGB >> 5) & 0x3F) * (1.0f / 63.0f);
                 Rasterizer::g_fogState.color_b_f = static_cast<float>(fogRGB & 0x1F) * (1.0f / 31.0f);
-
-                const Camera &cam = cameras[activeCameraIndex];
-                const float camNear = cam.nearPlane;
-                const float camFar = cam.farPlane;
-
-                const float denomFarNear = camFar - camNear;
-                const float safeDenom = (denomFarNear > 1e-4f) ? denomFarNear : 1.0f;
-                const float k = static_cast<float>(ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::DEPTH_MAX) * (camFar / safeDenom);
-                Rasterizer::g_fogState.kVal = k;
-                Rasterizer::g_fogState.knVal = k * camNear;
             }
             Rasterizer::rebuildFogLut();
         }

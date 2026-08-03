@@ -90,7 +90,7 @@ def gen_sun_pixels(size, disk_r, halo_r):
 
 
 def write_header(pixels, size, disk_r, halo_r, out_path):
-    width_shift = int(math.log2(size))
+    shift = int(math.log2(size))
     var = "sun"
     total_bytes = size * size * 2
 
@@ -99,7 +99,7 @@ def write_header(pixels, size, disk_r, halo_r, out_path):
     lines.append(" * Pip3D Sun Texture Asset")
     lines.append(" * Generated automatically by Tools/Textures/Sungen.py. Do not edit.")
     lines.append(" *")
-    lines.append(f" * Dimensions    : {size}x{size} (Grayscale RGB565)")
+    lines.append(f" * Dimensions    : {size}x{size} (Grayscale RGB565, square)")
     lines.append(f" * Parameters    : Disk Radius={disk_r:.1f}px, Halo Radius={halo_r:.1f}px")
     lines.append(f" * Flash Memory  : {total_bytes} bytes ({total_bytes / 1024.0:.2f} KB)")
     lines.append(" */")
@@ -113,7 +113,7 @@ def write_header(pixels, size, disk_r, halo_r, out_path):
     lines.append("    namespace detail")
     lines.append("    {")
     lines.append("        alignas(16) static const uint16_t s_%sTextureData[%d] = {" % (var, size * size))
-    
+
     items_per_line = 12
     for i in range(0, len(pixels), items_per_line):
         chunk = pixels[i:i + items_per_line]
@@ -123,14 +123,12 @@ def write_header(pixels, size, disk_r, halo_r, out_path):
     lines.append("        };")
     lines.append("    }")
     lines.append("")
+    lines.append("    // Texture struct layout (12 bytes):")
+    lines.append("    //   data, mipData, shift, mipCount")
     lines.append("    inline Texture g_%sTexture = {" % var)
-    lines.append("        .data = detail::s_%sTextureData," % var)
-    lines.append("        .widthShift = %d," % width_shift)
-    lines.append("        .heightShift = %d," % width_shift)
-    lines.append("        .widthMask = %d," % (size - 1))
-    lines.append("        .heightMask = %d," % (size - 1))
-    lines.append("        .palette = nullptr,")
-    lines.append("        .mipData = nullptr,")
+    lines.append("        .data     = detail::s_%sTextureData," % var)
+    lines.append("        .mipData  = nullptr,")
+    lines.append("        .shift    = %d," % shift)
     lines.append("        .mipCount = 0")
     lines.append("    };")
     lines.append("}")

@@ -78,7 +78,7 @@ namespace pip3D
                     int32_t g_fixed = g_row_fixed + params.dg_dx_fixed * xStart;
                     int32_t b_fixed = b_row_fixed + params.db_dx_fixed * xStart;
 
-                    int16_t *__restrict__ zPtr = params.zbBase + static_cast<size_t>(y) * params.width + xStart;
+                    uint16_t *__restrict__ zPtr = params.zbBase + static_cast<size_t>(y) * params.width + xStart;
                     uint16_t *__restrict__ fbPtr = params.frameBuffer + static_cast<size_t>(y) * params.width + xStart;
 
                     const int16_t *bayerRow = detail::kBayerMatrix10Bit[y & 3];
@@ -99,11 +99,11 @@ namespace pip3D
                         PIP3D_PREFETCH_W(fbPtr + 16);
 
                         {
-                            const int16_t stored = zPtr[0];
-                            const int16_t depthNoShadow = static_cast<int16_t>(static_cast<uint16_t>(stored) & Z_DEPTH_MASK);
-                            const int16_t d = static_cast<int16_t>(depth_fixed >> 14);
+                            const uint16_t stored = zPtr[0];
+                            const uint16_t depthNoShadow = stored & Z_DEPTH_MASK;
+                            const uint16_t d = static_cast<uint16_t>(depth_fixed >> 14);
 
-                            if (d < depthNoShadow)
+                            if (d > depthNoShadow)
                             {
                                 zPtr[0] = d;
 
@@ -124,11 +124,11 @@ namespace pip3D
                         }
 
                         {
-                            const int16_t stored = zPtr[1];
-                            const int16_t depthNoShadow = static_cast<int16_t>(static_cast<uint16_t>(stored) & Z_DEPTH_MASK);
-                            const int16_t d = static_cast<int16_t>(depth_fixed >> 14);
+                            const uint16_t stored = zPtr[1];
+                            const uint16_t depthNoShadow = stored & Z_DEPTH_MASK;
+                            const uint16_t d = static_cast<uint16_t>(depth_fixed >> 14);
 
-                            if (d < depthNoShadow)
+                            if (d > depthNoShadow)
                             {
                                 zPtr[1] = d;
 
@@ -149,11 +149,11 @@ namespace pip3D
                         }
 
                         {
-                            const int16_t stored = zPtr[2];
-                            const int16_t depthNoShadow = static_cast<int16_t>(static_cast<uint16_t>(stored) & Z_DEPTH_MASK);
-                            const int16_t d = static_cast<int16_t>(depth_fixed >> 14);
+                            const uint16_t stored = zPtr[2];
+                            const uint16_t depthNoShadow = stored & Z_DEPTH_MASK;
+                            const uint16_t d = static_cast<uint16_t>(depth_fixed >> 14);
 
-                            if (d < depthNoShadow)
+                            if (d > depthNoShadow)
                             {
                                 zPtr[2] = d;
 
@@ -174,11 +174,11 @@ namespace pip3D
                         }
 
                         {
-                            const int16_t stored = zPtr[3];
-                            const int16_t depthNoShadow = static_cast<int16_t>(static_cast<uint16_t>(stored) & Z_DEPTH_MASK);
-                            const int16_t d = static_cast<int16_t>(depth_fixed >> 14);
+                            const uint16_t stored = zPtr[3];
+                            const uint16_t depthNoShadow = stored & Z_DEPTH_MASK;
+                            const uint16_t d = static_cast<uint16_t>(depth_fixed >> 14);
 
-                            if (d < depthNoShadow)
+                            if (d > depthNoShadow)
                             {
                                 zPtr[3] = d;
 
@@ -206,11 +206,11 @@ namespace pip3D
                     int16_t remIndex = 0;
                     while (count > 0)
                     {
-                        const int16_t stored = zPtr[0];
-                        const int16_t depthNoShadow = static_cast<int16_t>(static_cast<uint16_t>(stored) & Z_DEPTH_MASK);
-                        const int16_t d = static_cast<int16_t>(depth_fixed >> 14);
+                        const uint16_t stored = zPtr[0];
+                        const uint16_t depthNoShadow = stored & Z_DEPTH_MASK;
+                        const uint16_t d = static_cast<uint16_t>(depth_fixed >> 14);
 
-                        if (d < depthNoShadow)
+                        if (d > depthNoShadow)
                         {
                             zPtr[0] = d;
 
@@ -255,7 +255,7 @@ namespace pip3D
             float r1, float g1, float b1,
             float r2, float g2, float b2,
             uint16_t *frameBuffer,
-            ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+            ZBuffer *zBuffer,
             const DisplayConfig &config)
         {
             const int16_t width = config.width;
@@ -264,7 +264,7 @@ namespace pip3D
             if (unlikely(!frameBuffer || !zBuffer))
                 return;
 
-            int16_t *const zBufferData = zBuffer->data();
+            uint16_t *const zBufferData = zBuffer->data();
             if (unlikely(!zBufferData))
                 return;
 
@@ -332,8 +332,7 @@ namespace pip3D
             float db_dx = (db02 * dy12 - dy02 * db12) * invDet;
             float db_dy = (dx02 * db12 - db02 * dx12) * invDet;
 
-            constexpr float depthScale =
-                static_cast<float>(ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::DEPTH_MAX) * 16384.0f;
+            constexpr float depthScale = 16384.0f;
             const float r_scale = 31.0f * 1024.0f;
             const float g_scale = 63.0f * 1024.0f;
             const float b_scale = 31.0f * 1024.0f;

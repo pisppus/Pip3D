@@ -36,7 +36,7 @@ namespace pip3D
               position(0, 0, 0), rotation(0, 0, 0), scale(1, 1, 1),
               parent(nullptr), transformDirty(true)
         {
-            localTransform.reset(); 
+            localTransform.reset();
             worldTransform.reset();
         }
 
@@ -415,12 +415,10 @@ namespace pip3D
         float fov;
         float nearPlane;
         float farPlane;
-        ProjectionType projectionType;
 
     public:
         CameraNode(const String &nodeName = "Camera")
-            : Node(nodeName), fov(60.0f), nearPlane(0.1f), farPlane(100.0f),
-              projectionType(PERSPECTIVE) {}
+            : Node(nodeName), fov(60.0f), nearPlane(0.1f), farPlane(100.0f) {}
 
         void setFOV(float fieldOfView) { fov = fieldOfView; }
         float getFOV() const { return fov; }
@@ -430,9 +428,6 @@ namespace pip3D
 
         void setFarPlane(float far) { farPlane = far; }
         float getFarPlane() const { return farPlane; }
-
-        void setProjectionType(ProjectionType type) { projectionType = type; }
-        ProjectionType getProjectionType() const { return projectionType; }
 
         void applyToCamera(class Camera &camera)
         {
@@ -459,7 +454,6 @@ namespace pip3D
             camera.fov = fov;
             camera.nearPlane = nearPlane;
             camera.farPlane = farPlane;
-            camera.projectionType = projectionType;
             camera.markDirty();
         }
     };
@@ -512,5 +506,4 @@ namespace pip3D
             }
         }
     };
-
 }

@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 
+#include "Core/Platform.hpp"
 #include "Math/Algebra.hpp"
 #include "Rendering/Display/ZBuffer.hpp"
 #include "Rendering/Pipeline/Rasterizer/Common.hpp"
@@ -12,10 +13,11 @@ namespace pip3D
 {
     namespace Rasterizer
     {
-        static constexpr int16_t kPlanarClearDepth = ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::CLEAR_DEPTH;
-        static constexpr int16_t kPlanarShadowFlag = Z_SHADOW_FLAG;
-        static constexpr uint32_t kClearPack = ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::CLEAR_PACK32;
-        static constexpr uint32_t kFlagMaskPack = static_cast<uint32_t>(Z_SHADOW_FLAG) | (static_cast<uint32_t>(Z_SHADOW_FLAG) << 16);
+
+        static constexpr uint16_t kPlanarClearDepth = 0x0000u;
+        static constexpr uint16_t kPlanarShadowFlag = Z_SHADOW_FLAG;
+        static constexpr uint32_t kClearPack = 0x00000000u;
+        static constexpr uint32_t kFlagMaskPack = 0x80008000u;
 
         struct alignas(16) PlanarBlend
         {
@@ -34,12 +36,12 @@ namespace pip3D
         }
 
         __attribute__((always_inline)) static inline void shadeScalar(
-            int16_t &stored, int32_t depth_fixed,
+            uint16_t &stored, int32_t depth_fixed,
             uint16_t &fbPix, const PlanarBlend &bl)
         {
-            const int16_t shadowDepth = static_cast<int16_t>(depth_fixed >> 12);
-            const int16_t backTolerance = 10 + (stored >> 11);
-            if ((stored - shadowDepth) >= -backTolerance)
+            const uint16_t shadowDepth = static_cast<uint16_t>(depth_fixed >> 12);
+            const int backTolerance = (stored >> 8) + 2;
+            if (stored + backTolerance >= shadowDepth)
             {
                 fbPix = blendScalar(fbPix, bl);
                 stored |= kPlanarShadowFlag;
@@ -130,7 +132,7 @@ namespace pip3D
                     const int16_t count = xEnd - xStart + 1;
                     int32_t depth_fixed = z_row_fixed + dz_dx * xStart;
 
-                    int16_t *__restrict__ row = params.zbBase + static_cast<size_t>(y) * width;
+                    uint16_t *__restrict__ row = params.zbBase + static_cast<size_t>(y) * width;
                     const int16_t yLocal = static_cast<int16_t>(y - offsetY);
                     uint16_t *__restrict__ fb = params.frameBuffer + static_cast<size_t>(yLocal) * width;
 
@@ -139,8 +141,8 @@ namespace pip3D
 
                     if (x & 1)
                     {
-                        int16_t stored = row[x];
-                        if (stored >= 0 && stored != kPlanarClearDepth)
+                        uint16_t stored = row[x];
+                        if (stored != kPlanarClearDepth && stored < kPlanarShadowFlag)
                             shadeScalar(stored, depth_fixed, fb[x], bl);
                         depth_fixed += dz_dx;
                         ++x;
@@ -164,29 +166,29 @@ namespace pip3D
                             continue;
                         }
 
-                        int16_t stored0 = static_cast<int16_t>(z_pack & 0xFFFF);
-                        int16_t stored1 = static_cast<int16_t>(z_pack >> 16);
+                        uint16_t stored0 = static_cast<uint16_t>(z_pack & 0xFFFF);
+                        uint16_t stored1 = static_cast<uint16_t>(z_pack >> 16);
 
-                        const int16_t shadowDepth0 = static_cast<int16_t>(depth_fixed >> 12);
-                        const int16_t shadowDepth1 = static_cast<int16_t>((depth_fixed + dz_dx) >> 12);
+                        const uint16_t shadowDepth0 = static_cast<uint16_t>(depth_fixed >> 12);
+                        const uint16_t shadowDepth1 = static_cast<uint16_t>((depth_fixed + dz_dx) >> 12);
 
                         bool write0 = false;
                         bool write1 = false;
 
-                        if (stored0 >= 0 && stored0 != kPlanarClearDepth)
+                        if (stored0 != kPlanarClearDepth && stored0 < kPlanarShadowFlag)
                         {
-                            const int16_t backTolerance = 10 + (stored0 >> 11);
-                            if ((stored0 - shadowDepth0) >= -backTolerance)
+                            const int backTolerance = (stored0 >> 8) + 2;
+                            if (stored0 + backTolerance >= shadowDepth0)
                             {
                                 write0 = true;
                                 stored0 |= kPlanarShadowFlag;
                             }
                         }
 
-                        if (stored1 >= 0 && stored1 != kPlanarClearDepth)
+                        if (stored1 != kPlanarClearDepth && stored1 < kPlanarShadowFlag)
                         {
-                            const int16_t backTolerance = 10 + (stored1 >> 11);
-                            if ((stored1 - shadowDepth1) >= -backTolerance)
+                            const int backTolerance = (stored1 >> 8) + 2;
+                            if (stored1 + backTolerance >= shadowDepth1)
                             {
                                 write1 = true;
                                 stored1 |= kPlanarShadowFlag;
@@ -218,11 +220,11 @@ namespace pip3D
                         --count32;
                     }
 
-                    x = static_cast<int16_t>(reinterpret_cast<int16_t *>(row32) - row);
+                    x = static_cast<int16_t>(reinterpret_cast<uint16_t *>(row32) - row);
                     if (x <= xEnd)
                     {
-                        int16_t stored = row[x];
-                        if (stored >= 0 && stored != kPlanarClearDepth)
+                        uint16_t stored = row[x];
+                        if (stored != kPlanarClearDepth && stored < kPlanarShadowFlag)
                             shadeScalar(stored, depth_fixed, fb[x], bl);
                     }
                 }
@@ -239,7 +241,7 @@ namespace pip3D
                                                                   uint16_t shadowColor,
                                                                   uint8_t alpha,
                                                                   uint16_t *frameBuffer,
-                                                                  ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT> *zBuffer,
+                                                                  ZBuffer *zBuffer,
                                                                   const DisplayConfig &config,
                                                                   bool softEdges = true,
                                                                   int16_t offsetY = 0)
@@ -294,11 +296,9 @@ namespace pip3D
             const float dz_dx = (dz02 * dy12 - dy02 * dz12) * invDet;
             const float dz_dy = (dx02 * dz12 - dz02 * dx12) * invDet;
 
-            constexpr float depthScale =
-                static_cast<float>(ZBuffer<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>::DEPTH_MAX);
-            const float dz_dx_scaled = dz_dx * depthScale;
-            const float dz_dy_scaled = dz_dy * depthScale;
-            const float z2_scaled = z2 * depthScale;
+            const float dz_dx_scaled = dz_dx;
+            const float dz_dy_scaled = dz_dy;
+            const float z2_scaled = z2;
 
             constexpr float FP_SCALE = 4096.0f;
             const int32_t dz_dx_fixed = static_cast<int32_t>(dz_dx_scaled * FP_SCALE);

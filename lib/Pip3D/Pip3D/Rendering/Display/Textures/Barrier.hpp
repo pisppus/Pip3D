@@ -3,9 +3,9 @@
  * Generated automatically by Tools/Textures/Convert.py. Do not edit.
  *
  * Source File   : Barrier_64.png (128x128)
- * Texture Size : 64x64 (RGB565)
- * Mipmaps       : 6 level(s)
- * Flash Memory  : 8192 bytes base + 2730 bytes mips = 10922 bytes (10.67 KB)
+ * Texture Size : 64x64 (square, RGB565)
+ * Mipmaps      : 6 level(s)
+ * Flash Memory : 8192 bytes base + 2730 bytes mips = 10922 bytes (10.67 KB)
  */
 
 #pragma once
@@ -493,13 +493,9 @@ namespace pip3D
     }
 
     inline Texture g_barrierTexture = {
-        .data = detail::s_barrierTextureData,
-        .widthShift = 6,
-        .heightShift = 6,
-        .widthMask = 63,
-        .heightMask = 63,
-        .palette = nullptr,
-        .mipData = detail::s_barrierMipData,
+        .data     = detail::s_barrierTextureData,
+        .mipData  = detail::s_barrierMipData,
+        .shift    = 6,
         .mipCount = 6
     };
 }
