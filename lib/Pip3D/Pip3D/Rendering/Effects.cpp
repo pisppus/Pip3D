@@ -2,7 +2,8 @@
 #include "Rendering/Pipeline/MeshDraw.hpp"
 #include "Rendering/Pipeline/Shading.hpp"
 #include "Rendering/Pipeline/Billboard.hpp"
-#include "Rendering/Display/Textures/Sun.hpp"
+#include "Rendering/Resources/Texture.hpp"
+#include "Rendering/Resources/Textures/Sun.hpp"
 #include "Math/Algebra.hpp"
 #include "Debug/Logging.hpp"
 

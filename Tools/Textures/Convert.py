@@ -132,7 +132,7 @@ def convert_png2tex(img_path, force_output_path=None, target_size=None):
         target_dir = None
         curr = script_dir
         for _ in range(4):
-            test_path = os.path.join(curr, "lib", "Pip3D", "Pip3D", "Rendering", "Display")
+            test_path = os.path.join(curr, "lib", "Pip3D", "Pip3D", "Rendering", "Resources")
             if os.path.exists(test_path):
                 target_dir = os.path.join(test_path, "Textures")
                 break
@@ -159,7 +159,7 @@ def convert_png2tex(img_path, force_output_path=None, target_size=None):
             out.write(f" * Flash Memory : {base_bytes} bytes base + {mip_bytes} bytes mips = {total_bytes} bytes ({total_bytes / 1024.0:.2f} KB)\n")
             out.write(" */\n\n")
             out.write("#pragma once\n\n")
-            out.write("#include \"Rendering/Display/Texture.hpp\"\n\n")
+            out.write("#include \"Rendering/Resources/Texture.hpp\"\n\n")
             out.write("namespace pip3D\n{\n")
             out.write("    namespace detail\n    {\n")
             out.write(f"        // Base Level (LOD 0): {width}x{height}\n")
@@ -189,7 +189,7 @@ def convert_png2tex(img_path, force_output_path=None, target_size=None):
             out.write("    };\n}\n")
 
         rel_img = os.path.join("Textures", "Sources", os.path.basename(img_path)).replace("\\", "/")
-        rel_hpp = os.path.join("Rendering", "Display", "Textures", os.path.basename(header_path)).replace("\\", "/")
+        rel_hpp = os.path.join("Rendering", "Resources", "Textures", os.path.basename(header_path)).replace("\\", "/")
         print(f"\033[36m[Pip3D]\033[0m Converting: {rel_img} -> {rel_hpp} ({width}x{height} square POT, {base_bytes / 1024.0:.2f} KB + {mip_count} mips = {mip_bytes / 1024.0:.2f} KB, {total_bytes / 1024.0:.2f} KB total)")
 
     except Exception as e:

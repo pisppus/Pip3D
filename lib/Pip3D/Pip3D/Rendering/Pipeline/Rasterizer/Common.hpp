@@ -4,7 +4,7 @@
 
 #include "Core/Platform.hpp"
 #include "Math/Algebra.hpp"
-#include "Rendering/Display/ZBuffer.hpp"
+#include "Rendering/Buffers/ZBuffer.hpp"
 
 namespace pip3D
 {

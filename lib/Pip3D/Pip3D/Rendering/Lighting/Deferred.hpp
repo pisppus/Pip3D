@@ -4,7 +4,7 @@
 #include "Core/Color.hpp"
 #include "Math/Algebra.hpp"
 #include "Camera/Camera.hpp"
-#include "Rendering/Display/ZBuffer.hpp"
+#include "Rendering/Buffers/ZBuffer.hpp"
 #include "Rendering/Lighting/Lighting.hpp"
 #include <algorithm>
 

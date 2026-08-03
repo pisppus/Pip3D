@@ -106,7 +106,7 @@ def write_header(pixels, size, disk_r, halo_r, out_path):
     lines.append("")
     lines.append("#pragma once")
     lines.append("")
-    lines.append('#include "Rendering/Display/Texture.hpp"')
+    lines.append('#include "Rendering/Resources/Texture.hpp"')
     lines.append("")
     lines.append("namespace pip3D")
     lines.append("{")

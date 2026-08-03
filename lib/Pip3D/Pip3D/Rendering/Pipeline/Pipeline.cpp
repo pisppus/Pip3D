@@ -1,8 +1,8 @@
-#include "Renderer.hpp"
-#include "Pipeline/Culling.hpp"
+#include "Rendering/Renderer.hpp"
+#include "Culling.hpp"
 #include "Rendering/Pipeline/Telemetry.hpp"
 #include "Debug/Logging.hpp"
-#include "Rendering/Pipeline/MeshDraw.hpp"
+#include "MeshDraw.hpp"
 #include <vector>
 
 namespace pip3D

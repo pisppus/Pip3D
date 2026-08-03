@@ -2,9 +2,9 @@
 
 #include <algorithm>
 
-#include "Rendering/Display/ZBuffer.hpp"
-#include "Rendering/Display/Texture.hpp"
-#include "Rendering/Display/Sky.hpp"
+#include "Rendering/Buffers/ZBuffer.hpp"
+#include "Rendering/Resources/Texture.hpp"
+#include "Rendering/Environment/Sky.hpp"
 #include "Shading.hpp"
 
 #include "Rasterizer/Common.hpp"
