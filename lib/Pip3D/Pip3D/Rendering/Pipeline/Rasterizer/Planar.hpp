@@ -6,7 +6,7 @@
 
 #include "Core/Platform.hpp"
 #include "Math/Algebra.hpp"
-#include "Rendering/Display/ZBuffer.hpp"
+#include "Rendering/Buffers/ZBuffer.hpp"
 #include "Rendering/Pipeline/Rasterizer/Common.hpp"
 
 namespace pip3D

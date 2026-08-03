@@ -174,11 +174,11 @@ if os.path.isdir(geometry_models_dir):
             except OSError:
                 pass
 
-textures_dir         = os.path.join(project_dir, "Tools", "Textures")
-tex_sources_dir      = os.path.join(textures_dir, "Sources")
-display_textures_dir = os.path.join(project_dir, "lib", "Pip3D", "Pip3D", "Rendering", "Display", "Textures")
+textures_dir          = os.path.join(project_dir, "Tools", "Textures")
+tex_sources_dir       = os.path.join(textures_dir, "Sources")
+resources_textures_dir = os.path.join(project_dir, "lib", "Pip3D", "Pip3D", "Rendering", "Resources", "Textures")
 
-os.makedirs(display_textures_dir, exist_ok=True)
+os.makedirs(resources_textures_dir, exist_ok=True)
 expected_tex_outputs = {}
 
 if os.path.isdir(tex_sources_dir):
@@ -191,7 +191,7 @@ if os.path.isdir(tex_sources_dir):
             claims.setdefault(clean_name, []).append(file)
 
     for clean_name, sources in claims.items():
-        hpp_path = os.path.join(display_textures_dir, clean_name + ".hpp")
+        hpp_path = os.path.join(resources_textures_dir, clean_name + ".hpp")
         expected_tex_outputs[os.path.basename(hpp_path)] = True
 
         if len(sources) > 1:
@@ -209,14 +209,14 @@ if os.path.isdir(tex_sources_dir):
             touch(hpp_path)
             CACHE_CHANGED = True
 
-sun_hpp_path = os.path.join(display_textures_dir, "Sun.hpp")
+sun_hpp_path = os.path.join(resources_textures_dir, "Sun.hpp")
 if os.path.isfile(os.path.join(textures_dir, "Sungen.py")):
     expected_tex_outputs["Sun.hpp"] = True
 
-if os.path.isdir(display_textures_dir):
-    for existing in os.listdir(display_textures_dir):
+if os.path.isdir(resources_textures_dir):
+    for existing in os.listdir(resources_textures_dir):
         if existing.lower().endswith(".hpp") and existing not in expected_tex_outputs:
-            stale_path = os.path.join(display_textures_dir, existing)
+            stale_path = os.path.join(resources_textures_dir, existing)
             try:
                 os.remove(stale_path)
                 print(_tag(ANSI_YELLOW, f"Removed orphaned texture header: {existing}"))
@@ -224,13 +224,13 @@ if os.path.isdir(display_textures_dir):
                 pass
 
 skygen_path     = os.path.join(project_dir, "Tools", "Textures", "Skygen.py")
-clouds_hpp_path = os.path.join(project_dir, "lib", "Pip3D", "Pip3D", "Rendering", "Display", "CloudsMask.hpp")
+clouds_hpp_path = os.path.join(project_dir, "lib", "Pip3D", "Pip3D", "Rendering", "Environment", "CloudsData.hpp")
 
 if os.path.isfile(skygen_path):
     screen_w, screen_h = parse_screen_resolution()
-    sky_key = f"skygen:cloudsmask:{screen_w}x{screen_h}"
+    sky_key = f"skygen:cloudsdata:{screen_w}x{screen_h}"
     if needs_rebuild(CACHE, sky_key, skygen_path, clouds_hpp_path):
-        print(_tag(ANSI_GREEN, f"Building cloud mask: Skygen.py -> CloudsMask.hpp ({screen_w}x{screen_h})"))
+        print(_tag(ANSI_GREEN, f"Building cloud data: Skygen.py -> CloudsData.hpp ({screen_w}x{screen_h})"))
         run_convert(skygen_path, [clouds_hpp_path, "--screen-w", str(screen_w), "--screen-h", str(screen_h)])
         mark_built(CACHE, sky_key, skygen_path, clouds_hpp_path)
         touch(clouds_hpp_path)

@@ -29,7 +29,7 @@ DEFAULT_COVERAGE  = 0.42
 DEFAULT_SEED      = 0xC10D
 DEFAULT_CLOUD     = "250,250,252"
 
-PREVIEW_FILENAME  = "_CloudsMask.png"
+PREVIEW_FILENAME  = "_CloudsData.png"
 
 
 def _hash_grid(ix, iy, seed):

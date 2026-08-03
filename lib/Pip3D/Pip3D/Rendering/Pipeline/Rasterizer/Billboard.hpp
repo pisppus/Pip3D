@@ -6,8 +6,8 @@
 
 #include "Core/Platform.hpp"
 #include "Math/Algebra.hpp"
-#include "Rendering/Display/ZBuffer.hpp"
-#include "Rendering/Display/Texture.hpp"
+#include "Rendering/Buffers/ZBuffer.hpp"
+#include "Rendering/Resources/Texture.hpp"
 #include "Rendering/Pipeline/Rasterizer/Common.hpp"
 
 #if PIP3D_DEBUG_BILLBOARD

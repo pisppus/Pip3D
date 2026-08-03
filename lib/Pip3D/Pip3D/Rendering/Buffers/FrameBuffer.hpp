@@ -8,15 +8,14 @@
 #include "Core/Memory.hpp"
 #include "Core/Color.hpp"
 #include "Math/Algebra.hpp"
+#include "Rendering/Environment/Sky.hpp"
+#include "Rendering/Environment/Clouds.hpp"
 
 #if defined(PIP3D_PC)
 #include <PipCore/Platforms/Desktop/Runtime.hpp>
 #else
 #include <PipCore/Display.hpp>
 #endif
-
-#include "Rendering/Display/Sky.hpp"
-#include "Rendering/Display/Clouds.hpp"
 
 namespace pip3D
 {
@@ -62,7 +61,7 @@ namespace pip3D
 
             for (int16_t y = 0; y < SCREEN_HEIGHT; ++y)
             {
-                skyboxColorCache[y] = skybox.getColorAtY(y, SCREEN_HEIGHT).rgb565;
+                skyboxColorCache[y] = skybox.getColorAtY(y).rgb565;
             }
 
             cacheValid = true;

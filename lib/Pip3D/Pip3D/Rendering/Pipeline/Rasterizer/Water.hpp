@@ -6,8 +6,8 @@
 
 #include "Core/Platform.hpp"
 #include "Math/Algebra.hpp"
-#include "Rendering/Display/ZBuffer.hpp"
-#include "Rendering/Display/Sky.hpp"
+#include "Rendering/Buffers/ZBuffer.hpp"
+#include "Rendering/Environment/Sky.hpp"
 #include "Rendering/Pipeline/Rasterizer/Common.hpp"
 
 namespace pip3D
@@ -169,8 +169,8 @@ namespace pip3D
                     refRowAlpha = (reflAlpha * static_cast<uint32_t>(mirrorY)) >> 5;
                 const uint32_t refRowInvA = 32u - refRowAlpha;
 
-                const uint16_t skyColor = waterSkyFallback ? skybox.getColorAtY(0, SCREEN_HEIGHT).rgb565
-                                                           : skybox.getColorAtY(mirrorY, SCREEN_HEIGHT).rgb565;
+                const uint16_t skyColor = waterSkyFallback ? skybox.getColorAtY(0).rgb565
+                                           : skybox.getColorAtY(mirrorY).rgb565;
 
                 const size_t offsetBase = static_cast<size_t>(y) * width;
                 uint16_t *__restrict__ zbRow = zBufferPtr + offsetBase;

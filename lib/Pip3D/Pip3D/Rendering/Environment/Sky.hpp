@@ -1,5 +1,7 @@
 #pragma once
+
 #include "Core/Color.hpp"
+#include "Core/Platform.hpp"
 
 namespace pip3D
 {
@@ -18,18 +20,6 @@ namespace pip3D
     CUSTOM
   };
 
-  inline constexpr SkyType SKYBOX_DAY = DAY;
-  inline constexpr SkyType SKYBOX_SUNSET = SUNSET;
-  inline constexpr SkyType SKYBOX_NIGHT = NIGHT;
-  inline constexpr SkyType SKYBOX_DAWN = DAWN;
-  inline constexpr SkyType SKYBOX_OVERCAST = OVERCAST;
-  inline constexpr SkyType SKYBOX_MIDDAY = MIDDAY;
-  inline constexpr SkyType SKYBOX_STORM = STORM;
-  inline constexpr SkyType SKYBOX_SANDSTORM = SANDSTORM;
-  inline constexpr SkyType SKYBOX_SPACE = SPACE;
-  inline constexpr SkyType SKYBOX_ALIEN = ALIEN;
-  inline constexpr SkyType SKYBOX_CUSTOM = CUSTOM;
-
   using SkyboxType = SkyType;
 
   struct alignas(8) Sky
@@ -47,17 +37,12 @@ namespace pip3D
         {Color::rgb(5, 0, 20), Color::rgb(20, 10, 50), Color::rgb(0, 0, 10)},
         {Color::rgb(10, 40, 15), Color::rgb(40, 90, 30), Color::rgb(5, 20, 8)}};
 
-    static constexpr float temps[] = {5500.0f, 2500.0f, 8000.0f, 4000.0f, 6500.0f,
-                                      6800.0f, 7200.0f, 3800.0f, 9500.0f, 5000.0f};
+    static constexpr uint16_t temps[11] = {
+        5500, 2500, 8000, 4000, 6500, 6800, 7200, 3800, 9500, 5000, 5500};
 
     static __attribute__((always_inline)) inline uint32_t smoothstep8(uint32_t t) noexcept
     {
       return (t * t * (768u - 2u * t)) >> 16;
-    }
-
-    __attribute__((always_inline)) inline Color lerpColor(Color c1, Color c2, uint32_t s) const
-    {
-      return c1.blend256(c2, static_cast<uint16_t>(s));
     }
 
   public:
@@ -68,13 +53,13 @@ namespace pip3D
     bool enabled = true;
 
     Sky() { setPreset(DAY); }
-    Sky(SkyType t) : type(t) { setPreset(t); }
+    Sky(SkyType t) { setPreset(t); }
     Sky(Color t, Color h, Color g) : top(t), horizon(h), ground(g), type(CUSTOM) {}
 
-    void setPreset(SkyType t)
+    void setPreset(SkyType t) noexcept
     {
       type = t;
-      if (static_cast<uint8_t>(t) < 10)
+      if (static_cast<uint8_t>(t) < 10u)
       {
         top = presets[t][0];
         horizon = presets[t][1];
@@ -82,7 +67,7 @@ namespace pip3D
       }
     }
 
-    void setCustom(Color t, Color h, Color g)
+    void setCustom(Color t, Color h, Color g) noexcept
     {
       type = CUSTOM;
       top = t;
@@ -90,34 +75,47 @@ namespace pip3D
       ground = g;
     }
 
-    float getLightTemp() const
+    float getLightTemp() const noexcept
     {
-      return (static_cast<uint8_t>(type) < 10) ? temps[type] : 5500.0f;
+
+      return static_cast<float>(temps[static_cast<uint8_t>(type)]);
     }
 
-    __attribute__((always_inline)) inline Color getColorAtY(int16_t y, int16_t h) const
+    __attribute__((always_inline)) inline Color getColorAtY(int16_t y) const noexcept
     {
       if (unlikely(!enabled))
         return Color::BLACK;
       if (unlikely(y <= 0))
         return top;
-      if (unlikely(y >= h))
+      if (unlikely(y >= static_cast<int16_t>(SCREEN_HEIGHT)))
         return ground;
 
-      const uint32_t T = (static_cast<uint32_t>(y) << 8) / static_cast<uint32_t>(h);
+      const uint32_t T = (static_cast<uint32_t>(y) << 8) / static_cast<uint32_t>(SCREEN_HEIGHT);
 
-      if (likely(T < 166))
+      const uint32_t topV = top.rgb565;
+      const uint32_t horV = horizon.rgb565;
+      const uint32_t grdV = ground.rgb565;
+
+      if (likely(T < 166u))
       {
+
         const uint32_t s = smoothstep8((T * 395u) >> 8);
-        return lerpColor(top, horizon, s);
+
+        const uint32_t a = s >> 2;
+        const uint32_t ia = 64u - a;
+        const uint32_t rb = ((topV & 0xF81Fu) * ia + (horV & 0xF81Fu) * a) >> 6 & 0xF81Fu;
+        const uint32_t g = ((topV & 0x07E0u) * ia + (horV & 0x07E0u) * a) >> 6 & 0x07E0u;
+        return Color(static_cast<uint16_t>(rb | g));
       }
       else
       {
-        uint32_t gt = ((T - 166u) * 728u) >> 8;
-        if (gt > 256u)
-          gt = 256u;
-        const uint32_t s = smoothstep8(gt);
-        return lerpColor(horizon, ground, s);
+
+        const uint32_t s = smoothstep8(((T - 166u) * 728u) >> 8);
+        const uint32_t a = s >> 2;
+        const uint32_t ia = 64u - a;
+        const uint32_t rb = ((horV & 0xF81Fu) * ia + (grdV & 0xF81Fu) * a) >> 6 & 0xF81Fu;
+        const uint32_t g = ((horV & 0x07E0u) * ia + (grdV & 0x07E0u) * a) >> 6 & 0x07E0u;
+        return Color(static_cast<uint16_t>(rb | g));
       }
     }
   };

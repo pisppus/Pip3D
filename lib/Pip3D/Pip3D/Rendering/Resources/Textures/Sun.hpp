@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include "Rendering/Display/Texture.hpp"
+#include "Rendering/Resources/Texture.hpp"
 
 namespace pip3D
 {

@@ -3,7 +3,7 @@
 #include "Core/Platform.hpp"
 #include "Core/Color.hpp"
 #include "Math/Algebra.hpp"
-#include "Rendering/Display/CloudsMask.hpp"
+#include "CloudsData.hpp"
 
 namespace pip3D
 {

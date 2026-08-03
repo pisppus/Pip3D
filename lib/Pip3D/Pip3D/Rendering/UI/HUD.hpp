@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Font.hpp"
-#include "Rendering/Display/FrameBuffer.hpp"
+#include "Rendering/Buffers/FrameBuffer.hpp"
 
 namespace pip3D
 {
