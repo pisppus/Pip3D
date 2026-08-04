@@ -2,10 +2,8 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
 
 #include "Core/Platform.hpp"
-#include "Core/Memory.hpp"
 #include "Core/Color.hpp"
 #include "Math/Algebra.hpp"
 #include "Rendering/Environment/Sky.hpp"
@@ -19,105 +17,315 @@
 
 namespace pip3D
 {
-    class __attribute__((aligned(16))) FrameBuffer
+    class alignas(16) FrameBuffer
     {
+    public:
+        static constexpr uint16_t kWidth = SCREEN_WIDTH;
+        static constexpr uint16_t kHeight = SCREEN_BAND_HEIGHT;
+        static constexpr uint32_t kPixelCount = static_cast<uint32_t>(kWidth) * kHeight;
+        static constexpr uint32_t kByteSize = kPixelCount * sizeof(uint16_t);
+        static constexpr uint32_t kStride = kWidth;
+        static constexpr size_t kDmaAlign = 64;
+
+        struct SkyColor888
+        {
+            uint8_t r, g, b, _pad;
+        };
+
+        struct DitherOffset
+        {
+            uint8_t dR, dG, dB;
+        };
+
     private:
-        Skybox skybox;
-        CloudLayer clouds;
-        uint16_t *buffer[2];
-        uint8_t activeSlot;
-        uint16_t *skyboxColorCache;
-#if !defined(PIP3D_PC)
-        pipcore::Display *display;
-#endif
-        DisplayConfig config;
+        alignas(kDmaAlign) uint16_t storage[2][kPixelCount];
+        alignas(4) SkyColor888 skyboxCache[SCREEN_HEIGHT];
+        uint32_t baseClear32;
         Color clearColor;
+        uint8_t activeSlot;
         bool useSkybox;
-#if defined(PIP3D_PC)
-        bool displayReady;
-#endif
         bool cacheValid;
 
-        static constexpr size_t DMA_ALIGNMENT = 64;
-        static constexpr uint8_t bayer4x4[16] = {
-            0, 8, 2, 10,
-            12, 4, 14, 6,
-            3, 11, 1, 9,
-            15, 7, 13, 5};
-
-        __attribute__((always_inline)) inline bool readyForFlush() const
-        {
+        DisplayConfig config;
 #if defined(PIP3D_PC)
-            return buffer[0] && displayReady;
+        bool displayReady;
 #else
-            return buffer[0] && display;
+        pipcore::Display *display;
 #endif
-        }
 
-        __attribute__((always_inline)) inline void rebuildSkyboxCache()
+        Skybox skybox;
+        CloudLayer clouds;
+
+        static constexpr DitherOffset kDitherLut[64] = {
+            {0 >> 3, 0 >> 4, 0 >> 3},
+            {32 >> 3, 32 >> 4, 32 >> 3},
+            {8 >> 3, 8 >> 4, 8 >> 3},
+            {40 >> 3, 40 >> 4, 40 >> 3},
+            {2 >> 3, 2 >> 4, 2 >> 3},
+            {34 >> 3, 34 >> 4, 34 >> 3},
+            {10 >> 3, 10 >> 4, 10 >> 3},
+            {42 >> 3, 42 >> 4, 42 >> 3},
+
+            {48 >> 3, 48 >> 4, 48 >> 3},
+            {16 >> 3, 16 >> 4, 16 >> 3},
+            {56 >> 3, 56 >> 4, 56 >> 3},
+            {24 >> 3, 24 >> 4, 24 >> 3},
+            {50 >> 3, 50 >> 4, 50 >> 3},
+            {18 >> 3, 18 >> 4, 18 >> 3},
+            {58 >> 3, 58 >> 4, 58 >> 3},
+            {26 >> 3, 26 >> 4, 26 >> 3},
+
+            {12 >> 3, 12 >> 4, 12 >> 3},
+            {44 >> 3, 44 >> 4, 44 >> 3},
+            {4 >> 3, 4 >> 4, 4 >> 3},
+            {36 >> 3, 36 >> 4, 36 >> 3},
+            {14 >> 3, 14 >> 4, 14 >> 3},
+            {46 >> 3, 46 >> 4, 46 >> 3},
+            {6 >> 3, 6 >> 4, 6 >> 3},
+            {38 >> 3, 38 >> 4, 38 >> 3},
+
+            {60 >> 3, 60 >> 4, 60 >> 3},
+            {28 >> 3, 28 >> 4, 28 >> 3},
+            {52 >> 3, 52 >> 4, 52 >> 3},
+            {20 >> 3, 20 >> 4, 20 >> 3},
+            {62 >> 3, 62 >> 4, 62 >> 3},
+            {30 >> 3, 30 >> 4, 30 >> 3},
+            {54 >> 3, 54 >> 4, 54 >> 3},
+            {22 >> 3, 22 >> 4, 22 >> 3},
+
+            {3 >> 3, 3 >> 4, 3 >> 3},
+            {35 >> 3, 35 >> 4, 35 >> 3},
+            {11 >> 3, 11 >> 4, 11 >> 3},
+            {43 >> 3, 43 >> 4, 43 >> 3},
+            {1 >> 3, 1 >> 4, 1 >> 3},
+            {33 >> 3, 33 >> 4, 33 >> 3},
+            {9 >> 3, 9 >> 4, 9 >> 3},
+            {41 >> 3, 41 >> 4, 41 >> 3},
+
+            {51 >> 3, 51 >> 4, 51 >> 3},
+            {19 >> 3, 19 >> 4, 19 >> 3},
+            {59 >> 3, 59 >> 4, 59 >> 3},
+            {27 >> 3, 27 >> 4, 27 >> 3},
+            {49 >> 3, 49 >> 4, 49 >> 3},
+            {17 >> 3, 17 >> 4, 17 >> 3},
+            {57 >> 3, 57 >> 4, 57 >> 3},
+            {25 >> 3, 25 >> 4, 25 >> 3},
+
+            {15 >> 3, 15 >> 4, 15 >> 3},
+            {47 >> 3, 47 >> 4, 47 >> 3},
+            {7 >> 3, 7 >> 4, 7 >> 3},
+            {39 >> 3, 39 >> 4, 39 >> 3},
+            {13 >> 3, 13 >> 4, 13 >> 3},
+            {45 >> 3, 45 >> 4, 45 >> 3},
+            {5 >> 3, 5 >> 4, 5 >> 3},
+            {37 >> 3, 37 >> 4, 37 >> 3},
+
+            {63 >> 3, 63 >> 4, 63 >> 3},
+            {31 >> 3, 31 >> 4, 31 >> 3},
+            {55 >> 3, 55 >> 4, 55 >> 3},
+            {23 >> 3, 23 >> 4, 23 >> 3},
+            {61 >> 3, 61 >> 4, 61 >> 3},
+            {29 >> 3, 29 >> 4, 29 >> 3},
+            {53 >> 3, 53 >> 4, 53 >> 3},
+            {21 >> 3, 21 >> 4, 21 >> 3}};
+
+        __attribute__((always_inline)) inline void ensureSkyboxCache()
         {
-            if (!skyboxColorCache || !useSkybox || !skybox.enabled)
+            if (cacheValid || !useSkybox || !skybox.enabled)
                 return;
 
             for (int16_t y = 0; y < SCREEN_HEIGHT; ++y)
             {
-                skyboxColorCache[y] = skybox.getColorAtY(y).rgb565;
+                skybox.getColorAtY888(y, skyboxCache[y].r, skyboxCache[y].g, skyboxCache[y].b);
             }
 
             cacheValid = true;
         }
 
-        __attribute__((always_inline)) inline void ensureSkyboxCache()
+        __attribute__((always_inline)) inline bool readyForFlush() const
         {
-            if (useSkybox && skybox.enabled && !cacheValid)
-                rebuildSkyboxCache();
+#if defined(PIP3D_PC)
+            return displayReady;
+#else
+            return display != nullptr;
+#endif
         }
 
-#if defined(PIP3D_PC)
-        __attribute__((always_inline)) inline void swapEndianInPlace(uint32_t count)
+        static PIP3D_FORCE_INLINE constexpr uint16_t
+        dither565(uint16_t base, uint8_t bayer) noexcept
         {
-            uint16_t *buf = buffer[activeSlot];
-            uint32_t *fb32 = reinterpret_cast<uint32_t *>(buf);
-            const uint32_t count32 = count >> 1;
-            for (uint32_t i = 0; i < count32; ++i)
-            {
-                const uint32_t v = fb32[i];
-                fb32[i] = ((v & 0x00FF00FFu) << 8) | ((v >> 8) & 0x00FF00FFu);
-            }
-            if (count & 1u)
-                buf[count - 1] = __builtin_bswap16(buf[count - 1]);
+            if (bayer < 32u)
+                return base;
+
+            const uint16_t r5 = static_cast<uint16_t>((base >> 11) & 0x1Fu);
+            const uint16_t g6 = static_cast<uint16_t>((base >> 5) & 0x3Fu);
+            const uint16_t b5 = static_cast<uint16_t>(base & 0x1Fu);
+
+            const uint16_t bumpR = static_cast<uint16_t>(base + ((r5 < 31u) ? 0x0800u : 0u));
+            const uint16_t bumpB = static_cast<uint16_t>(base + ((b5 < 31u) ? 0x0001u : 0u));
+            const uint16_t bumpG = static_cast<uint16_t>(base + ((g6 < 63u) ? 0x0020u : 0u));
+
+            const uint8_t sel = static_cast<uint8_t>(bayer & 3u);
+            return (sel == 0u)   ? bumpR
+                   : (sel == 1u) ? bumpB
+                                 : bumpG;
         }
-#endif
+
+        static PIP3D_FORCE_INLINE int32_t
+        clampRow(int32_t v, int32_t maxY) noexcept
+        {
+            v = (v < 0) ? 0 : v;
+            v = (v > maxY) ? maxY : v;
+            return v;
+        }
+
+        template <uint16_t WIDTH, uint16_t HEIGHT>
+        __attribute__((always_inline, hot)) PIP3D_FLATTEN inline void IRAM_ATTR
+        fillBackgroundSky(float pitchShiftRows)
+        {
+            uint16_t *__restrict__ buf = storage[activeSlot];
+
+            const int16_t bandOffY = g_bandOffsetY;
+            const int16_t maxY16 = static_cast<int16_t>(SCREEN_HEIGHT - 1);
+            const int32_t maxY32 = static_cast<int32_t>(maxY16);
+            const int32_t shiftI = static_cast<int32_t>(lroundf(pitchShiftRows));
+
+            constexpr uint16_t widthHalf = WIDTH >> 1;
+            static_assert((WIDTH & 1u) == 0, "WIDTH must be even for packed-32 store path");
+            static_assert((widthHalf & 3u) == 0,
+                          "WIDTH/2 must be multiple of 4 (UNROLL=4 stores 8 px)");
+
+            for (uint16_t y = 0; y < HEIGHT; ++y)
+            {
+                const int16_t globalY = static_cast<int16_t>(bandOffY + static_cast<int16_t>(y));
+
+                const int32_t vy = clampRow(static_cast<int32_t>(globalY) - shiftI, maxY32);
+                const SkyColor888 &c888 = skyboxCache[static_cast<uint32_t>(vy)];
+
+                const uint32_t R8 = c888.r;
+                const uint32_t G8 = c888.g;
+                const uint32_t B8 = c888.b;
+
+                const uint8_t brow = static_cast<uint8_t>(globalY & 7u);
+                const DitherOffset *PIP3D_RESTRICT dRow = &kDitherLut[brow * 8u];
+
+#define MAKE_PX(i) static_cast<uint16_t>( \
+    (((R8 + dRow[i].dR) >> 3) << 11) |    \
+    (((G8 + dRow[i].dG) >> 2) << 5) |     \
+    ((B8 + dRow[i].dB) >> 3))
+
+                const uint16_t p0 = MAKE_PX(0);
+                const uint16_t p1 = MAKE_PX(1);
+                const uint16_t p2 = MAKE_PX(2);
+                const uint16_t p3 = MAKE_PX(3);
+                const uint16_t p4 = MAKE_PX(4);
+                const uint16_t p5 = MAKE_PX(5);
+                const uint16_t p6 = MAKE_PX(6);
+                const uint16_t p7 = MAKE_PX(7);
+#undef MAKE_PX
+
+                const uint32_t lut0 = (static_cast<uint32_t>(p1) << 16) | p0;
+                const uint32_t lut1 = (static_cast<uint32_t>(p3) << 16) | p2;
+                const uint32_t lut2 = (static_cast<uint32_t>(p5) << 16) | p4;
+                const uint32_t lut3 = (static_cast<uint32_t>(p7) << 16) | p6;
+
+                uint32_t *__restrict__ row32 =
+                    reinterpret_cast<uint32_t *>(buf + static_cast<size_t>(y) * WIDTH);
+
+                constexpr uint16_t UNROLL = 4;
+                uint16_t x = 0;
+                for (; x + UNROLL <= widthHalf; x += UNROLL)
+                {
+                    row32[x + 0] = lut0;
+                    row32[x + 1] = lut1;
+                    row32[x + 2] = lut2;
+                    row32[x + 3] = lut3;
+                }
+                for (; x < widthHalf; ++x)
+                {
+                    const uint16_t idx2 = static_cast<uint16_t>(x & 3u);
+                    row32[x] = (idx2 == 0u)   ? lut0
+                               : (idx2 == 1u) ? lut1
+                               : (idx2 == 2u) ? lut2
+                                              : lut3;
+                }
+            }
+        }
+
+        template <uint16_t WIDTH, uint16_t HEIGHT>
+        __attribute__((always_inline, hot)) PIP3D_FLATTEN inline void IRAM_ATTR
+        fillBackgroundSolid() noexcept
+        {
+            uint16_t *__restrict__ buf = storage[activeSlot];
+            const uint32_t fill = baseClear32;
+            constexpr uint16_t widthHalf = WIDTH >> 1;
+            constexpr uint16_t UNROLL = 8;
+
+            static_assert((WIDTH & 1u) == 0, "WIDTH must be even");
+            static_assert((widthHalf % UNROLL) == 0,
+                          "WIDTH/2 must be multiple of UNROLL");
+
+            for (uint16_t y = 0; y < HEIGHT; ++y)
+            {
+                uint32_t *__restrict__ row32 =
+                    reinterpret_cast<uint32_t *>(buf + static_cast<size_t>(y) * WIDTH);
+
+                for (uint16_t x = 0; x < widthHalf; x += UNROLL)
+                {
+                    row32[x + 0] = fill;
+                    row32[x + 1] = fill;
+                    row32[x + 2] = fill;
+                    row32[x + 3] = fill;
+                    row32[x + 4] = fill;
+                    row32[x + 5] = fill;
+                    row32[x + 6] = fill;
+                    row32[x + 7] = fill;
+                }
+            }
+        }
 
     public:
-        FrameBuffer() : skybox(),
-                        buffer{nullptr, nullptr},
-                        activeSlot(0),
-                        skyboxColorCache(nullptr),
-#if !defined(PIP3D_PC)
-                        display(nullptr),
-#endif
-                        config(),
-                        clearColor(Color::BLACK),
-                        useSkybox(true),
+        FrameBuffer() noexcept
+            : storage{},
+              skyboxCache{},
+              baseClear32(0u),
+              clearColor(Color::BLACK),
+              activeSlot(0),
+              useSkybox(true),
+              cacheValid(false),
+              config(),
 #if defined(PIP3D_PC)
-                        displayReady(false),
+              displayReady(false)
+#else
+              display(nullptr)
 #endif
-                        cacheValid(false)
         {
             skybox.setPreset(DAY);
         }
 
-        bool init(const DisplayConfig &cfg,
+        ~FrameBuffer() = default;
+
+        FrameBuffer(const FrameBuffer &) = delete;
+        FrameBuffer &operator=(const FrameBuffer &) = delete;
+
+        bool init(const DisplayConfig &cfg
 #if defined(PIP3D_PC)
+                  ,
                   bool pcReady
 #else
+                  ,
                   pipcore::Display *disp
 #endif
-        )
+                  ) noexcept
         {
-            if (buffer[0] || buffer[1])
+            if (cfg.width != kWidth || cfg.height != kHeight)
+            {
+                LOGE(::pip3D::Debug::LOG_MODULE_RENDER,
+                     "FrameBuffer::init: config %ux%u does not match static storage %ux%u",
+                     (unsigned)cfg.width, (unsigned)cfg.height,
+                     (unsigned)kWidth, (unsigned)kHeight);
                 return false;
+            }
 
             config = cfg;
 #if defined(PIP3D_PC)
@@ -126,81 +334,51 @@ namespace pip3D
             display = disp;
 #endif
 
-            const uint32_t totalPixels =
-                static_cast<uint32_t>(config.width) * static_cast<uint32_t>(config.height);
+            baseClear32 = (static_cast<uint32_t>(clearColor.rgb565) << 16) | static_cast<uint32_t>(clearColor.rgb565);
 
-            size_t bufferSize = totalPixels * sizeof(uint16_t);
-            bufferSize = (bufferSize + DMA_ALIGNMENT - 1) & ~(DMA_ALIGNMENT - 1);
+            ensureSkyboxCache();
 
-            for (int slot = 0; slot < 2; ++slot)
-            {
-                buffer[slot] = static_cast<uint16_t *>(
-                    MemUtils::allocAligned(bufferSize, DMA_ALIGNMENT, pipcore::AllocCaps::PreferInternal));
-                if (!buffer[slot])
-                {
-                    LOGE(::pip3D::Debug::LOG_MODULE_RENDER,
-                         "FrameBuffer::init failed: SRAM OOM (staging slot %d, %u bytes)!",
-                         slot, (unsigned)bufferSize);
-                    for (int s = 0; s < slot; ++s)
-                    {
-                        MemUtils::freeAligned(buffer[s]);
-                        buffer[s] = nullptr;
-                    }
-                    return false;
-                }
-                memset(buffer[slot], 0, bufferSize);
-            }
-            activeSlot = 0;
-
-            skyboxColorCache = static_cast<uint16_t *>(MemUtils::allocAligned(
-                SCREEN_HEIGHT * sizeof(uint16_t), 4, pipcore::AllocCaps::PreferInternal));
-
-            return (skyboxColorCache != nullptr);
+            return true;
         }
 
-        ~FrameBuffer()
+        __attribute__((always_inline)) inline uint16_t *getBuffer() noexcept
         {
-            for (int slot = 0; slot < 2; ++slot)
-            {
-                if (buffer[slot])
-                {
-                    MemUtils::freeAligned(buffer[slot]);
-                    buffer[slot] = nullptr;
-                }
-            }
-            activeSlot = 0;
-            if (skyboxColorCache)
-            {
-                MemUtils::freeAligned(skyboxColorCache);
-                skyboxColorCache = nullptr;
-            }
-            clouds.free();
+            return storage[activeSlot];
         }
 
-        FrameBuffer(const FrameBuffer &) = delete;
-        FrameBuffer &operator=(const FrameBuffer &) = delete;
-
-        __attribute__((always_inline)) inline uint16_t *getBuffer() { return buffer[activeSlot]; }
-        __attribute__((always_inline)) inline const uint16_t *getBuffer() const { return buffer[activeSlot]; }
-        __attribute__((always_inline)) inline uint16_t *getStagingBufferForFlush()
+        __attribute__((always_inline)) inline const uint16_t *getBuffer() const noexcept
         {
-            return buffer[activeSlot];
+            return storage[activeSlot];
         }
 
-        __attribute__((always_inline)) inline void swapStagingSlot()
+        __attribute__((always_inline)) inline uint16_t *getStagingBufferForFlush() noexcept
         {
-            activeSlot ^= 1u;
+            return storage[activeSlot];
         }
 
-        __attribute__((always_inline)) inline uint8_t getActiveSlot() const { return activeSlot; }
+        __attribute__((always_inline)) inline void swapStagingSlot() noexcept
+        {
+            activeSlot = static_cast<uint8_t>(activeSlot ^ 1u);
+        }
 
-        __attribute__((always_inline)) inline const DisplayConfig &getConfig() const { return config; }
+        __attribute__((always_inline)) inline uint8_t getActiveSlot() const noexcept
+        {
+            return activeSlot;
+        }
 
-        __attribute__((always_inline)) inline Skybox &getSkybox() { return skybox; }
-        __attribute__((always_inline)) inline const Skybox &getSkybox() const { return skybox; }
-        __attribute__((always_inline)) inline bool isSkyboxEnabled() const { return useSkybox; }
+        __attribute__((always_inline)) inline const DisplayConfig &getConfig() const noexcept
+        {
+            return config;
+        }
 
-        __attribute__((always_inline)) inline void setSkyboxEnabled(bool enabled)
+        __attribute__((always_inline)) inline Skybox &getSkybox() noexcept { return skybox; }
+
+        __attribute__((always_inline)) inline bool isSkyboxEnabled() const noexcept
+        {
+            return useSkybox;
+        }
+
+        __attribute__((always_inline)) inline void setSkyboxEnabled(bool enabled) noexcept
         {
             if (useSkybox != enabled)
             {
@@ -209,32 +387,35 @@ namespace pip3D
             }
         }
 
-        __attribute__((always_inline)) inline void setSkyboxType(SkyboxType type)
+        __attribute__((always_inline)) inline void setSkyboxType(SkyboxType type) noexcept
         {
             skybox.setPreset(type);
             cacheValid = false;
         }
 
-        __attribute__((always_inline)) inline void setClearColor(Color color) { clearColor = color; }
-
-        __attribute__((always_inline)) inline void invalidateSkyboxCache()
+        __attribute__((always_inline)) inline void invalidateSkyboxCache() noexcept
         {
             cacheValid = false;
         }
 
-        __attribute__((always_inline)) inline CloudLayer &getClouds() { return clouds; }
-        __attribute__((always_inline)) inline const CloudLayer &getClouds() const { return clouds; }
-        __attribute__((always_inline)) inline bool areCloudsEnabled() const { return clouds.enabled; }
+        __attribute__((always_inline)) inline void setClearColor(Color color) noexcept
+        {
+            clearColor = color;
+            baseClear32 = (static_cast<uint32_t>(color.rgb565) << 16) | static_cast<uint32_t>(color.rgb565);
+        }
 
-        __attribute__((always_inline)) inline void setCloudsEnabled(bool e) { clouds.enabled = e; }
-        __attribute__((always_inline)) inline void setCloudColor(Color c) { clouds.setCloudColor(c); }
-        __attribute__((always_inline)) inline void setCloudAlpha(float a) { clouds.setCloudAlpha(a); }
-        __attribute__((always_inline)) inline void setCloudHeight(float m) { clouds.setCloudHeight(m); }
-        __attribute__((always_inline)) inline void setCloudScale(float m) { clouds.setCloudScale(m); }
-        __attribute__((always_inline)) inline void setCloudDrift(float sx, float sz) { clouds.setDrift(sx, sz); }
-        __attribute__((always_inline)) inline void updateClouds(float dt) { clouds.update(dt); }
+        __attribute__((always_inline)) inline CloudLayer &getClouds() noexcept { return clouds; }
+        __attribute__((always_inline)) inline bool areCloudsEnabled() const noexcept { return clouds.enabled; }
+        __attribute__((always_inline)) inline void setCloudsEnabled(bool e) noexcept { clouds.enabled = e; }
+        __attribute__((always_inline)) inline void setCloudColor(Color c) noexcept { clouds.setCloudColor(c); }
+        __attribute__((always_inline)) inline void setCloudAlpha(float a) noexcept { clouds.setCloudAlpha(a); }
+        __attribute__((always_inline)) inline void setCloudHeight(float m) noexcept { clouds.setCloudHeight(m); }
+        __attribute__((always_inline)) inline void setCloudScale(float m) noexcept { clouds.setCloudScale(m); }
+        __attribute__((always_inline)) inline void setCloudDrift(float sx, float sz) noexcept { clouds.setDrift(sx, sz); }
+        __attribute__((always_inline)) inline void updateClouds(float dt) noexcept { clouds.update(dt); }
 
-        __attribute__((always_inline)) inline void generateClouds(uint32_t seed, float coverage)
+        __attribute__((always_inline)) inline void
+        generateClouds(uint32_t seed, float coverage) noexcept
         {
             clouds.generatePanorama(seed, coverage, SCREEN_HEIGHT, skybox);
         }
@@ -243,33 +424,14 @@ namespace pip3D
         __attribute__((always_inline, hot)) inline void
         drawClouds(const Vector3 &camPos,
                    const Vector3 &fwd, const Vector3 &right, const Vector3 &up,
-                   float vfovRad, float hfovRad)
+                   float vfovRad, float hfovRad) noexcept
         {
-            clouds.drawClouds<WIDTH, HEIGHT>(buffer[activeSlot], g_bandOffsetY,
+            clouds.drawClouds<WIDTH, HEIGHT>(storage[activeSlot], g_bandOffsetY,
                                              camPos, fwd, right, up, vfovRad, hfovRad);
         }
 
-        __attribute__((always_inline)) inline void endFrame()
-        {
-            if (unlikely(!readyForFlush()))
-            {
-                LOGE(::pip3D::Debug::LOG_MODULE_RENDER,
-                     "FrameBuffer::endFrame called with invalid state (buffer=%p)",
-                     (void *)getBuffer());
-                return;
-            }
-
-            const uint32_t count = static_cast<uint32_t>(config.width) * static_cast<uint32_t>(config.height);
-#if defined(PIP3D_PC)
-            swapEndianInPlace(count);
-            pipcore::desktop::Runtime::instance().writeRect565(0, 0, config.width, config.height, getBuffer(), config.width);
-            swapEndianInPlace(count);
-#else
-            display->writeRect565(0, 0, config.width, config.height, getBuffer(), config.width);
-#endif
-        }
-
-        __attribute__((always_inline)) inline void endFrameRegion(int16_t x, int16_t y, int16_t w, int16_t h)
+        __attribute__((always_inline)) inline void
+        endFrameRegion(int16_t x, int16_t y, int16_t w, int16_t h) noexcept
         {
             if (unlikely(!readyForFlush()))
             {
@@ -287,8 +449,10 @@ namespace pip3D
 
             const int16_t x0 = (x < 0) ? 0 : x;
             const int16_t y0 = (y < bandTop) ? bandTop : y;
-            const int16_t x1 = (x + w > config.width) ? config.width : static_cast<int16_t>(x + w);
-            const int16_t y1 = (y + h > bandBottom) ? bandBottom : static_cast<int16_t>(y + h);
+            const int16_t x1 = (x + w > config.width) ? config.width
+                                                      : static_cast<int16_t>(x + w);
+            const int16_t y1 = (y + h > bandBottom) ? bandBottom
+                                                    : static_cast<int16_t>(y + h);
 
             if (x1 <= x0 || y1 <= y0)
                 return;
@@ -308,7 +472,7 @@ namespace pip3D
 
             const int16_t clippedW = static_cast<int16_t>(x1 - x0);
             const int16_t clippedH = static_cast<int16_t>(y1 - y0);
-            const uint16_t *region = getBuffer() + static_cast<size_t>(localY) * config.width + x0;
+            const uint16_t *region = getBuffer() + static_cast<size_t>(localY) * config.width + static_cast<size_t>(x0);
 
 #if defined(PIP3D_PC)
             for (int16_t row = 0; row < clippedH; ++row)
@@ -317,7 +481,8 @@ namespace pip3D
                 for (int16_t col = 0; col < clippedW; ++col)
                     line[col] = __builtin_bswap16(line[col]);
             }
-            pipcore::desktop::Runtime::instance().writeRect565(x0, y0, clippedW, clippedH, region, config.width);
+            pipcore::desktop::Runtime::instance().writeRect565(
+                x0, y0, clippedW, clippedH, region, config.width);
             for (int16_t row = 0; row < clippedH; ++row)
             {
                 uint16_t *line = const_cast<uint16_t *>(region) + static_cast<size_t>(row) * config.width;
@@ -330,90 +495,17 @@ namespace pip3D
         }
 
         template <uint16_t WIDTH, uint16_t HEIGHT>
-        __attribute__((always_inline, hot)) inline void
-        fillBackground(float pitchShiftRows)
+        __attribute__((always_inline, hot)) PIP3D_FLATTEN inline void IRAM_ATTR
+        fillBackground(float pitchShiftRows) noexcept
         {
-            uint16_t *__restrict__ buf = buffer[activeSlot];
-            if (unlikely(!buf))
-                return;
-
-            const bool skyActive = useSkybox && skybox.enabled;
-            ensureSkyboxCache();
-
-            const uint16_t baseClear = clearColor.rgb565;
-            const uint32_t baseClear32 = (static_cast<uint32_t>(baseClear) << 16) | baseClear;
-
-            const int16_t bandOffY = g_bandOffsetY;
-            constexpr uint16_t widthHalf = WIDTH >> 1;
-            constexpr int16_t maxY = static_cast<int16_t>(SCREEN_HEIGHT) - 1;
-            const int32_t shiftI = static_cast<int32_t>(pitchShiftRows);
-
-            for (uint16_t y = 0; y < HEIGHT; ++y)
+            if (useSkybox && skybox.enabled)
             {
-                const int16_t globalY = bandOffY + static_cast<int16_t>(y);
-
-                uint32_t lutEven;
-                uint32_t lutOdd;
-                if (skyActive)
-                {
-                    int32_t vy = static_cast<int32_t>(globalY) - shiftI;
-                    if (vy < 0)
-                        vy = 0;
-                    else if (vy > maxY)
-                        vy = maxY;
-                    const uint16_t base = skyboxColorCache[static_cast<size_t>(vy)];
-                    const uint8_t brow = static_cast<uint8_t>(globalY & 3u);
-                    const uint8_t t0 = bayer4x4[brow * 4 + 0];
-                    const uint8_t t1 = bayer4x4[brow * 4 + 1];
-                    const uint8_t t2 = bayer4x4[brow * 4 + 2];
-                    const uint8_t t3 = bayer4x4[brow * 4 + 3];
-
-                    const Color baseColor(base);
-                    const uint16_t d0 = baseColor.dither(t0).rgb565;
-                    const uint16_t d1 = baseColor.dither(t1).rgb565;
-                    const uint16_t d2 = baseColor.dither(t2).rgb565;
-                    const uint16_t d3 = baseColor.dither(t3).rgb565;
-                    lutEven = (static_cast<uint32_t>(d1) << 16) | d0;
-                    lutOdd = (static_cast<uint32_t>(d3) << 16) | d2;
-                }
-                else
-                {
-                    lutEven = baseClear32;
-                    lutOdd = baseClear32;
-                }
-
-                uint32_t *__restrict__ row32 =
-                    reinterpret_cast<uint32_t *>(buf + static_cast<size_t>(y) * WIDTH);
-
-                constexpr uint16_t widthHalf = WIDTH >> 1;
-                uint16_t x = 0;
-
-                constexpr uint16_t UNROLL = 4;
-                for (; x + UNROLL <= widthHalf; x += UNROLL)
-                {
-                    row32[x + 0] = lutEven;
-                    row32[x + 1] = lutOdd;
-                    row32[x + 2] = lutEven;
-                    row32[x + 3] = lutOdd;
-                }
-                for (; x < widthHalf; ++x)
-                {
-                    row32[x] = (x & 1u) ? lutOdd : lutEven;
-                }
-
-                if constexpr (WIDTH & 1u)
-                {
-                    const uint8_t tLast = bayer4x4[(static_cast<uint8_t>(globalY) & 3u) * 4 +
-                                                   ((WIDTH - 1) & 3u)];
-                    int32_t vyL = static_cast<int32_t>(globalY) - shiftI;
-                    if (vyL < 0)
-                        vyL = 0;
-                    else if (vyL > maxY)
-                        vyL = maxY;
-                    const uint16_t lastColor = skyActive ? Color(skyboxColorCache[static_cast<size_t>(vyL)]).dither(tLast).rgb565
-                                                         : baseClear;
-                    buf[static_cast<size_t>(y) * WIDTH + WIDTH - 1] = lastColor;
-                }
+                ensureSkyboxCache();
+                fillBackgroundSky<WIDTH, HEIGHT>(pitchShiftRows);
+            }
+            else
+            {
+                fillBackgroundSolid<WIDTH, HEIGHT>();
             }
         }
     };
