@@ -77,8 +77,77 @@ namespace pip3D
 
     float getLightTemp() const noexcept
     {
-
       return static_cast<float>(temps[static_cast<uint8_t>(type)]);
+    }
+
+    __attribute__((always_inline)) inline void getColorAtY888(int16_t y, uint8_t &outR, uint8_t &outG, uint8_t &outB) const noexcept
+    {
+      if (unlikely(!enabled))
+      {
+        outR = outG = outB = 0;
+        return;
+      }
+
+      auto unpackR8 = [](Color c) -> uint32_t
+      { uint32_t r5 = c.r5(); return (r5 << 3) | (r5 >> 2); };
+      auto unpackG8 = [](Color c) -> uint32_t
+      { uint32_t g6 = c.g6(); return (g6 << 2) | (g6 >> 4); };
+      auto unpackB8 = [](Color c) -> uint32_t
+      { uint32_t b5 = c.b5(); return (b5 << 3) | (b5 >> 2); };
+
+      if (unlikely(y <= 0))
+      {
+        outR = static_cast<uint8_t>(unpackR8(top));
+        outG = static_cast<uint8_t>(unpackG8(top));
+        outB = static_cast<uint8_t>(unpackB8(top));
+        return;
+      }
+      if (unlikely(y >= static_cast<int16_t>(SCREEN_HEIGHT)))
+      {
+        outR = static_cast<uint8_t>(unpackR8(ground));
+        outG = static_cast<uint8_t>(unpackG8(ground));
+        outB = static_cast<uint8_t>(unpackB8(ground));
+        return;
+      }
+
+      const uint32_t T = (static_cast<uint32_t>(y) * 205u) >> 8;
+
+      uint32_t rA, gA, bA;
+      uint32_t rB, gB, bB;
+      uint32_t s;
+
+      if (likely(T < 166u))
+      {
+        s = smoothstep8((T * 395u) >> 8);
+        rA = unpackR8(top);
+        gA = unpackG8(top);
+        bA = unpackB8(top);
+        rB = unpackR8(horizon);
+        gB = unpackG8(horizon);
+        bB = unpackB8(horizon);
+      }
+      else
+      {
+        s = smoothstep8(((T - 166u) * 728u) >> 8);
+        rA = unpackR8(horizon);
+        gA = unpackG8(horizon);
+        bA = unpackB8(horizon);
+        rB = unpackR8(ground);
+        gB = unpackG8(ground);
+        bB = unpackB8(ground);
+      }
+
+      if (s > 256u)
+        s = 256u;
+      const uint32_t invS = 256u - s;
+
+      uint32_t r = (rA * invS + rB * s) >> 8;
+      uint32_t g = (gA * invS + gB * s) >> 8;
+      uint32_t b = (bA * invS + bB * s) >> 8;
+
+      outR = static_cast<uint8_t>(r > 248u ? 248u : r);
+      outG = static_cast<uint8_t>(g > 252u ? 252u : g);
+      outB = static_cast<uint8_t>(b > 248u ? 248u : b);
     }
 
     __attribute__((always_inline)) inline Color getColorAtY(int16_t y) const noexcept
@@ -90,7 +159,7 @@ namespace pip3D
       if (unlikely(y >= static_cast<int16_t>(SCREEN_HEIGHT)))
         return ground;
 
-      const uint32_t T = (static_cast<uint32_t>(y) << 8) / static_cast<uint32_t>(SCREEN_HEIGHT);
+      const uint32_t T = (static_cast<uint32_t>(y) * 205u) >> 8;
 
       const uint32_t topV = top.rgb565;
       const uint32_t horV = horizon.rgb565;
@@ -98,9 +167,7 @@ namespace pip3D
 
       if (likely(T < 166u))
       {
-
         const uint32_t s = smoothstep8((T * 395u) >> 8);
-
         const uint32_t a = s >> 2;
         const uint32_t ia = 64u - a;
         const uint32_t rb = ((topV & 0xF81Fu) * ia + (horV & 0xF81Fu) * a) >> 6 & 0xF81Fu;
@@ -109,7 +176,6 @@ namespace pip3D
       }
       else
       {
-
         const uint32_t s = smoothstep8(((T - 166u) * 728u) >> 8);
         const uint32_t a = s >> 2;
         const uint32_t ia = 64u - a;
