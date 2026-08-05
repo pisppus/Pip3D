@@ -25,6 +25,8 @@ namespace pip3D
     CameraShake shakeState;
 
     static constexpr float kAspectEps = 1e-6f;
+    static constexpr float kPitchLimit = 1.5533f;
+    static constexpr float kPitchLimitDeg = kPitchLimit * kRadToDeg;
 
     struct Cache
     {
@@ -156,7 +158,6 @@ namespace pip3D
       yaw_ += yawRad;
       pitch_ += pitchRad;
 
-      constexpr float kPitchLimit = 1.5533f;
       if (pitch_ > kPitchLimit)
         pitch_ = kPitchLimit;
       if (pitch_ < -kPitchLimit)
@@ -177,6 +178,40 @@ namespace pip3D
 
       target = position + finalFwd * dist;
       invalidateView();
+    }
+
+    void setOrientation(float yawRad, float pitchRad)
+    {
+
+      if (pitchRad > kPitchLimit)
+        pitchRad = kPitchLimit;
+      else if (pitchRad < -kPitchLimit)
+        pitchRad = -kPitchLimit;
+
+      yaw_ = FastMath::fastWrapCentered(yawRad, kTwoPi);
+      pitch_ = pitchRad;
+
+      float sp, cp;
+      FastMath::fastSinCos(pitch_, sp, cp);
+      float sy, cy;
+      FastMath::fastSinCos(yaw_, sy, cy);
+
+      const Vector3 finalFwd(sy * cp, sp, cy * cp);
+
+      Vector3 d = target - position;
+      float distSq = d.lengthSquared();
+      float dist = (distSq > 1e-12f)
+                       ? distSq * FastMath::fastInvSqrt(distSq)
+                       : 1.0f;
+
+      target = position + finalFwd * dist;
+      invalidateView();
+    }
+
+    PIP3D_FORCE_INLINE void setOrientationDeg(float yawDeg, float pitchDeg)
+    {
+      setOrientation(yawDeg * kDegToRad,
+                     pitchDeg * kDegToRad);
     }
 
     PIP3D_FORCE_INLINE void rollDeg(float angleDeg)

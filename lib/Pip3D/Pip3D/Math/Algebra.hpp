@@ -131,6 +131,40 @@ namespace pip3D
 #endif
         }
 
+        PIP3D_FORCE_INLINE static float fastFmod(float x, float y) noexcept
+        {
+#if defined(ESP_PLATFORM) || defined(ESP32)
+
+            const float absQ = fabsf(x * fastReciprocal(y));
+            if (__builtin_expect(absQ > 2.0e9f, 0))
+                return fmodf(x, y);
+
+            const float invY = fastReciprocal(y);
+            const float q = x * invY;
+            const int qi = static_cast<int>(q);
+            return x - static_cast<float>(qi) * y;
+#else
+            return fmodf(x, y);
+#endif
+        }
+
+        PIP3D_FORCE_INLINE static float fastWrap(float x, float range) noexcept
+        {
+            float r = fastFmod(x, range);
+            if (r < 0.0f)
+                r += range;
+            return r;
+        }
+
+        PIP3D_FORCE_INLINE static float fastWrapCentered(float x, float range) noexcept
+        {
+            const float half = range * 0.5f;
+            float r = fastFmod(x + half, range);
+            if (r < 0.0f)
+                r += range;
+            return r - half;
+        }
+
     private:
         PIP3D_FORCE_INLINE static float fastSinBin(uint16_t angle) noexcept
         {

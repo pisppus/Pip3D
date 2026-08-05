@@ -268,7 +268,7 @@ namespace pip3D
         void setCloudAlpha(float a) { framebuffer.setCloudAlpha(a); }
         void setCloudHeight(float meters) { framebuffer.setCloudHeight(meters); }
         void setCloudScale(float meters) { framebuffer.setCloudScale(meters); }
-        void setCloudDrift(float sxMps, float szMps) { framebuffer.setCloudDrift(sxMps, szMps); }
+        void setCloudDriftAngle(float angleDeg, float speedMps) { framebuffer.setCloudDriftAngle(angleDeg, speedMps); }
         void updateClouds(float dtSeconds) { framebuffer.updateClouds(dtSeconds); }
         bool areCloudsEnabled() const { return framebuffer.areCloudsEnabled(); }
         void generateClouds(uint32_t seed = 0xC10Du, float coverage = 0.45f)
@@ -363,6 +363,7 @@ namespace pip3D
             sunVisible = visible;
         }
         bool isSunVisible() const { return sunVisible; }
+        Vector3 getSunWorldDir() const { return sunWorldDir; }
         void drawSky();
         void drawBillboardQuads(const BillboardQuad *quads, size_t count);
 
