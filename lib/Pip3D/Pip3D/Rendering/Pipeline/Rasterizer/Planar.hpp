@@ -40,8 +40,8 @@ namespace pip3D
             uint16_t &fbPix, const PlanarBlend &bl)
         {
             const uint16_t shadowDepth = static_cast<uint16_t>(depth_fixed >> 12);
-            const int backTolerance = (stored >> 8) + 2;
-            if (stored + backTolerance >= shadowDepth)
+            const int tol = (static_cast<int>(shadowDepth) >> 8) + 4;
+            if (static_cast<int>(stored) <= static_cast<int>(shadowDepth) + tol)
             {
                 fbPix = blendScalar(fbPix, bl);
                 stored |= kPlanarShadowFlag;
@@ -177,8 +177,8 @@ namespace pip3D
 
                         if (stored0 != kPlanarClearDepth && stored0 < kPlanarShadowFlag)
                         {
-                            const int backTolerance = (stored0 >> 8) + 2;
-                            if (stored0 + backTolerance >= shadowDepth0)
+                            const int tol0 = (static_cast<int>(shadowDepth0) >> 8) + 4;
+                            if (static_cast<int>(stored0) <= static_cast<int>(shadowDepth0) + tol0)
                             {
                                 write0 = true;
                                 stored0 |= kPlanarShadowFlag;
@@ -187,8 +187,8 @@ namespace pip3D
 
                         if (stored1 != kPlanarClearDepth && stored1 < kPlanarShadowFlag)
                         {
-                            const int backTolerance = (stored1 >> 8) + 2;
-                            if (stored1 + backTolerance >= shadowDepth1)
+                            const int tol1 = (static_cast<int>(shadowDepth1) >> 8) + 4;
+                            if (static_cast<int>(stored1) <= static_cast<int>(shadowDepth1) + tol1)
                             {
                                 write1 = true;
                                 stored1 |= kPlanarShadowFlag;

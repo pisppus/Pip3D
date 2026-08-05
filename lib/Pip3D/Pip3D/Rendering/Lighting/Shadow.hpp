@@ -412,7 +412,7 @@ namespace pip3D
             backfaceCullingEnabled = false;
 
             const float offsetY = shadowSettings.shadowOffset;
-            const float depthBias = 2.0f;
+            const float depthBias = 1.0f;
 
             const uint16_t vertexCount = shadowMesh->numVertices();
             const uint16_t faceCount = shadowMesh->numFaces();

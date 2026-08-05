@@ -89,7 +89,9 @@ namespace pip3D
         }
         else
         {
-            groundY = 0.0f;
+
+            const float planeY = -shadowSettings.plane.d / shadowSettings.plane.normal.y;
+            groundY = (shadowSettings.plane.normal.y != 0.0f) ? planeY : 0.0f;
         }
 
         float heightDiff = pos.y - groundY;
@@ -123,13 +125,17 @@ namespace pip3D
         Vector3 p3 = CameraController::project(v3, viewProjMatrix, viewport);
 
         const Camera &cam = cameras[activeCameraIndex];
+
         {
             const Vector3 camFwd = cam.forward();
-            if ((v0 - cam.position).dot(camFwd) < cam.nearPlane ||
-                (v1 - cam.position).dot(camFwd) < cam.nearPlane ||
-                (v2 - cam.position).dot(camFwd) < cam.nearPlane ||
-                (v3 - cam.position).dot(camFwd) < cam.nearPlane)
+            const float d0 = (v0 - cam.position).dot(camFwd);
+            const float d1 = (v1 - cam.position).dot(camFwd);
+            const float d2 = (v2 - cam.position).dot(camFwd);
+            const float d3 = (v3 - cam.position).dot(camFwd);
+            if (d0 < cam.nearPlane && d1 < cam.nearPlane &&
+                d2 < cam.nearPlane && d3 < cam.nearPlane)
             {
+
                 return;
             }
         }

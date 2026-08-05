@@ -108,12 +108,10 @@ namespace pip3D
 
     void Renderer::flushQueue()
     {
-        const float blobOpacity = shadowSettings.shadowOpacity;
 
-        for (size_t i = 0; i < blobShadowQueueCount; ++i)
+        for (size_t i = 0; i < opaqueQueueCount; ++i)
         {
-            MeshInstance *inst = blobShadowQueue[i];
-            drawBlobShadow(inst->pos(), inst->radius(), blobOpacity);
+            drawMeshInstanceInternal(opaqueQueue[i], false);
         }
 
         for (size_t i = 0; i < shadowQueueCount; ++i)
@@ -121,9 +119,11 @@ namespace pip3D
             drawMeshInstanceShadow(shadowQueue[i]);
         }
 
-        for (size_t i = 0; i < opaqueQueueCount; ++i)
+        const float blobOpacity = shadowSettings.shadowOpacity;
+        for (size_t i = 0; i < blobShadowQueueCount; ++i)
         {
-            drawMeshInstanceInternal(opaqueQueue[i], false);
+            MeshInstance *inst = blobShadowQueue[i];
+            drawBlobShadow(inst->pos(), inst->radius(), blobOpacity);
         }
     }
 

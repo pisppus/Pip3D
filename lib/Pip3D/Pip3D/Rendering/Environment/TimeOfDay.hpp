@@ -11,249 +11,218 @@ namespace pip3D
     {
         float dayLengthSeconds;
         float startHour;
-        float baseIntensity;
-        float nightIntensity;
         bool autoAdvance;
 
-        TimeOfDayConfig()
-            : dayLengthSeconds(120.0f), startHour(10.0f), baseIntensity(1.0f), nightIntensity(0.05f), autoAdvance(true) {}
+        constexpr TimeOfDayConfig()
+            : dayLengthSeconds(120.0f), startHour(10.0f), autoAdvance(true) {}
     };
 
     class TimeOfDayController
     {
     public:
-        TimeOfDayController(Renderer *r = nullptr)
-            : renderer(r), timeMinutes(600.0f), dayLengthSeconds(120.0f), baseIntensity(1.0f), nightIntensity(0.05f), autoAdvance(true) {}
+        constexpr TimeOfDayController() = default;
 
         void init(Renderer *r, const TimeOfDayConfig &cfg)
         {
-            renderer = r;
-            dayLengthSeconds = cfg.dayLengthSeconds;
-            baseIntensity = cfg.baseIntensity;
-            nightIntensity = cfg.nightIntensity;
-            autoAdvance = cfg.autoAdvance;
-            setTime(cfg.startHour, 0.0f);
+            renderer_ = r;
+            dayLengthSeconds_ = cfg.dayLengthSeconds;
+            autoAdvance_ = cfg.autoAdvance;
+            lastSunPushedQ16_ = 0xFFFF;
+            setTime(cfg.startHour);
         }
 
-        void setRenderer(Renderer *r) { renderer = r; }
-
-        void setDayLengthSeconds(float seconds)
+        void setTime(float hours)
         {
-            dayLengthSeconds = seconds;
-        }
-
-        void setAutoAdvance(bool enabled) { autoAdvance = enabled; }
-
-        void setBaseIntensity(float intensity)
-        {
-            baseIntensity = intensity;
-        }
-
-        void setNightIntensity(float intensity)
-        {
-            nightIntensity = intensity;
-        }
-
-        void setTime(float hours, float minutes = 0.0f)
-        {
-            float h = hours;
-            while (h < 0.0f)
+            float h = FastMath::fastFmod(hours, 24.0f);
+            if (h < 0.0f)
                 h += 24.0f;
-            while (h >= 24.0f)
-                h -= 24.0f;
-            float m = clamp(minutes, 0.0f, 59.999f);
-            timeMinutes = h * 60.0f + m;
-            applyToRenderer();
+
+            const uint16_t newTimeQ16 = static_cast<uint16_t>(h * (65536.0f / 24.0f) + 0.5f);
+            if (newTimeQ16 != timeQ16_)
+            {
+                timeQ16_ = newTimeQ16;
+                dirty_ = true;
+                applyToRenderer();
+            }
         }
 
-        float getTimeHours() const
+        PIP3D_FORCE_INLINE float getTimeHours() const
         {
-            return timeMinutes / 60.0f;
-        }
-
-        float getTime01() const
-        {
-            return timeMinutes / 1440.0f;
+            return static_cast<float>(timeQ16_) * (24.0f / 65536.0f);
         }
 
         __attribute__((hot)) void update(float deltaSeconds)
         {
-            if (!renderer)
+            if (__builtin_expect(!renderer_, 0))
                 return;
 
-            if (autoAdvance && dayLengthSeconds > 0.0f && deltaSeconds > 0.0f)
+            if (autoAdvance_ && dayLengthSeconds_ > 0.0f && deltaSeconds > 0.0f)
             {
-                float dayFrac = deltaSeconds / dayLengthSeconds;
-                timeMinutes += 1440.0f * dayFrac;
-                if (timeMinutes >= 1440.0f || timeMinutes < 0.0f)
+
+                const float frac = deltaSeconds / dayLengthSeconds_;
+                const uint32_t step = static_cast<uint32_t>(frac * 65536.0f);
+                if (step != 0)
                 {
-                    timeMinutes = fmodf(timeMinutes, 1440.0f);
-                    if (timeMinutes < 0.0f)
-                        timeMinutes += 1440.0f;
+
+                    timeQ16_ = static_cast<uint16_t>(timeQ16_ + step);
+                    dirty_ = true;
                 }
             }
-            applyToRenderer();
+
+            if (__builtin_expect(dirty_, 1))
+                applyToRenderer();
         }
 
     private:
-        struct SkyState
-        {
-            Color top;
-            Color horizon;
-            Color ground;
-            Color sunColor;
-            Vector3 sunDir;
-            float intensity;
-            Color cloudColor;
-            float cloudAlpha;
-            float ambientScale;
-            float exposureScale;
-            float sunSpriteAlpha;
-            bool sunVisible;
-        };
-
-        Renderer *renderer;
-        float timeMinutes;
-        float dayLengthSeconds;
-        float baseIntensity;
-        float nightIntensity;
-        bool autoAdvance;
-
         struct TimeKey
         {
-            float hour;
+            uint16_t hourQ8;
             Color skyTop;
             Color skyHorizon;
             Color skyGround;
             Color sunColor;
-            float sunIntensity;
             Color cloudColor;
+            float sunIntensity;
             float cloudAlpha;
             float ambientScale;
             float exposureScale;
         };
 
-       static constexpr TimeKey kTimeKeys[8] = {
-            // hour, skyTop,                skyHorizon,           skyGround,            sunColor,             sunInt, cloudColor,           cloudA, ambient, exposure
-            { 0.0f, {8, 12, 28},            {20, 30, 55},         {4, 6, 14},           {120, 140, 190},      0.10f,  {55, 60, 85},         0.45f,  0.28f,   0.58f}, // deep night
-            { 5.0f, {18, 22, 48},           {55, 40, 70},         {6, 6, 14},           {255, 110, 60},       0.25f,  {120, 90, 110},       0.55f,  0.42f,   0.68f}, // pre-dawn
-            { 6.5f, {60, 80, 130},          {255, 150, 90},       {50, 40, 45},         {255, 170, 110},      0.60f,  {255, 210, 180},      0.75f,  0.70f,   0.84f}, // sunrise
-            { 8.0f, {70, 130, 220},         {180, 205, 235},      {95, 90, 80},         {255, 240, 220},      0.92f,  {250, 250, 252},      0.95f,  0.93f,   0.97f}, // morning
-            {12.0f, {70, 135, 225},         {190, 210, 240},      {100, 95, 85},        {255, 250, 240},      1.00f,  {250, 250, 252},      1.00f,  1.00f,   1.00f}, // noon
-            {17.0f, {80, 120, 200},         {200, 200, 215},      {95, 85, 75},         {255, 235, 200},      0.95f,  {252, 245, 235},      0.95f,  0.95f,   0.98f}, // late afternoon
-            {19.0f, {90, 70, 130},          {255, 130, 60},       {55, 35, 40},         {255, 150, 80},       0.55f,  {255, 190, 140},      0.70f,  0.68f,   0.82f}, // sunset
-            {21.0f, {12, 16, 38},           {30, 35, 65},         {5, 6, 15},           {130, 145, 195},      0.14f,  {60, 65, 90},         0.50f,  0.36f,   0.66f}, // night onset
+        static constexpr TimeKey kTimeKeys[9] = {
+            // hour/256,        skyTop,                skyHorizon,                skyGround,                  sunColor,              cloudColor,             sunInt, cloudA, amb,   exp
+            {   0,      Color::rgb(8,12,28),    Color::rgb(20,30,55),   Color::rgb(4,6,14),     Color::rgb(120,140,190), Color::rgb(55,60,85),    0.10f, 0.45f, 0.28f, 0.58f }, // deep night
+            {  53,      Color::rgb(18,22,48),   Color::rgb(55,40,70),   Color::rgb(6,6,14),     Color::rgb(255,110,60),  Color::rgb(120,90,110),  0.25f, 0.55f, 0.42f, 0.68f }, // pre-dawn  (5h)
+            {  69,      Color::rgb(60,80,130),  Color::rgb(255,150,90), Color::rgb(50,40,45),   Color::rgb(255,170,110), Color::rgb(255,210,180), 0.60f, 0.75f, 0.70f, 0.84f }, // sunrise  (6.5h)
+            {  85,      Color::rgb(70,130,220), Color::rgb(180,205,235),Color::rgb(95,90,80),   Color::rgb(255,240,220), Color::rgb(250,250,252), 0.92f, 0.95f, 0.93f, 0.97f }, // morning  (8h)
+            { 128,      Color::rgb(70,135,225), Color::rgb(190,210,240),Color::rgb(100,95,85),  Color::rgb(255,250,240), Color::rgb(250,250,252), 1.00f, 1.00f, 1.00f, 1.00f }, // noon     (12h)
+            { 181,      Color::rgb(80,120,200), Color::rgb(200,200,215),Color::rgb(95,85,75),   Color::rgb(255,235,200), Color::rgb(252,245,235), 0.95f, 0.95f, 0.95f, 0.98f }, // afternoon(17h)
+            { 203,      Color::rgb(90,70,130),  Color::rgb(255,130,60), Color::rgb(55,35,40),   Color::rgb(255,150,80),  Color::rgb(255,190,140), 0.55f, 0.70f, 0.68f, 0.82f }, // sunset   (19h)
+            { 224,      Color::rgb(12,16,38),   Color::rgb(30,35,65),   Color::rgb(5,6,15),     Color::rgb(130,145,195), Color::rgb(60,65,90),    0.14f, 0.50f, 0.36f, 0.66f }, // night    (21h)
+            { 256,      Color::rgb(8,12,28),    Color::rgb(20,30,55),   Color::rgb(4,6,14),     Color::rgb(120,140,190), Color::rgb(55,60,85),    0.10f, 0.45f, 0.28f, 0.58f }, // sentinel (== [0])
         };
         static constexpr int kTimeKeyCount = 8;
 
-        void computeSkyState(float t, SkyState &out) const
+        static constexpr uint16_t kSunPushThresholdQ16 = 64;
+
+        Renderer *renderer_ = nullptr;
+        uint16_t timeQ16_ = 0;
+        uint16_t lastSunPushedQ16_ = 0xFFFF;
+        float dayLengthSeconds_ = 120.0f;
+        bool autoAdvance_ = true;
+        bool dirty_ = true;
+
+        __attribute__((always_inline)) static inline void computeSunDir(uint16_t phaseQ8,
+                                                                        Vector3 &outDir,
+                                                                        float &outDayFactor)
         {
-            if (t < 0.0f)
-                t = 0.0f;
-            if (t > 1.0f)
-                t = 1.0f;
 
-            auto lerpF = [](float a, float b, float k) -> float
-            {
-                return a + (b - a) * k;
-            };
-            auto smoothstep = [](float e0, float e1, float x) -> float
-            {
-                float u = (x - e0) / (e1 - e0);
-                if (u < 0.0f)
-                    u = 0.0f;
-                else if (u > 1.0f)
-                    u = 1.0f;
-                return u * u * (3.0f - 2.0f * u);
-            };
+            const float azimuth = static_cast<float>(phaseQ8) * (kTwoPi / 65536.0f);
+            float sa, ca;
+            FastMath::fastSinCos(azimuth, sa, ca);
 
-            const float hour = t * 24.0f;
-            int i0 = kTimeKeyCount - 1;
-            for (int i = 0; i < kTimeKeyCount - 1; ++i)
+            outDir.x = ca * 0.6f;
+            outDir.y = ca;
+            outDir.z = sa * 0.6f;
+
+            const float hourQ8f = static_cast<float>(phaseQ8) * (1.0f / 256.0f);
+            float dayF;
+            if (hourQ8f < 53.0f || hourQ8f >= 224.0f)
+                dayF = 0.0f;
+            else if (hourQ8f < 75.0f)
             {
-                if (hour >= kTimeKeys[i].hour && hour < kTimeKeys[i + 1].hour)
+                const float u = (hourQ8f - 53.0f) * (1.0f / 22.0f);
+                dayF = u * u * (3.0f - 2.0f * u);
+            }
+            else if (hourQ8f < 203.0f)
+                dayF = 1.0f;
+            else
+            {
+                const float u = (224.0f - hourQ8f) * (1.0f / 21.0f);
+                dayF = u * u * (3.0f - 2.0f * u);
+            }
+            outDayFactor = dayF;
+        }
+
+        __attribute__((hot)) void applyToRenderer()
+        {
+            dirty_ = false;
+            if (!renderer_)
+                return;
+
+            const uint16_t hourQ8 = timeQ16_ >> 8;
+            int i0 = 0;
+#pragma GCC unroll 8
+            for (int i = 0; i < kTimeKeyCount; ++i)
+            {
+                if (hourQ8 >= kTimeKeys[i].hourQ8 && hourQ8 < kTimeKeys[i + 1].hourQ8)
                 {
                     i0 = i;
                     break;
                 }
             }
             const TimeKey &kA = kTimeKeys[i0];
-            const TimeKey &kB = (i0 + 1 < kTimeKeyCount) ? kTimeKeys[i0 + 1] : kTimeKeys[0];
+            const TimeKey &kB = kTimeKeys[i0 + 1];
 
-            float span = (i0 + 1 < kTimeKeyCount) ? (kB.hour - kA.hour) : ((24.0f + kTimeKeys[0].hour) - kA.hour);
-            float local = (hour - kA.hour) / span;
-            float k = smoothstep(0.0f, 1.0f, local);
+            const float hourQ8f = static_cast<float>(timeQ16_) * (1.0f / 256.0f);
+            const float spanQ8f = static_cast<float>(kB.hourQ8 - kA.hourQ8);
+            const float local = (spanQ8f <= 0.0f) ? 0.0f
+                                                  : (hourQ8f - static_cast<float>(kA.hourQ8)) / spanQ8f;
+            const float k = local * local * (3.0f - 2.0f * local);
 
-            const uint8_t factor = static_cast<uint8_t>(clamp(k, 0.0f, 1.0f) * 255.0f);
-            out.top = kA.skyTop.blend(kB.skyTop, factor);
-            out.horizon = kA.skyHorizon.blend(kB.skyHorizon, factor);
-            out.ground = kA.skyGround.blend(kB.skyGround, factor);
-            out.sunColor = kA.sunColor.blend(kB.sunColor, factor);
-            out.cloudColor = kA.cloudColor.blend(kB.cloudColor, factor);
-            out.cloudAlpha = lerpF(kA.cloudAlpha, kB.cloudAlpha, k);
-            out.ambientScale = lerpF(kA.ambientScale, kB.ambientScale, k);
-            out.exposureScale = lerpF(kA.exposureScale, kB.exposureScale, k);
+            const uint8_t k8 = static_cast<uint8_t>(k * 255.0f + 0.5f);
 
-            const float keyIntensity = lerpF(kA.sunIntensity, kB.sunIntensity, k);
-            out.intensity = nightIntensity + (baseIntensity - nightIntensity) * keyIntensity;
+            const Color top = kA.skyTop.blend(kB.skyTop, k8);
+            const Color horizon = kA.skyHorizon.blend(kB.skyHorizon, k8);
+            const Color ground = kA.skyGround.blend(kB.skyGround, k8);
+            const Color sunColor = kA.sunColor.blend(kB.sunColor, k8);
+            const Color cloudCol = kA.cloudColor.blend(kB.cloudColor, k8);
 
-            const float dayAngle = (t - 0.25f) * kTwoPi;
-            const float elevation = sinf(dayAngle);
-            float dayRaw;
-            if (hour < 5.0f || hour >= 21.0f)
-                dayRaw = 0.0f;
-            else if (hour < 7.0f)
-                dayRaw = smoothstep(5.0f, 7.0f, hour);
-            else if (hour < 19.0f)
-                dayRaw = 1.0f;
+            const float cloudAlpha = kA.cloudAlpha + (kB.cloudAlpha - kA.cloudAlpha) * k;
+            const float ambientScale = kA.ambientScale + (kB.ambientScale - kA.ambientScale) * k;
+            const float exposureScale = kA.exposureScale + (kB.exposureScale - kA.exposureScale) * k;
+            const float keyIntensity = kA.sunIntensity + (kB.sunIntensity - kA.sunIntensity) * k;
+
+            const float sunIntensity = 0.05f + 0.95f * keyIntensity;
+
+            Skybox &sky = renderer_->getSkybox();
+            sky.setCustom(top, horizon, ground);
+            renderer_->invalidateSkyboxCache();
+            renderer_->setCloudColor(cloudCol);
+            renderer_->setCloudAlpha(cloudAlpha);
+            renderer_->setAmbientScale(ambientScale);
+            renderer_->setExposureScale(exposureScale);
+
+            Vector3 sunDir;
+            float dayFactor;
+            computeSunDir(timeQ16_, sunDir, dayFactor);
+
+            const float lenSq = sunDir.x * sunDir.x + sunDir.y * sunDir.y + sunDir.z * sunDir.z;
+            const float invLen = FastMath::fastInvSqrt(lenSq);
+            sunDir.x *= invLen;
+            sunDir.y *= invLen;
+            sunDir.z *= invLen;
+
+            const float sunSpriteAlpha = dayFactor;
+            const bool sunVisible = (dayFactor > 0.01f);
+
+            uint16_t sunDelta = static_cast<uint16_t>(timeQ16_ - lastSunPushedQ16_);
+
+            if (sunDelta > 32768u)
+                sunDelta = static_cast<uint16_t>(65536u - sunDelta);
+
+            if (sunDelta >= kSunPushThresholdQ16 || lastSunPushedQ16_ == 0xFFFF)
+            {
+                lastSunPushedQ16_ = timeQ16_;
+
+                renderer_->setMainDirectionalLight(sunDir, sunColor, sunIntensity);
+
+                renderer_->updateSun(-sunDir, sunColor, sunSpriteAlpha, sunVisible);
+            }
             else
-                dayRaw = 1.0f - smoothstep(19.0f, 21.0f, hour);
-            const float azimuth = t * kTwoPi;
-            const float sx = cosf(azimuth) * 0.6f;
-            const float sz = sinf(azimuth) * 0.6f;
-            Vector3 dayDir(sx, -elevation, sz);
-            Vector3 moonDir(sx * 0.5f, -0.45f, sz * 0.5f);
-            dayDir.normalize();
-            moonDir.normalize();
-            const float wNight = 1.0f - dayRaw;
-            out.sunDir = Vector3(
-                dayDir.x * (1.0f - wNight) + moonDir.x * wNight,
-                dayDir.y * (1.0f - wNight) + moonDir.y * wNight,
-                dayDir.z * (1.0f - wNight) + moonDir.z * wNight);
-            out.sunDir.normalize();
+            {
 
-            out.sunSpriteAlpha = dayRaw;
-            out.sunVisible = (dayRaw > 0.01f);
-        }
-
-        void applySkyStateToRenderer(const SkyState &state)
-        {
-            if (!renderer)
-                return;
-
-            Skybox &sky = renderer->getSkybox();
-            sky.setCustom(state.top, state.horizon, state.ground);
-            renderer->invalidateSkyboxCache();
-            renderer->setMainDirectionalLight(state.sunDir, state.sunColor, state.intensity);
-            renderer->setCloudColor(state.cloudColor);
-            renderer->setCloudAlpha(state.cloudAlpha);
-            renderer->setAmbientScale(state.ambientScale);
-            renderer->setExposureScale(state.exposureScale);
-
-            const Vector3 toSun(-state.sunDir.x, -state.sunDir.y, -state.sunDir.z);
-            renderer->updateSun(toSun, state.sunColor, state.sunSpriteAlpha, state.sunVisible);
-        }
-
-        __attribute__((hot)) void applyToRenderer()
-        {
-            if (!renderer)
-                return;
-
-            float t = timeMinutes / 1440.0f;
-            SkyState state;
-            computeSkyState(t, state);
-            applySkyStateToRenderer(state);
+                renderer_->updateSun(-sunDir, sunColor, sunSpriteAlpha, sunVisible);
+            }
         }
     };
-
 }
