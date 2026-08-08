@@ -188,6 +188,12 @@ namespace pip3D
         reflectBuffer = nullptr;
         reflectWriteBuffer = nullptr;
 
+        shadowQueue_.reserve(16);
+        opaqueQueue_.reserve(16);
+        blobShadowQueue_.reserve(16);
+        drawCacheKeys_.reserve(16);
+        drawCaches_.reserve(16);
+
         LOGI(::pip3D::Debug::LOG_MODULE_RENDER, "Renderer::init OK: viewport %dx%d", cfg.width, cfg.height);
 
         initialized = true;
@@ -230,9 +236,9 @@ namespace pip3D
         if (bandIndex == 0)
             g_drawTelemetry.resetFrame();
 
-        shadowQueueCount = 0;
-        opaqueQueueCount = 0;
-        blobShadowQueueCount = 0;
+        shadowQueue_.clear();
+        opaqueQueue_.clear();
+        blobShadowQueue_.clear();
 
         if (bandIndex < 0)
             bandIndex = 0;
@@ -265,7 +271,9 @@ namespace pip3D
                                                            frustum,
                                                            viewProjMatrixDirty);
             if (vpWasDirty)
+            {
                 hfovCacheValid_ = false;
+            }
 
             statsTrianglesTotal = 0;
             statsTrianglesBackfaceCulled = 0;

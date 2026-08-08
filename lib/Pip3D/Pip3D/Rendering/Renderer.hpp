@@ -16,7 +16,7 @@
 #include "Rendering/Lighting/Lighting.hpp"
 #include "Rendering/Lighting/Shadow.hpp"
 #include "Rendering/Lighting/Deferred.hpp"
-#include "Rendering/Pipeline/Rasterizer.hpp"
+#include "Rendering/Pipeline/Rasterizer/Common.hpp"
 #include "Rendering/Pipeline/Shading.hpp"
 #include "Rendering/Pipeline/Culling.hpp"
 #include "Rendering/Pipeline/MeshDraw.hpp"
@@ -62,21 +62,17 @@ namespace pip3D
         static constexpr uint16_t REFLECT_WIDTH = SCREEN_WIDTH / 4;
         static constexpr uint16_t REFLECT_HEIGHT = SCREEN_HEIGHT / 4;
 
-        static constexpr size_t MAX_QUEUE_ELEMENTS = 64;
-        MeshInstance *shadowQueue[MAX_QUEUE_ELEMENTS];
-        MeshInstance *opaqueQueue[MAX_QUEUE_ELEMENTS];
-        size_t shadowQueueCount = 0;
-        size_t opaqueQueueCount = 0;
+        std::vector<MeshInstance *> shadowQueue_;
+        std::vector<MeshInstance *> opaqueQueue_;
+        std::vector<MeshInstance *> blobShadowQueue_;
 
-        MeshInstance *blobShadowQueue[MAX_QUEUE_ELEMENTS];
-        size_t blobShadowQueueCount = 0;
-        MeshInstance *drawCacheKeys[MAX_QUEUE_ELEMENTS] = {};
-        DrawCache drawCaches[MAX_QUEUE_ELEMENTS];
-        size_t drawCacheCount = 0;
+        std::vector<MeshInstance *> drawCacheKeys_;
+        std::vector<DrawCache> drawCaches_;
         DrawCache *getDrawCache(MeshInstance *inst);
         void clearDrawCaches()
         {
-            drawCacheCount = 0;
+
+            drawCacheKeys_.clear();
         }
 
         PhysicsWorld *physicsWorld = nullptr;
@@ -367,10 +363,50 @@ namespace pip3D
         void drawSky();
         void drawBillboardQuads(const BillboardQuad *quads, size_t count);
 
-        void drawText(int16_t x, int16_t y, const char *text, uint16_t color = 0xFFFF);
-        void drawText(int16_t x, int16_t y, const char *text, Color color);
-        void drawTextAdaptive(int16_t x, int16_t y, const char *text);
-        uint16_t getAdaptiveTextColor(int16_t x, int16_t y, int16_t width = 40, int16_t height = 8);
-        int16_t getTextWidth(const char *text);
+        void drawText(int16_t x, int16_t y, const char *text,
+                      uint16_t color = 0xFFFF)
+        {
+            HudRenderer::drawText(framebuffer, x, y, text, color);
+        }
+
+        void drawText(int16_t x, int16_t y, const char *text, Color color)
+        {
+            HudRenderer::drawText(framebuffer, x, y, text, color.rgb565);
+        }
+
+        void drawTextAdaptive(int16_t x, int16_t y, const char *text)
+        {
+            if (!text || !*text)
+                return;
+            const int16_t w = getTextWidth(text);
+
+            const uint8_t cacheKey = static_cast<uint8_t>(
+                (static_cast<uint32_t>(y) >> 4) & 0x03u);
+            const uint16_t color = HudRenderer::getAdaptiveColor(
+                framebuffer, viewport, x, y, w, 8, cacheKey);
+            HudRenderer::drawText(framebuffer, x, y, text, color);
+        }
+
+        uint16_t getAdaptiveTextColor(int16_t x, int16_t y,
+                                      int16_t width = 40,
+                                      int16_t height = 8)
+        {
+            return HudRenderer::getAdaptiveColor(
+                framebuffer, viewport, x, y, width, height, 0);
+        }
+
+        uint16_t getAdaptiveColor(int16_t x, int16_t y,
+                                  int16_t width = 40,
+                                  int16_t height = 8,
+                                  uint8_t cacheKey = 0)
+        {
+            return HudRenderer::getAdaptiveColor(
+                framebuffer, viewport, x, y, width, height, cacheKey);
+        }
+
+        int16_t getTextWidth(const char *text)
+        {
+            return HudRenderer::getTextWidth(text);
+        }
     };
 }
