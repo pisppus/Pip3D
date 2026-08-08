@@ -2,6 +2,7 @@
 #include "Rendering/Pipeline/MeshDraw.hpp"
 #include "Rendering/Pipeline/Shading.hpp"
 #include "Rendering/Pipeline/Billboard.hpp"
+#include "Rendering/Pipeline/Rasterizer/Water.hpp"
 #include "Rendering/Resources/Texture.hpp"
 #include "Rendering/Resources/Textures/Sun.hpp"
 #include "Math/Algebra.hpp"
@@ -52,8 +53,9 @@ namespace pip3D
         const float viewportHalfWidth = viewportWidth * 0.5f;
         const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
 
-        const int projState = cache->beginProjection(frameStamp, instanceVersion);
-        if (projState == 2)
+        const DrawCache::ProjState projState =
+            cache->beginProjection(frameStamp, instanceVersion);
+        if (projState == DrawCache::ProjState::NeedsTransformAndProject)
         {
             for (uint16_t i = 0; i < vertexCountUsed; ++i)
             {
@@ -65,7 +67,7 @@ namespace pip3D
             }
             cache->commitProjection(frameStamp, instanceVersion);
         }
-        else if (projState == 1)
+        else if (projState == DrawCache::ProjState::NeedsReproject)
         {
             for (uint16_t i = 0; i < vertexCountUsed; ++i)
             {

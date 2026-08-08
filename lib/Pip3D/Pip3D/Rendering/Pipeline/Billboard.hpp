@@ -9,7 +9,6 @@
 #include "Camera/Controllers.hpp"
 #include "Rendering/Buffers/ZBuffer.hpp"
 #include "Rendering/Buffers/FrameBuffer.hpp"
-#include "Rendering/Pipeline/Rasterizer.hpp"
 #include "Rendering/Pipeline/Shading.hpp"
 #include "Rendering/Pipeline/Rasterizer/Billboard.hpp"
 
