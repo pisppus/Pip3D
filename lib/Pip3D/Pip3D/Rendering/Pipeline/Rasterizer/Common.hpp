@@ -96,10 +96,10 @@ namespace pip3D
                 PIP3D_PREFETCH_W(buf + 16);
                 PIP3D_PREFETCH_W(fb + 16);
 
-                const uint16_t d0 = static_cast<uint16_t>(depth);
-                const uint16_t d1 = static_cast<uint16_t>(depth + depthStep);
-                const uint16_t d2 = static_cast<uint16_t>(depth + depthStep * 2);
-                const uint16_t d3 = static_cast<uint16_t>(depth + depthStep * 3);
+                const uint16_t d0 = static_cast<uint16_t>(depth >> 14);
+                const uint16_t d1 = static_cast<uint16_t>((depth + depthStep) >> 14);
+                const uint16_t d2 = static_cast<uint16_t>((depth + depthStep * 2) >> 14);
+                const uint16_t d3 = static_cast<uint16_t>((depth + depthStep * 3) >> 14);
 
                 const uint16_t c0 = buf[0] & Z_DEPTH_MASK;
                 const uint16_t c1 = buf[1] & Z_DEPTH_MASK;
@@ -135,7 +135,7 @@ namespace pip3D
 
             while (count > 0)
             {
-                const uint16_t d = static_cast<uint16_t>(depth);
+                const uint16_t d = static_cast<uint16_t>(depth >> 14);
                 const uint16_t c = *buf & Z_DEPTH_MASK;
                 if (d > c)
                 {
@@ -170,8 +170,8 @@ namespace pip3D
 
             while (count >= 2)
             {
-                const uint16_t d0 = static_cast<uint16_t>(depth);
-                const uint16_t d1 = static_cast<uint16_t>(depth + depthStep);
+                const uint16_t d0 = static_cast<uint16_t>(depth >> 14);
+                const uint16_t d1 = static_cast<uint16_t>((depth + depthStep) >> 14);
 
                 const uint16_t c0 = buf[0] & Z_DEPTH_MASK;
                 const uint16_t c1 = buf[1] & Z_DEPTH_MASK;
@@ -229,7 +229,7 @@ namespace pip3D
 
             while (count > 0)
             {
-                const uint16_t d = static_cast<uint16_t>(depth);
+                const uint16_t d = static_cast<uint16_t>(depth >> 14);
                 const uint16_t c = *buf & Z_DEPTH_MASK;
                 if (d > c)
                 {

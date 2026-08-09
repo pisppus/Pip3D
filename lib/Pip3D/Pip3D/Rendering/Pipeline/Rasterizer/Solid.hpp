@@ -66,8 +66,7 @@ namespace pip3D
             const float dz_dx = (dz02 * dy12 - dy02 * dz12) * invDet;
             const float dz_dy = (dx02 * dz12 - dz02 * dx12) * invDet;
 
-            const float dz_dx_scaled = dz_dx;
-            const float dz_dy_scaled = dz_dy;
+            const int32_t z_step = static_cast<int32_t>(dz_dx * 16384.0f);
 
             const int startTop = static_cast<int>(ceilf(y0 - 0.5f));
             int endTopExclusive = static_cast<int>(ceilf(y1 - 0.5f));
@@ -93,10 +92,38 @@ namespace pip3D
             const int32_t step_01 = (fabsf(dy01_val) > 1e-6f) ? static_cast<int32_t>(((x1 - x0) / dy01_val) * 65536.0f) : 0;
             const int32_t step_12 = (fabsf(dy12_val) > 1e-6f) ? static_cast<int32_t>(((x2 - x1) / dy12_val) * 65536.0f) : 0;
 
-            const int32_t depthStep = static_cast<int32_t>(dz_dx);
-
             const bool fogOn = Rasterizer::g_fogState.enabled;
             uint16_t *__restrict__ zbBase = zBuffer->data();
+
+            auto drawSpan = [&](int y, int32_t xl_fixed, int32_t xr_fixed, float zRowBase)
+            {
+                if (xl_fixed > xr_fixed)
+                    std::swap(xl_fixed, xr_fixed);
+
+                int16_t x_start = static_cast<int16_t>((xl_fixed + 32767) >> 16);
+                int16_t x_end = static_cast<int16_t>((xr_fixed - 32769) >> 16);
+
+                if (x_start < 0)
+                    x_start = 0;
+                if (x_end >= width)
+                    x_end = width - 1;
+
+                if (x_start > x_end)
+                    return;
+
+                const float z_at_xstart = zRowBase + static_cast<float>(x_start) * dz_dx;
+                const int32_t depthStart = static_cast<int32_t>(z_at_xstart * 16384.0f);
+
+                const size_t idx = static_cast<size_t>(y) * width + x_start;
+                const uint32_t cnt = static_cast<uint32_t>(x_end - x_start + 1);
+
+                if (fogOn)
+                    Rasterizer::fillScanlineFog(zbBase + idx, frameBuffer + idx,
+                                                cnt, depthStart, z_step, color);
+                else
+                    Rasterizer::fillScanlinePlain(zbBase + idx, frameBuffer + idx,
+                                                  cnt, depthStart, z_step, color);
+            };
 
             if (runTop)
             {
@@ -107,40 +134,14 @@ namespace pip3D
                 int32_t x02_fixed = static_cast<int32_t>((x0 + slope_02 * dy_init) * 65536.0f);
                 int32_t x01_fixed = static_cast<int32_t>((x0 + slope_01 * dy_init) * 65536.0f);
 
-                float zRowBase = (z2) +
+                float zRowBase = z2 +
                                  (static_cast<float>(clampStartY_top) + 0.5f - y2) * dz_dy -
                                  x2 * dz_dx +
                                  dz_dx * 0.5f;
 
                 for (int y = clampStartY_top; y < endTopExclusive; ++y)
                 {
-                    int32_t xl = x02_fixed;
-                    int32_t xr = x01_fixed;
-                    if (xl > xr)
-                        std::swap(xl, xr);
-
-                    int16_t x_start = static_cast<int16_t>((xl + 32767) >> 16);
-                    int16_t x_end = static_cast<int16_t>((xr - 32769) >> 16);
-
-                    if (x_start < 0)
-                        x_start = 0;
-                    if (x_end >= width)
-                        x_end = width - 1;
-
-                    if (x_start <= x_end)
-                    {
-                        const int32_t depthStart = static_cast<int32_t>(zRowBase + static_cast<float>(x_start) * dz_dx);
-
-                        const size_t idx = static_cast<size_t>(y) * width + x_start;
-                        const uint32_t cnt = static_cast<uint32_t>(x_end - x_start + 1);
-
-                        if (fogOn)
-                            Rasterizer::fillScanlineFog(zbBase + idx, frameBuffer + idx,
-                                                        cnt, depthStart, depthStep, color);
-                        else
-                            Rasterizer::fillScanlinePlain(zbBase + idx, frameBuffer + idx,
-                                                          cnt, depthStart, depthStep, color);
-                    }
+                    drawSpan(y, x02_fixed, x01_fixed, zRowBase);
 
                     zRowBase += dz_dy;
                     x02_fixed += step_02;
@@ -158,40 +159,14 @@ namespace pip3D
                 int32_t x12_fixed = static_cast<int32_t>((x1 + slope_12 * dy_init_bottom) * 65536.0f);
                 int32_t x02_bottom_fixed = static_cast<int32_t>((x0 + slope_02 * dy_init_long) * 65536.0f);
 
-                float zRowBase = (z2) +
+                float zRowBase = z2 +
                                  (static_cast<float>(clampStartY_bottom) + 0.5f - y2) * dz_dy -
                                  x2 * dz_dx +
                                  dz_dx * 0.5f;
 
                 for (int y = clampStartY_bottom; y < endBottomExclusive; ++y)
                 {
-                    int32_t xl = x02_bottom_fixed;
-                    int32_t xr = x12_fixed;
-                    if (xl > xr)
-                        std::swap(xl, xr);
-
-                    int16_t x_start = static_cast<int16_t>((xl + 32767) >> 16);
-                    int16_t x_end = static_cast<int16_t>((xr - 32769) >> 16);
-
-                    if (x_start < 0)
-                        x_start = 0;
-                    if (x_end >= width)
-                        x_end = width - 1;
-
-                    if (x_start <= x_end)
-                    {
-                        const int32_t depthStart = static_cast<int32_t>(zRowBase + static_cast<float>(x_start) * dz_dx);
-
-                        const size_t idx = static_cast<size_t>(y) * width + x_start;
-                        const uint32_t cnt = static_cast<uint32_t>(x_end - x_start + 1);
-
-                        if (fogOn)
-                            Rasterizer::fillScanlineFog(zbBase + idx, frameBuffer + idx,
-                                                        cnt, depthStart, depthStep, color);
-                        else
-                            Rasterizer::fillScanlinePlain(zbBase + idx, frameBuffer + idx,
-                                                          cnt, depthStart, depthStep, color);
-                    }
+                    drawSpan(y, x02_bottom_fixed, x12_fixed, zRowBase);
 
                     zRowBase += dz_dy;
                     x02_bottom_fixed += step_02;
