@@ -5,10 +5,6 @@
 #include "Rendering/Lighting/Lighting.hpp"
 #include "Rendering/Pipeline/Rasterizer/Common.hpp"
 
-#ifndef IRAM_ATTR
-#define IRAM_ATTR
-#endif
-
 namespace pip3D
 {
 
@@ -192,6 +188,66 @@ namespace pip3D
                 outB = 0.0f;
             else if (outB > 1.0f)
                 outB = 1.0f;
+        }
+
+        PIP3D_FORCE_INLINE static void IRAM_ATTR applyFog(
+            float dist,
+            float inR, float inG, float inB,
+            float &outR, float &outG, float &outB) noexcept
+        {
+            const auto &fog = Rasterizer::g_fogState;
+            if (!fog.enabled)
+            {
+                outR = inR;
+                outG = inG;
+                outB = inB;
+                return;
+            }
+
+            float fogFactor = (dist - fog.worldNear) * fog.worldScale;
+            fogFactor = clamp(fogFactor, 0.0f, 1.0f);
+            const float invFog = 1.0f - fogFactor;
+            outR = inR * invFog + fog.color_r * fogFactor;
+            outG = inG * invFog + fog.color_g_f * fogFactor;
+            outB = inB * invFog + fog.color_b_f * fogFactor;
+        }
+
+        __attribute__((always_inline, hot)) static inline void IRAM_ATTR calculateFaceLightingWithFog(
+            const Vector3 &v0, const Vector3 &v1, const Vector3 &v2,
+            const Vector3 &camPos,
+            const Light *lights, int lightCount,
+            float baseR, float baseG, float baseB,
+            float &outR, float &outG, float &outB,
+            bool skipSpecularAndRim = false) noexcept
+        {
+
+            const float e1x = v1.x - v0.x, e1y = v1.y - v0.y, e1z = v1.z - v0.z;
+            const float e2x = v2.x - v0.x, e2y = v2.y - v0.y, e2z = v2.z - v0.z;
+            const float nx = e1y * e2z - e1z * e2y;
+            const float ny = e1z * e2x - e1x * e2z;
+            const float nz = e1x * e2y - e1y * e2x;
+
+            const float nLenSq = nx * nx + ny * ny + nz * nz;
+            const float nInvLen = (nLenSq > 1e-12f) ? FastMath::fastInvSqrt(nLenSq) : 0.0f;
+            const Vector3 normal(nx * nInvLen, ny * nInvLen, nz * nInvLen);
+
+            const float dx = camPos.x - v0.x;
+            const float dy = camPos.y - v0.y;
+            const float dz = camPos.z - v0.z;
+            const float lenSq = dx * dx + dy * dy + dz * dz;
+            const float invLen = (lenSq > 1e-8f) ? FastMath::fastInvSqrt(lenSq) : 0.0f;
+            const Vector3 viewDir(dx * invLen, dy * invLen, dz * invLen);
+
+            float litR, litG, litB;
+            calculateLighting(v0, normal, viewDir,
+                              lights, lightCount,
+                              baseR, baseG, baseB,
+                              litR, litG, litB,
+                              skipSpecularAndRim);
+
+            const float dist = lenSq * invLen;
+            applyFog(dist, litR, litG, litB,
+                     outR, outG, outB);
         }
     };
 

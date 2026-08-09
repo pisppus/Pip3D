@@ -19,6 +19,8 @@ namespace pip3D
         NAN_PROJECT = 7,
     };
 
+#if PIP3D_ENABLE_DRAW_TELEMETRY
+
     struct DrawTelemetry
     {
         uint32_t facesTotal;
@@ -50,7 +52,6 @@ namespace pip3D
         bool lastSkipPartiallyClipped;
         bool lastSkipTextured;
 
-#if PIP3D_ENABLE_DRAW_TELEMETRY
         void resetFrame()
         {
             facesTotal = 0;
@@ -156,23 +157,18 @@ namespace pip3D
             lastSkipPartiallyClipped = partial;
             lastSkipTextured = textured;
         }
-#else
-        void resetFrame() {}
-        void recordSkip(SkipReason, uint32_t, uint16_t, const void *,
-                        float, float, float, float,
-                        float, float, float, float, float, float, float,
-                        float, float, float,
-                        float, float, float,
-                        float, float, float,
-                        float, int16_t, int16_t,
-                        bool, bool) {}
-#endif
     };
 
-#if PIP3D_ENABLE_DRAW_TELEMETRY
     extern DrawTelemetry g_drawTelemetry;
+
 #else
+
+    struct DrawTelemetry
+    {
+    };
+
     inline DrawTelemetry g_drawTelemetry{};
+
 #endif
 
     struct DrawTelemetryClipVert

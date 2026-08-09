@@ -49,7 +49,7 @@ namespace pip3D
             }
         }
 
-        DrawCache *cache = getDrawCache(instance);
+        DrawCache *cache = &instance->drawCache();
 
         ShadowRenderer::drawMeshInstanceShadow(instance,
                                                shadowMesh,

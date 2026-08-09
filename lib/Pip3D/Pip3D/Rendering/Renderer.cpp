@@ -191,8 +191,6 @@ namespace pip3D
         shadowQueue_.reserve(16);
         opaqueQueue_.reserve(16);
         blobShadowQueue_.reserve(16);
-        drawCacheKeys_.reserve(16);
-        drawCaches_.reserve(16);
 
         LOGI(::pip3D::Debug::LOG_MODULE_RENDER, "Renderer::init OK: viewport %dx%d", cfg.width, cfg.height);
 
@@ -234,7 +232,11 @@ namespace pip3D
 #endif
 
         if (bandIndex == 0)
+        {
+#if PIP3D_ENABLE_DRAW_TELEMETRY
             g_drawTelemetry.resetFrame();
+#endif
+        }
 
         shadowQueue_.clear();
         opaqueQueue_.clear();

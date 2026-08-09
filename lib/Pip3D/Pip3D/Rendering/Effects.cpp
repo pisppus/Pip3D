@@ -30,8 +30,8 @@ namespace pip3D
 
         const uint16_t vertexCountUsed = mesh->numVertices();
 
-        DrawCache *cache = getDrawCache(instance);
-        if (!cache || !cache->ensureProjectionCapacity(vertexCountUsed))
+        DrawCache *cache = &instance->drawCache();
+        if (!cache->ensureCapacity(vertexCountUsed))
             return;
 
         Vector3 *worldVerts = cache->worldVerts();
@@ -40,10 +40,6 @@ namespace pip3D
         const Matrix4x4 &worldTransform = instance->transform();
 
         const Vertex *PIP3D_RESTRICT vbase = mesh->vertexData();
-        Vector3 *PIP3D_RESTRICT localVerts = static_cast<Vector3 *>(
-            alloca(vertexCountUsed * sizeof(Vector3)));
-        for (uint16_t i = 0; i < vertexCountUsed; ++i)
-            localVerts[i] = mesh->decodePosition(vbase[i]);
 
         const uint32_t frameStamp = g_frameStamp;
         const uint32_t instanceVersion = instance->version();
@@ -57,9 +53,11 @@ namespace pip3D
             cache->beginProjection(frameStamp, instanceVersion);
         if (projState == DrawCache::ProjState::NeedsTransformAndProject)
         {
+
             for (uint16_t i = 0; i < vertexCountUsed; ++i)
             {
-                Vector3 world = worldTransform.transformNoDiv(localVerts[i]);
+                const Vector3 local = mesh->decodePosition(vbase[i]);
+                const Vector3 world = worldTransform.transformNoDiv(local);
                 worldVerts[i] = world;
                 screenVerts[i] = CameraController::project(world, viewProjMatrix,
                                                            viewportHalfWidth, viewportHalfHeight,
