@@ -104,6 +104,7 @@ namespace pip3D
             const int16_t bandBottom = static_cast<int16_t>(bandTop + g_bandHeight);
 
             renderShadowGeometry(instCenter, instRadius, instance->transform(), shadowMesh,
+                                 instance->version(),
                                  light, shadowSettings, camera, viewProjMatrix, viewport,
                                  bandTop, bandBottom, shadowColor, baseAlpha,
                                  framebuffer.getBuffer(), zBuffer, framebuffer.getConfig(),
@@ -337,6 +338,7 @@ namespace pip3D
             const Vector3 &objectCenter, float objectRadius,
             const Matrix4x4 &worldTransform,
             Mesh *shadowMesh,
+            uint32_t instanceVersion,
             const Light &light,
             const ShadowSettings &shadowSettings,
             const Camera &camera,
@@ -421,24 +423,59 @@ namespace pip3D
             const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
 
             const Vertex *PIP3D_RESTRICT vbaseS = shadowMesh->vertexData();
-            Vector3 *PIP3D_RESTRICT localVerts = static_cast<Vector3 *>(
-                alloca(vertexCount * sizeof(Vector3)));
-            for (uint16_t i = 0; i < vertexCount; ++i)
-                localVerts[i] = shadowMesh->decodePosition(vbaseS[i]);
 
-            Vector3 *worldVerts = (Vector3 *)alloca(vertexCount * sizeof(Vector3));
+            Vector3 *PIP3D_RESTRICT worldVerts = nullptr;
+            Vector3 *PIP3D_RESTRICT localVerts = nullptr;
 
-            Vector3 *shadowVertsCache = nullptr;
+            if (drawCache)
+            {
+                if (!drawCache->ensureCapacity(vertexCount))
+                {
+                    backfaceCullingEnabled = oldCulling;
+                    return;
+                }
+
+                worldVerts = drawCache->worldVerts();
+
+                if (!drawCache->worldVertsValid(instanceVersion))
+                {
+
+                    for (uint16_t vi = 0; vi < vertexCount; ++vi)
+                    {
+                        const Vector3 local = shadowMesh->decodePosition(vbaseS[vi]);
+                        worldVerts[vi] = worldTransform.transformNoDiv(local);
+                    }
+
+                    drawCache->commitWorldVerts(instanceVersion);
+                }
+            }
+            else
+            {
+
+                localVerts = static_cast<Vector3 *>(
+                    alloca(vertexCount * sizeof(Vector3)));
+                worldVerts = static_cast<Vector3 *>(
+                    alloca(vertexCount * sizeof(Vector3)));
+                for (uint16_t vi = 0; vi < vertexCount; ++vi)
+                {
+                    localVerts[vi] = shadowMesh->decodePosition(vbaseS[vi]);
+                    worldVerts[vi] = worldTransform.transformNoDiv(localVerts[vi]);
+                }
+            }
+
+            Vector3 *PIP3D_RESTRICT shadowVertsCache = nullptr;
             bool needsCompute = false;
             bool fromDrawCache = false;
             if (drawCache && shadowCacheGen != 0)
             {
-                shadowVertsCache = drawCache->acquireShadowVerts(shadowCacheGen, vertexCount, needsCompute);
+                shadowVertsCache = drawCache->acquireShadowVerts(
+                    shadowCacheGen, vertexCount, needsCompute);
                 fromDrawCache = (shadowVertsCache != nullptr);
             }
             if (!fromDrawCache)
             {
-                shadowVertsCache = (Vector3 *)alloca(vertexCount * sizeof(Vector3));
+                shadowVertsCache = static_cast<Vector3 *>(
+                    alloca(vertexCount * sizeof(Vector3)));
                 needsCompute = true;
             }
 
@@ -452,41 +489,40 @@ namespace pip3D
             const float lightPosY = light.position.y;
             const float lightPosZ = light.position.z;
 
-            for (uint16_t vi = 0; vi < vertexCount; ++vi)
+            if (recomputeShadow)
             {
-                const Vector3 v = worldTransform.transformNoDiv(localVerts[vi]);
-                worldVerts[vi] = v;
-
-                if (!recomputeShadow)
-                    continue;
-
-                Vector3 sv;
-                if (isDirectional)
+                for (uint16_t vi = 0; vi < vertexCount; ++vi)
                 {
-                    const float t = (planeY - v.y) * invSafeLy;
-                    sv = Vector3(v.x + t * dirX, planeY, v.z + t * dirZ);
-                }
-                else
-                {
-                    const float ldy = v.y - lightPosY;
-                    if (fabsf(ldy) > 0.001f)
+                    const Vector3 &v = worldVerts[vi];
+
+                    Vector3 sv;
+                    if (isDirectional)
                     {
-                        const float t = planeYMinusLightY / ldy;
-                        sv = Vector3(lightPosX + (v.x - lightPosX) * t,
-                                     planeY,
-                                     lightPosZ + (v.z - lightPosZ) * t);
+                        const float t = (planeY - v.y) * invSafeLy;
+                        sv = Vector3(v.x + t * dirX, planeY, v.z + t * dirZ);
                     }
                     else
                     {
-                        sv = Vector3(v.x, planeY, v.z);
+                        const float ldy = v.y - lightPosY;
+                        if (fabsf(ldy) > 0.001f)
+                        {
+                            const float t = planeYMinusLightY / ldy;
+                            sv = Vector3(lightPosX + (v.x - lightPosX) * t,
+                                         planeY,
+                                         lightPosZ + (v.z - lightPosZ) * t);
+                        }
+                        else
+                        {
+                            sv = Vector3(v.x, planeY, v.z);
+                        }
                     }
+                    sv.y += offsetY;
+                    shadowVertsCache[vi] = sv;
                 }
-                sv.y += offsetY;
-                shadowVertsCache[vi] = sv;
-            }
 
-            if (fromDrawCache && needsCompute)
-                drawCache->commitShadowVerts(shadowCacheGen);
+                if (fromDrawCache)
+                    drawCache->commitShadowVerts(shadowCacheGen);
+            }
 
             const float pnX = plane.normal.x;
             const float pnY = plane.normal.y;

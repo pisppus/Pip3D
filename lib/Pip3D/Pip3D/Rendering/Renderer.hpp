@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include "Core/Platform.hpp"
 #include "Core/Color.hpp"
 #include "Core/Diagnostics.hpp"
@@ -20,18 +22,17 @@
 #include "Rendering/Pipeline/Shading.hpp"
 #include "Rendering/Pipeline/Culling.hpp"
 #include "Rendering/Pipeline/MeshDraw.hpp"
-#include "Rendering/Pipeline/DrawCache.hpp"
 #include "Rendering/Pipeline/Billboard.hpp"
 #include "Rendering/Pipeline/Telemetry.hpp"
 #include "Rendering/UI/Font.hpp"
 #include "Rendering/UI/HUD.hpp"
+
 #include <PipCore/Display.hpp>
 #if defined(PIP3D_PC)
 #include <PipCore/Platforms/Desktop/Runtime.hpp>
 #else
 #include <PipCore/Platforms/Select.hpp>
 #endif
-#include <vector>
 
 namespace pip3D
 {
@@ -66,14 +67,7 @@ namespace pip3D
         std::vector<MeshInstance *> opaqueQueue_;
         std::vector<MeshInstance *> blobShadowQueue_;
 
-        std::vector<MeshInstance *> drawCacheKeys_;
-        std::vector<DrawCache> drawCaches_;
-        DrawCache *getDrawCache(MeshInstance *inst);
-        void clearDrawCaches()
-        {
-
-            drawCacheKeys_.clear();
-        }
+        std::vector<Vector3> vertexColors_;
 
         PhysicsWorld *physicsWorld = nullptr;
 #if defined(PIP3D_PC)
@@ -138,6 +132,7 @@ namespace pip3D
         void drawWaterTriangleInternal(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2,
                                        const Color &waterColor, uint8_t alphaByte, const DisplayConfig &cfg,
                                        uint16_t *frameBufferPtr);
+
         IRAM_ATTR void drawMeshInstanceInternal(MeshInstance *instance, bool performFrustumCull);
         IRAM_ATTR void drawMeshInstanceShadow(MeshInstance *instance);
 

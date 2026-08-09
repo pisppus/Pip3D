@@ -5,37 +5,48 @@ namespace pip3D
 {
     DrawCache::~DrawCache() noexcept
     {
-        safeFree(worldVerts_);
-        screenVerts_ = nullptr;
-        safeFree(shadowVerts_);
+        safeFree(storage_);
     }
 
-    bool DrawCache::ensureProjectionCapacity(uint16_t required) noexcept
+    bool DrawCache::ensureCapacity(uint16_t required) noexcept
     {
         if (required == 0)
             return false;
 
-        if (likely(capacity_ >= required && worldVerts_))
+        if (likely(capacity_ >= required && storage_))
             return true;
 
+        constexpr size_t kAlign = 16;
         const size_t vertsBytes = static_cast<size_t>(required) * sizeof(Vector3);
+        const size_t alignedVertsBytes = (vertsBytes + kAlign - 1) & ~(kAlign - 1);
+        const size_t totalBytes = 2 * alignedVertsBytes;
+
         Vector3 *block = static_cast<Vector3 *>(
-            MemUtils::allocData(2 * vertsBytes, 16));
+            MemUtils::allocData(totalBytes, static_cast<uint8_t>(kAlign)));
 
         if (unlikely(!block))
         {
-            freeProjectionBuffer();
+
+            safeFree(storage_);
+            screenVerts_ = nullptr;
+            capacity_ = 0;
             cachedTransformVersion_ = 0;
+            screenVertsFrameStamp_ = 0;
+            shadowGen_ = 0;
+            shadowVertsValid_ = false;
             return false;
         }
 
-        safeFree(worldVerts_);
+        safeFree(storage_);
 
-        worldVerts_ = block;
-        screenVerts_ = block + required;
+        storage_ = block;
+        screenVerts_ = reinterpret_cast<Vector3 *>(
+            reinterpret_cast<uint8_t *>(block) + alignedVertsBytes);
         capacity_ = required;
 
         cachedTransformVersion_ = 0;
+        screenVertsFrameStamp_ = 0;
+        shadowVertsValid_ = false;
 
         return true;
     }
@@ -44,29 +55,22 @@ namespace pip3D
                                            bool &needsCompute) noexcept
     {
 
-        if (shadowGen_ == gen && capacity_ >= count && shadowVerts_)
+        if (!storage_ || capacity_ < count)
         {
-            needsCompute = false;
-            return shadowVerts_;
-        }
-
-        if (capacity_ < count || !shadowVerts_)
-        {
-            safeFree(shadowVerts_);
-
-            const size_t bytes = static_cast<size_t>(count) * sizeof(Vector3);
-            shadowVerts_ = static_cast<Vector3 *>(
-                MemUtils::allocData(bytes, 16));
-
-            if (unlikely(!shadowVerts_))
+            if (!ensureCapacity(count))
             {
-                shadowGen_ = 0;
                 needsCompute = true;
                 return nullptr;
             }
         }
 
+        if (shadowVertsValid_ && shadowGen_ == gen)
+        {
+            needsCompute = false;
+            return screenVerts_;
+        }
+
         needsCompute = true;
-        return shadowVerts_;
+        return screenVerts_;
     }
 }

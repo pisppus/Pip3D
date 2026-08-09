@@ -3,10 +3,10 @@
 #include "Core/Color.hpp"
 #include "Math/Algebra.hpp"
 #include "Geometry/Mesh.hpp"
+#include "Rendering/Pipeline/DrawCache.hpp"
 
 namespace pip3D
 {
-    class DrawCache;
     class MeshInstance
     {
     public:
@@ -152,6 +152,9 @@ namespace pip3D
 
         PIP3D_FORCE_INLINE uint32_t version() const { return transformVersion; }
 
+        PIP3D_FORCE_INLINE DrawCache &drawCache() noexcept { return drawCache_; }
+        PIP3D_FORCE_INLINE const DrawCache &drawCache() const noexcept { return drawCache_; }
+
         PIP3D_FORCE_INLINE const Matrix4x4 &transform() const
         {
             if (unlikely(cacheFlags & kFlagTransformDirty))
@@ -192,6 +195,7 @@ namespace pip3D
         Quaternion rotation;
         bool rotationValid;
         mutable Matrix4x4 localTransform;
+        DrawCache drawCache_;
 
         PIP3D_FORCE_INLINE void invalidateTransform()
         {
@@ -256,5 +260,4 @@ namespace pip3D
             cachedWorldRadius = localMeshRadius * cachedMaxAbsScale;
         }
     };
-
 }
