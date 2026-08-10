@@ -8,8 +8,8 @@
 #include "Core/Platform.hpp"
 #include "Math/Algebra.hpp"
 #include "Rendering/Buffers/ZBuffer.hpp"
+#include "Rendering/Lighting/Fog.hpp"
 #include "Rendering/Resources/Texture.hpp"
-#include "Rendering/Pipeline/Rasterizer/Common.hpp"
 
 namespace pip3D
 {
@@ -143,10 +143,10 @@ namespace pip3D
             const float dv_over_z_dx = (dv_over_z02 * dy12 - dy02 * dv_over_z12) * invDet;
             const float dv_over_z_dy = (dx02 * dv_over_z12 - dv_over_z02 * dx12) * invDet;
 
-            const int startTop = static_cast<int>(ceilf(y0 - 0.5f));
-            const int startBottom = static_cast<int>(ceilf(y1 - 0.5f));
+            const int startTop = fastCeilNonNeg(y0 - 0.5f);
+            const int startBottom = fastCeilNonNeg(y1 - 0.5f);
             int endTopExclusive = startBottom;
-            int endBottomExclusive = static_cast<int>(ceilf(y2 - 0.5f));
+            int endBottomExclusive = fastCeilNonNeg(y2 - 0.5f);
 
             int clampStartY_top = startTop < 0 ? 0 : startTop;
             int clampStartY_bottom = startBottom < 0 ? 0 : startBottom;
@@ -479,7 +479,7 @@ namespace pip3D
                             {
                                 *zb = d;
                                 const int16_t px_x = cur_x + i;
-                                const uint8_t bayer = static_cast<uint8_t>(detail::kBayerMatrix10Bit[baseY & 3][px_x & 3] >> 2);
+                                const uint8_t bayer = static_cast<uint8_t>(::pip3D::detail::kBayerMatrix10Bit[baseY & 3][px_x & 3] >> 2);
                                 const bool useHi = (chunkFracLod > bayer);
 
 #if PIP3D_DEBUG_MIPMAP

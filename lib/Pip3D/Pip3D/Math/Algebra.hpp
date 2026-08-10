@@ -14,6 +14,12 @@ namespace pip3D
     inline constexpr float kDegToRad = 0.017453292f;
     inline constexpr float kRadToDeg = 57.29578f;
 
+    PIP3D_FORCE_INLINE static int fastCeilNonNeg(float x) noexcept
+    {
+        const int i = static_cast<int>(x);
+        return i + (x > static_cast<float>(i));
+    }
+
     namespace detail
     {
         inline const float kSinTable[256] PIP3D_FAST_DATA = {
@@ -49,6 +55,12 @@ namespace pip3D
             -0.555570f, -0.534998f, -0.514103f, -0.492898f, -0.471397f, -0.449611f, -0.427555f, -0.405241f,
             -0.382683f, -0.359895f, -0.336890f, -0.313682f, -0.290285f, -0.266713f, -0.242980f, -0.219101f,
             -0.195090f, -0.170962f, -0.146730f, -0.122411f, -0.098017f, -0.073565f, -0.049068f, -0.024541f};
+
+        alignas(32) static constexpr int16_t kBayerMatrix10Bit[4][4] = {
+            {0, 512, 128, 640},
+            {768, 256, 896, 384},
+            {192, 704, 64, 576},
+            {960, 448, 832, 320}};
     }
 
     class FastMath

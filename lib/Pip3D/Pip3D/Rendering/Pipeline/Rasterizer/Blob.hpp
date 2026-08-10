@@ -4,9 +4,10 @@
 #include <cmath>
 #include <cstdint>
 
+#include "Core/Platform.hpp"
 #include "Math/Algebra.hpp"
 #include "Rendering/Buffers/ZBuffer.hpp"
-#include "Rendering/Pipeline/Rasterizer/Common.hpp"
+#include "Rendering/Lighting/Fog.hpp"
 
 namespace pip3D
 {
@@ -14,7 +15,7 @@ namespace pip3D
     {
         static constexpr int32_t kBlobDistSqMax = 1 << 24;
 
-        struct alignas(16) BlobParams
+        struct alignas(4) BlobParams
         {
             uint16_t *frameBuffer;
             uint16_t *zbBase;

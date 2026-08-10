@@ -14,6 +14,12 @@ namespace pip3D
     inline constexpr uint16_t Z_CLEAR_VALUE = 0x0000u;
     inline constexpr uint32_t Z_CLEAR_PACK32 = 0x00000000u;
 
+    inline constexpr int32_t kZDepthShift = 14;
+    inline constexpr float kZDepthScale = static_cast<float>(1 << kZDepthShift);
+
+    inline constexpr int32_t kWDepthShift = 15;
+    inline constexpr float kWDepthScale = static_cast<float>(1 << kWDepthShift);
+
     class ZBuffer
     {
     public:

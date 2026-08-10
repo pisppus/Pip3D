@@ -3,7 +3,7 @@
 #include "Core/Platform.hpp"
 #include "Math/Algebra.hpp"
 #include "Rendering/Lighting/Lighting.hpp"
-#include "Rendering/Pipeline/Rasterizer/Common.hpp"
+#include "Rendering/Lighting/Fog.hpp"
 
 namespace pip3D
 {
@@ -207,9 +207,11 @@ namespace pip3D
             float fogFactor = (dist - fog.worldNear) * fog.worldScale;
             fogFactor = clamp(fogFactor, 0.0f, 1.0f);
             const float invFog = 1.0f - fogFactor;
-            outR = inR * invFog + fog.color_r * fogFactor;
-            outG = inG * invFog + fog.color_g_f * fogFactor;
-            outB = inB * invFog + fog.color_b_f * fogFactor;
+
+            const Rasterizer::FogColorF fc = Rasterizer::fogColorFloat();
+            outR = inR * invFog + fc.r * fogFactor;
+            outG = inG * invFog + fc.g * fogFactor;
+            outB = inB * invFog + fc.b * fogFactor;
         }
 
         __attribute__((always_inline, hot)) static inline void IRAM_ATTR calculateFaceLightingWithFog(

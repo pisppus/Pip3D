@@ -7,7 +7,7 @@
 #include "Core/Platform.hpp"
 #include "Math/Algebra.hpp"
 #include "Rendering/Buffers/ZBuffer.hpp"
-#include "Rendering/Pipeline/Rasterizer/Common.hpp"
+#include "Rendering/Lighting/Fog.hpp"
 
 namespace pip3D
 {
@@ -19,11 +19,28 @@ namespace pip3D
         static constexpr uint32_t kClearPack = 0x00000000u;
         static constexpr uint32_t kFlagMaskPack = 0x80008000u;
 
-        struct alignas(16) PlanarBlend
+        struct alignas(4) PlanarBlend
         {
             uint32_t inv_a;
             uint32_t s_rb_a;
             uint32_t s_g_a;
+        };
+
+        struct alignas(4) PlanarParams
+        {
+            uint16_t *frameBuffer;
+            uint16_t *zbBase;
+            int32_t dz_dx_fixed;
+            int32_t dz_dy_fixed;
+            uint32_t s_rb;
+            uint32_t s_g;
+            uint8_t alpha;
+            bool softEdges;
+            int startTopGlobal;
+            int endBottomGlobal;
+            int16_t width;
+            int16_t height;
+            int16_t offsetY;
         };
 
         __attribute__((always_inline)) static inline uint16_t blendScalar(uint16_t dst, const PlanarBlend &bl)

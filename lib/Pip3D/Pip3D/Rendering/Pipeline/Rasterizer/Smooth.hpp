@@ -7,12 +7,28 @@
 #include "Core/Platform.hpp"
 #include "Math/Algebra.hpp"
 #include "Rendering/Buffers/ZBuffer.hpp"
-#include "Rendering/Pipeline/Rasterizer/Common.hpp"
+#include "Rendering/Lighting/Fog.hpp"
 
 namespace pip3D
 {
     namespace Rasterizer
     {
+
+        struct alignas(4) SmoothParams
+        {
+            uint16_t *frameBuffer;
+            uint16_t *zbBase;
+            int32_t dz_dx_fixed;
+            int32_t dz_dy_fixed;
+            int32_t dr_dx_fixed;
+            int32_t dr_dy_fixed;
+            int32_t dg_dx_fixed;
+            int32_t dg_dy_fixed;
+            int32_t db_dx_fixed;
+            int32_t db_dy_fixed;
+            int16_t width;
+            int16_t height;
+        };
         inline void fillSmoothHalf(
             float xa0, float ya0,
             float xa1, float ya1,
@@ -81,7 +97,7 @@ namespace pip3D
                     uint16_t *__restrict__ zPtr = params.zbBase + static_cast<size_t>(y) * params.width + xStart;
                     uint16_t *__restrict__ fbPtr = params.frameBuffer + static_cast<size_t>(y) * params.width + xStart;
 
-                    const int16_t *bayerRow = detail::kBayerMatrix10Bit[y & 3];
+                    const int16_t *bayerRow = ::pip3D::detail::kBayerMatrix10Bit[y & 3];
 
                     const int32_t bayer0 = bayerRow[xStart & 3];
                     const int32_t bayer1 = bayerRow[(xStart + 1) & 3];

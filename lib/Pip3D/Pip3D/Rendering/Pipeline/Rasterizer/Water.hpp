@@ -7,8 +7,8 @@
 #include "Core/Platform.hpp"
 #include "Math/Algebra.hpp"
 #include "Rendering/Buffers/ZBuffer.hpp"
+#include "Rendering/Lighting/Fog.hpp"
 #include "Rendering/Environment/Sky.hpp"
-#include "Rendering/Pipeline/Rasterizer/Common.hpp"
 
 namespace pip3D
 {

@@ -11,7 +11,7 @@
 #include "Rendering/Pipeline/MeshDraw.hpp"
 #include "Rendering/Pipeline/Shading.hpp"
 #include "Rendering/Pipeline/Telemetry.hpp"
-#include "Rendering/Pipeline/Rasterizer/Common.hpp"
+#include "Rendering/Lighting/Fog.hpp"
 #include "Rendering/Pipeline/Rasterizer/Smooth.hpp"
 #include "Rendering/Pipeline/Rasterizer/Textured.hpp"
 #include "Rendering/Renderer.hpp"
@@ -480,9 +480,11 @@ namespace pip3D
                     float fogFactor = (dist - fog.worldNear) * fog.worldScale;
                     fogFactor = clamp(fogFactor, 0.0f, 1.0f);
                     const float invFog = 1.0f - fogFactor;
-                    r = r * invFog + fog.color_r * fogFactor;
-                    g = g * invFog + fog.color_g_f * fogFactor;
-                    b = b * invFog + fog.color_b_f * fogFactor;
+
+                    const Rasterizer::FogColorF fc = Rasterizer::fogColorFloat();
+                    r = r * invFog + fc.r * fogFactor;
+                    g = g * invFog + fc.g * fogFactor;
+                    b = b * invFog + fc.b * fogFactor;
                 }
 
                 vertexColors_[vi] = Vector3(r, g, b);
