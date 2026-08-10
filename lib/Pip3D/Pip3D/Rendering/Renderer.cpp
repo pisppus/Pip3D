@@ -5,6 +5,7 @@
 #include <cstring>
 #include "Rendering/Pipeline/Telemetry.hpp"
 #include "Rendering/Lighting/Deferred.hpp"
+#include "Rendering/Lighting/Fog.hpp"
 
 namespace pip3D
 {
@@ -303,11 +304,11 @@ namespace pip3D
             {
                 const Camera &cam = cameras[activeCameraIndex];
                 const float camNear = cam.nearPlane;
+
                 const float wScale = static_cast<float>(Z_DEPTH_MAX) * camNear;
                 g_wBufferScale = wScale;
                 g_wBufferInvScale = FastMath::fastReciprocal(wScale);
                 Rasterizer::g_fogState.wScale = wScale;
-                Rasterizer::g_fogState.invWScale = g_wBufferInvScale;
             }
 
             if (fogEnabled)
@@ -324,10 +325,6 @@ namespace pip3D
                 const float invWorldRange = (worldRange > 1e-4f) ? (1.0f / worldRange) : 0.0f;
                 Rasterizer::g_fogState.worldScale = invWorldRange;
                 Rasterizer::g_fogState.worldScale32 = 32.0f * invWorldRange;
-
-                Rasterizer::g_fogState.color_r = static_cast<float>((fogRGB >> 11) & 0x1F) * (1.0f / 31.0f);
-                Rasterizer::g_fogState.color_g_f = static_cast<float>((fogRGB >> 5) & 0x3F) * (1.0f / 63.0f);
-                Rasterizer::g_fogState.color_b_f = static_cast<float>(fogRGB & 0x1F) * (1.0f / 31.0f);
             }
             Rasterizer::rebuildFogLut();
         }

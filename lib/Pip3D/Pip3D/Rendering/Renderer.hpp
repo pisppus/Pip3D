@@ -18,7 +18,7 @@
 #include "Rendering/Lighting/Lighting.hpp"
 #include "Rendering/Lighting/Shadow.hpp"
 #include "Rendering/Lighting/Deferred.hpp"
-#include "Rendering/Pipeline/Rasterizer/Common.hpp"
+#include "Rendering/Lighting/Fog.hpp"
 #include "Rendering/Pipeline/Shading.hpp"
 #include "Rendering/Pipeline/Culling.hpp"
 #include "Rendering/Pipeline/MeshDraw.hpp"
@@ -309,6 +309,7 @@ namespace pip3D
 
         void setMipmapsEnabled(bool enabled) { Rasterizer::g_mipmapsEnabled = enabled; }
         bool getMipmapsEnabled() const { return Rasterizer::g_mipmapsEnabled; }
+        
         void setFogColor(const Color &color) { fogColor = color; }
         Color getFogColor() const { return fogColor; }
         void setFogLimits(float nearDist, float farDist)

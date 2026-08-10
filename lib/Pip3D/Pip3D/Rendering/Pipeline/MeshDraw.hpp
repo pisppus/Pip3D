@@ -7,7 +7,7 @@
 #include "Rendering/Buffers/ZBuffer.hpp"
 #include "Rendering/Buffers/FrameBuffer.hpp"
 #include "Rendering/Lighting/Lighting.hpp"
-#include "Rendering/Pipeline/Rasterizer/Common.hpp"
+#include "Rendering/Lighting/Fog.hpp"
 #include "Rendering/Pipeline/Rasterizer/Solid.hpp"
 #include "Rendering/Pipeline/Rasterizer/Textured.hpp"
 
