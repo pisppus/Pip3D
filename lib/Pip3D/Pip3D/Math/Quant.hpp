@@ -74,21 +74,25 @@ namespace pip3D
 
         [[nodiscard]] PIP3D_FORCE_INLINE Vector3 get() const noexcept
         {
-            const float nx = static_cast<float>(data >> 8) * kInvPack - 1.0f;
-            const float ny = static_cast<float>(data & 0xFF) * kInvPack - 1.0f;
+            float nx = static_cast<float>(data >> 8) * kInvPack - 1.0f;
+            float ny = static_cast<float>(data & 0xFF) * kInvPack - 1.0f;
             const float nz = 1.0f - fabsf(nx) - fabsf(ny);
 
-            if (unlikely(nz < 0.0f))
+            if (nz < 0.0f)
             {
-                const float sgnX = __builtin_copysignf(1.0f, nx);
-                const float sgnY = __builtin_copysignf(1.0f, ny);
-                const float ax = fabsf(nx);
-                const float ay = fabsf(ny);
-                return Vector3((1.0f - ay) * sgnX,
-                               (1.0f - ax) * sgnY,
-                               0.0f);
+                const float sgnX = (nx >= 0.0f) ? 1.0f : -1.0f;
+                const float sgnY = (ny >= 0.0f) ? 1.0f : -1.0f;
+                const float oldX = nx;
+                nx = (1.0f - fabsf(ny)) * sgnX;
+                ny = (1.0f - fabsf(oldX)) * sgnY;
             }
-            return Vector3(nx, ny, nz);
+
+            const float lenSq = nx * nx + ny * ny + nz * nz;
+            if (unlikely(lenSq < 1e-8f))
+                return Vector3(0.0f, 0.0f, 1.0f);
+
+            const float invLen = FastMath::fastInvSqrt(lenSq);
+            return Vector3(nx * invLen, ny * invLen, nz * invLen);
         }
     };
     static_assert(sizeof(PackedNormal) == 2);
