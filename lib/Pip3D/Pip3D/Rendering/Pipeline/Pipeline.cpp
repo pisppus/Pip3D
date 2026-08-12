@@ -3,25 +3,26 @@
 #include "Core/Platform.hpp"
 #include "Math/Algebra.hpp"
 #include "Camera/Camera.hpp"
-#include "Rendering/Buffers/ZBuffer.hpp"
 #include "Rendering/Buffers/FrameBuffer.hpp"
+#include "Rendering/Buffers/ZBuffer.hpp"
+#include "Rendering/Lighting/Fog.hpp"
 #include "Rendering/Lighting/Lighting.hpp"
 #include "Rendering/Pipeline/Culling.hpp"
 #include "Rendering/Pipeline/DrawCache.hpp"
 #include "Rendering/Pipeline/MeshDraw.hpp"
-#include "Rendering/Pipeline/Shading.hpp"
-#include "Rendering/Pipeline/Telemetry.hpp"
-#include "Rendering/Lighting/Fog.hpp"
 #include "Rendering/Pipeline/Rasterizer/Smooth.hpp"
 #include "Rendering/Pipeline/Rasterizer/Textured.hpp"
+#include "Rendering/Pipeline/Shading.hpp"
+#include "Rendering/Pipeline/Telemetry.hpp"
 #include "Rendering/Renderer.hpp"
 
 namespace pip3D
 {
 
-    PIP3D_HOT static int collectActiveLightsForBounds(const Vector3 &center, float radius,
-                                                      const Light *allLights, int allLightCount,
-                                                      Light *outLights, int maxLights)
+    PIP3D_HOT IRAM_ATTR static int collectActiveLightsForBounds(
+        const Vector3 &center, float radius,
+        const Light *allLights, int allLightCount,
+        Light *outLights, int maxLights)
     {
         int count = 0;
 
@@ -31,42 +32,46 @@ namespace pip3D
                 outLights[count++] = allLights[i];
         }
 
+        if (count >= maxLights)
+            return count;
+
         struct LightScore
         {
             int index;
             float score;
         };
-        LightScore scores[32];
+        LightScore scores[16];
         int scoreCount = 0;
 
-        for (int i = 0; i < allLightCount && scoreCount < 32; ++i)
+        for (int i = 0; i < allLightCount && scoreCount < 16; ++i)
         {
             const Light &l = allLights[i];
-            if (l.type == LIGHT_POINT)
-            {
-                const float dx = l.position.x - center.x;
-                const float dy = l.position.y - center.y;
-                const float dz = l.position.z - center.z;
-                const float distSq = dx * dx + dy * dy + dz * dz;
+            if (l.type != LIGHT_POINT)
+                continue;
 
-                const float maxDist = l.range + radius;
-                if (l.range > 0.0f && distSq > maxDist * maxDist)
-                    continue;
+            const float dx = l.position.x - center.x;
+            const float dy = l.position.y - center.y;
+            const float dz = l.position.z - center.z;
+            const float distSq = dx * dx + dy * dy + dz * dz;
 
-                float atten = 1.0f;
-                if (l.range > 0.0f)
-                    atten = FastMath::fastReciprocal(1.0f + distSq * l.invRangeSq);
+            const float maxDist = l.range + radius;
+            if (l.range > 0.0f && distSq > maxDist * maxDist)
+                continue;
 
-                scores[scoreCount++] = {i, l.intensity * atten};
-            }
+            float atten = 1.0f;
+            if (l.range > 0.0f)
+                atten = FastMath::fastReciprocal(1.0f + distSq * l.invRangeSq);
+
+            scores[scoreCount++] = {i, l.intensity * atten};
         }
 
-        if (scoreCount > maxLights - count)
+        const int remaining = maxLights - count;
+        if (scoreCount > remaining)
         {
 
             for (int i = 1; i < scoreCount; ++i)
             {
-                LightScore temp = scores[i];
+                const LightScore temp = scores[i];
                 int j = i - 1;
                 while (j >= 0 && scores[j].score < temp.score)
                 {
@@ -105,7 +110,6 @@ namespace pip3D
 
     void Renderer::flushQueue()
     {
-
         const size_t n = opaqueQueue_.size();
         if (n > 1)
         {
@@ -164,31 +168,31 @@ namespace pip3D
         DrawTelemetryClipVert clipped[4];
         int outCount = 0;
 
-#define PIP3D_CLIP_EDGE_T(IDX_A, IDX_B)                              \
-    {                                                                \
-        const DrawTelemetryClipVert &P0 = inVerts[IDX_A];            \
-        const DrawTelemetryClipVert &P1 = inVerts[IDX_B];            \
-        const float d0 = P0.d;                                       \
-        const float d1 = P1.d;                                       \
-        const bool in0 = d0 >= nearD;                                \
-        const bool in1 = d1 >= nearD;                                \
-        if (in0 && in1)                                              \
-            clipped[outCount++] = P1;                                \
-        else if (in0 != in1)                                         \
-        {                                                            \
-            const float denom = d1 - d0;                             \
-            float t = (fabsf(denom) < 1e-6f) ? 0.0f                  \
-                                             : (nearD - d0) / denom; \
-            t = clamp(t, 0.0f, 1.0f);                                \
-            DrawTelemetryClipVert ip = lerpClipVert(P0, P1, t);      \
-            if (in0)                                                 \
-                clipped[outCount++] = ip;                            \
-            else                                                     \
-            {                                                        \
-                clipped[outCount++] = ip;                            \
-                clipped[outCount++] = P1;                            \
-            }                                                        \
-        }                                                            \
+#define PIP3D_CLIP_EDGE_T(IDX_A, IDX_B)                               \
+    {                                                                 \
+        const DrawTelemetryClipVert &P0 = inVerts[IDX_A];             \
+        const DrawTelemetryClipVert &P1 = inVerts[IDX_B];             \
+        const float d0 = P0.d;                                        \
+        const float d1 = P1.d;                                        \
+        const bool in0 = d0 >= nearD;                                 \
+        const bool in1 = d1 >= nearD;                                 \
+        if (in0 && in1)                                               \
+            clipped[outCount++] = P1;                                 \
+        else if (in0 != in1)                                          \
+        {                                                             \
+            const float denom = d1 - d0;                              \
+            float t = (fabsf(denom) < 1e-6f) ? 0.0f                   \
+                                             : (nearD - d0) / denom;  \
+            t = clamp(t, 0.0f, 1.0f);                                 \
+            const DrawTelemetryClipVert ip = lerpClipVert(P0, P1, t); \
+            if (in0)                                                  \
+                clipped[outCount++] = ip;                             \
+            else                                                      \
+            {                                                         \
+                clipped[outCount++] = ip;                             \
+                clipped[outCount++] = P1;                             \
+            }                                                         \
+        }                                                             \
     }
         PIP3D_CLIP_EDGE_T(0, 1);
         PIP3D_CLIP_EDGE_T(1, 2);
@@ -286,8 +290,8 @@ namespace pip3D
         if (!mesh)
             return;
 
-        Vector3 center = instance->center();
-        float radius = instance->radius();
+        const Vector3 center = instance->center();
+        const float radius = instance->radius();
 
         if (performFrustumCull)
         {
@@ -344,28 +348,22 @@ namespace pip3D
         const Matrix4x4 &worldTransform = instance->transform();
         const Vertex *PIP3D_RESTRICT vbase = mesh->vertexData();
 
-        const auto &fog = Rasterizer::g_fogState;
-
         if (useUniformColor)
         {
+            NormalMatrix nmUniform(worldTransform);
+            const Vector3 localNormal = (mesh->numVertices() > 0) ? vbase[0].normal.get() : Vector3(0.0f, 1.0f, 0.0f);
+            const Vector3 worldNormal = nmUniform.transform(localNormal);
 
-            NormalMatrix nm(worldTransform);
-            Vector3 localNormal = (mesh->numVertices() > 0) ? vbase[0].normal.get() : Vector3(0.0f, 1.0f, 0.0f);
-            Vector3 worldNormal = nm.transform(localNormal);
+            float litR, litG, litB;
+            Shading::calculateLambert(worldNormal, localLights, localLightCount,
+                                      baseR, baseG, baseB,
+                                      litR, litG, litB);
 
             const float vx = cam.position.x - center.x;
             const float vy = cam.position.y - center.y;
             const float vz = cam.position.z - center.z;
             const float viewDistSq = vx * vx + vy * vy + vz * vz;
             const float invLen = (viewDistSq > 1e-8f) ? FastMath::fastInvSqrt(viewDistSq) : 0.0f;
-            const Vector3 viewDir(vx * invLen, vy * invLen, vz * invLen);
-
-            float litR, litG, litB;
-            Shading::calculateLighting(center, worldNormal, viewDir,
-                                       localLights, localLightCount,
-                                       baseR, baseG, baseB,
-                                       litR, litG, litB, true);
-
             const float dist = viewDistSq * invLen;
             Shading::applyFog(dist, litR, litG, litB, litR, litG, litB);
 
@@ -410,12 +408,14 @@ namespace pip3D
         const float nearClip = nearPlane + kNearClipEps;
         const bool isTextured = mesh->isTextured();
         const bool doBackfaceCull = backfaceCullingEnabled;
-        const bool gouraudShading = (shadingMode == SHADING_GOURAUD) && !useUniformColor;
-        const uint32_t currentFrame = g_frameStamp;
+
+        const ShadingMode effectiveShading =
+            instance->getEffectiveShadingMode(shadingMode);
+        const bool gouraudShading = (effectiveShading == SHADING_GOURAUD) && !useUniformColor;
+        const bool phongShading =
+            (effectiveShading == SHADING_PHONG) && !useUniformColor && !isTextured;
 
         const Texture *const meshTexture = isTextured ? mesh->getTexture() : nullptr;
-
-        NormalMatrix nmGouraud(worldTransform);
 
         if (likely(worldVerts))
         {
@@ -424,7 +424,6 @@ namespace pip3D
 
             if (projState == DrawCache::ProjState::NeedsTransformAndProject)
             {
-
                 for (uint16_t i = 0; i < vertexCountUsed; ++i)
                 {
                     const Vector3 local = mesh->decodePosition(vbase[i]);
@@ -438,7 +437,6 @@ namespace pip3D
             }
             else if (projState == DrawCache::ProjState::NeedsReproject)
             {
-
                 for (uint16_t i = 0; i < vertexCountUsed; ++i)
                 {
                     screenVerts[i] = CameraController::project(worldVerts[i], viewProjMatrix,
@@ -449,45 +447,43 @@ namespace pip3D
             }
         }
 
-        if (gouraudShading)
+        Vector3 *PIP3D_RESTRICT worldNormals = nullptr;
+        if (gouraudShading || phongShading)
         {
-            if (vertexColors_.size() < vertexCountUsed)
-                vertexColors_.resize(vertexCountUsed);
+            NormalMatrix nmGouraud(worldTransform);
 
-            for (uint16_t vi = 0; vi < vertexCountUsed; ++vi)
+            if (gouraudShading)
             {
-                Vector3 localNormal = vbase[vi].normal.get();
-                Vector3 worldNormal = nmGouraud.transform(localNormal);
+                if (vertexColors_.size() < vertexCountUsed)
+                    vertexColors_.resize(vertexCountUsed);
 
-                const Vector3 v = worldVerts ? worldVerts[vi]
-                                             : worldTransform.transformNoDiv(localVerts[vi]);
-
-                const float vvx = camPos.x - v.x;
-                const float vvy = camPos.y - v.y;
-                const float vvz = camPos.z - v.z;
-                const float vDistSq = vvx * vvx + vvy * vvy + vvz * vvz;
-                const float vInvLen = (vDistSq > 1e-8f) ? FastMath::fastInvSqrt(vDistSq) : 0.0f;
-                const Vector3 viewDir(vvx * vInvLen, vvy * vInvLen, vvz * vInvLen);
-
-                float r, g, b;
-                Shading::calculateLighting(v, worldNormal, viewDir,
-                                           localLights, localLightCount,
-                                           baseR, baseG, baseB, r, g, b);
-
-                if (fog.enabled)
+                for (uint16_t vi = 0; vi < vertexCountUsed; ++vi)
                 {
-                    const float dist = vDistSq * vInvLen;
-                    float fogFactor = (dist - fog.worldNear) * fog.worldScale;
-                    fogFactor = clamp(fogFactor, 0.0f, 1.0f);
-                    const float invFog = 1.0f - fogFactor;
+                    const Vector3 localNormal = vbase[vi].normal.get();
+                    const Vector3 worldNormal = nmGouraud.transform(localNormal);
 
-                    const Rasterizer::FogColorF fc = Rasterizer::fogColorFloat();
-                    r = r * invFog + fc.r * fogFactor;
-                    g = g * invFog + fc.g * fogFactor;
-                    b = b * invFog + fc.b * fogFactor;
+                    const Vector3 v = worldVerts ? worldVerts[vi]
+                                                 : worldTransform.transformNoDiv(localVerts[vi]);
+
+                    float r, g, b;
+                    Shading::calculateVertexLightingGouraud(
+                        v, worldNormal, camPos,
+                        localLights, localLightCount,
+                        baseR, baseG, baseB, r, g, b);
+
+                    vertexColors_[vi] = Vector3(r, g, b);
                 }
+            }
 
-                vertexColors_[vi] = Vector3(r, g, b);
+            if (phongShading)
+            {
+                worldNormals = static_cast<Vector3 *>(
+                    alloca(vertexCountUsed * sizeof(Vector3)));
+                for (uint16_t vi = 0; vi < vertexCountUsed; ++vi)
+                {
+                    const Vector3 localNormal = vbase[vi].normal.get();
+                    worldNormals[vi] = nmGouraud.transform(localNormal);
+                }
             }
         }
 
@@ -502,7 +498,6 @@ namespace pip3D
             const Face &face = fbase[i];
 
             Vector3 v0, v1, v2;
-
             if (likely(worldVerts))
             {
                 v0 = worldVerts[face.v0];
@@ -525,7 +520,7 @@ namespace pip3D
                 statsTrianglesBackfaceCulled++;
 #if PIP3D_ENABLE_DRAW_TELEMETRY
                 g_drawTelemetry.recordSkip(
-                    SkipReason::NEAR_FULLY, currentFrame, i, mesh,
+                    SkipReason::NEAR_FULLY, frameStamp, i, mesh,
                     d0, d1, d2, 0.0f, 0, 0, 0, 0, 0, 0, 0,
                     v0.x, v0.y, v0.z, camPos.x, camPos.y, camPos.z,
                     camFwd.x, camFwd.y, camFwd.z, nearPlane, bandTop, bandBottom,
@@ -538,7 +533,6 @@ namespace pip3D
 
             if (doBackfaceCull)
             {
-
                 const float e1x = v1.x - v0.x, e1y = v1.y - v0.y, e1z = v1.z - v0.z;
                 const float e2x = v2.x - v0.x, e2y = v2.y - v0.y, e2z = v2.z - v0.z;
                 const float nx = e1y * e2z - e1z * e2y;
@@ -553,7 +547,7 @@ namespace pip3D
                     statsTrianglesBackfaceCulled++;
 #if PIP3D_ENABLE_DRAW_TELEMETRY
                     g_drawTelemetry.recordSkip(
-                        SkipReason::BACKFACE, currentFrame, i, mesh,
+                        SkipReason::BACKFACE, frameStamp, i, mesh,
                         d0, d1, d2, 0.0f, 0, 0, 0, 0, 0, 0, 0,
                         v0.x, v0.y, v0.z, camPos.x, camPos.y, camPos.z,
                         camFwd.x, camFwd.y, camFwd.z, nearPlane, bandTop, bandBottom,
@@ -564,7 +558,6 @@ namespace pip3D
             }
 
             Vector3 p0, p1, p2;
-
             if (likely(screenVerts))
             {
                 p0 = screenVerts[face.v0];
@@ -587,7 +580,7 @@ namespace pip3D
                     statsTrianglesBackfaceCulled++;
 #if PIP3D_ENABLE_DRAW_TELEMETRY
                     g_drawTelemetry.recordSkip(
-                        SkipReason::DEGENERATE, currentFrame, i, mesh,
+                        SkipReason::DEGENERATE, frameStamp, i, mesh,
                         d0, d1, d2, area,
                         p0.x, p0.y, p0.z, p1.x, p1.y, p2.x, p2.y,
                         v0.x, v0.y, v0.z, camPos.x, camPos.y, camPos.z,
@@ -607,48 +600,23 @@ namespace pip3D
                 float lr0, lg0, lb0, lr1, lg1, lb1, lr2, lg2, lb2;
                 if (gouraudShading)
                 {
-
-                    {
-                        const float vdx = camPos.x - v0.x;
-                        const float vdy = camPos.y - v0.y;
-                        const float vdz = camPos.z - v0.z;
-                        const float vdsq = vdx * vdx + vdy * vdy + vdz * vdz;
-                        const float vil = (vdsq > 1e-8f) ? FastMath::fastInvSqrt(vdsq) : 0.0f;
-                        const Vector3 viewDir0(vdx * vil, vdy * vil, vdz * vil);
-                        const Vector3 n0 = nmGouraud.transform(vert0.normal.get());
-                        Shading::calculateLighting(v0, n0, viewDir0,
-                                                   localLights, localLightCount,
-                                                   baseR, baseG, baseB, lr0, lg0, lb0);
-                    }
-                    {
-                        const float vdx = camPos.x - v1.x;
-                        const float vdy = camPos.y - v1.y;
-                        const float vdz = camPos.z - v1.z;
-                        const float vdsq = vdx * vdx + vdy * vdy + vdz * vdz;
-                        const float vil = (vdsq > 1e-8f) ? FastMath::fastInvSqrt(vdsq) : 0.0f;
-                        const Vector3 viewDir1(vdx * vil, vdy * vil, vdz * vil);
-                        const Vector3 n1 = nmGouraud.transform(vert1.normal.get());
-                        Shading::calculateLighting(v1, n1, viewDir1,
-                                                   localLights, localLightCount,
-                                                   baseR, baseG, baseB, lr1, lg1, lb1);
-                    }
-                    {
-                        const float vdx = camPos.x - v2.x;
-                        const float vdy = camPos.y - v2.y;
-                        const float vdz = camPos.z - v2.z;
-                        const float vdsq = vdx * vdx + vdy * vdy + vdz * vdz;
-                        const float vil = (vdsq > 1e-8f) ? FastMath::fastInvSqrt(vdsq) : 0.0f;
-                        const Vector3 viewDir2(vdx * vil, vdy * vil, vdz * vil);
-                        const Vector3 n2 = nmGouraud.transform(vert2.normal.get());
-                        Shading::calculateLighting(v2, n2, viewDir2,
-                                                   localLights, localLightCount,
-                                                   baseR, baseG, baseB, lr2, lg2, lb2);
-                    }
+                    const Vector3 &cv0 = vertexColors_[face.v0];
+                    const Vector3 &cv1 = vertexColors_[face.v1];
+                    const Vector3 &cv2 = vertexColors_[face.v2];
+                    lr0 = cv0.x;
+                    lg0 = cv0.y;
+                    lb0 = cv0.z;
+                    lr1 = cv1.x;
+                    lg1 = cv1.y;
+                    lb1 = cv1.z;
+                    lr2 = cv2.x;
+                    lg2 = cv2.y;
+                    lb2 = cv2.z;
                 }
                 else
                 {
 
-                    Shading::calculateFaceLightingWithFog(
+                    Shading::calculateFaceLighting(
                         v0, v1, v2, camPos,
                         localLights, localLightCount,
                         baseR, baseG, baseB,
@@ -663,7 +631,6 @@ namespace pip3D
 
                 if (!partiallyClipped)
                 {
-
                     Rasterizer::fillTriangleTextured(
                         p0.x, p0.y - bandTopF, p0.z,
                         p1.x, p1.y - bandTopF, p1.z,
@@ -685,7 +652,8 @@ namespace pip3D
                 }
                 else
                 {
-                    DrawTelemetryClipVert cv[3] = {
+
+                    const DrawTelemetryClipVert cv[3] = {
                         {v0, vert0.tu, vert0.tv, d0, lr0, lg0, lb0},
                         {v1, vert1.tu, vert1.tv, d1, lr1, lg1, lb1},
                         {v2, vert2.tu, vert2.tv, d2, lr2, lg2, lb2}};
@@ -694,13 +662,13 @@ namespace pip3D
                         cam, viewport, viewProjMatrix,
                         framebuffer, &zBuffer,
                         *meshTexture,
-                        mesh, i, currentFrame);
+                        mesh, i, frameStamp);
 #if PIP3D_ENABLE_DRAW_TELEMETRY
                     if (drew)
                         g_drawTelemetry.facesDrawnClipped++;
                     else
                         g_drawTelemetry.recordSkip(
-                            SkipReason::CLIP_OUTCOUNT_LT3, currentFrame, i, mesh,
+                            SkipReason::CLIP_OUTCOUNT_LT3, frameStamp, i, mesh,
                             d0, d1, d2, 0.0f, 0, 0, 0, 0, 0, 0, 0,
                             v0.x, v0.y, v0.z, camPos.x, camPos.y, camPos.z,
                             camFwd.x, camFwd.y, camFwd.z, nearPlane, bandTop, bandBottom,
@@ -712,7 +680,6 @@ namespace pip3D
 
             if (!partiallyClipped)
             {
-
                 const float minY = (p0.y < p1.y) ? ((p0.y < p2.y) ? p0.y : p2.y)
                                                  : ((p1.y < p2.y) ? p1.y : p2.y);
                 const float maxY = (p0.y > p1.y) ? ((p0.y > p2.y) ? p0.y : p2.y)
@@ -726,6 +693,35 @@ namespace pip3D
                                                  : ((p1.x > p2.x) ? p1.x : p2.x);
                 if (maxX < 0.0f || minX >= viewportWidth)
                     continue;
+            }
+
+            if (phongShading && !partiallyClipped)
+            {
+                const Vector3 &n0 = worldNormals[face.v0];
+                const Vector3 &n1 = worldNormals[face.v1];
+                const Vector3 &n2 = worldNormals[face.v2];
+
+                Rasterizer::fillTrianglePhong(
+                    (int16_t)p0.x, (int16_t)(p0.y - bandTopF), p0.z,
+                    (int16_t)p1.x, (int16_t)(p1.y - bandTopF), p1.z,
+                    (int16_t)p2.x, (int16_t)(p2.y - bandTopF), p2.z,
+                    v0.x, v0.y, v0.z,
+                    v1.x, v1.y, v1.z,
+                    v2.x, v2.y, v2.z,
+                    n0.x, n0.y, n0.z,
+                    n1.x, n1.y, n1.z,
+                    n2.x, n2.y, n2.z,
+                    d0, d1, d2,
+                    baseR, baseG, baseB,
+                    camPos,
+                    localLights, localLightCount,
+                    framebuffer.getBuffer(),
+                    &zBuffer,
+                    framebufferConfig);
+#if PIP3D_ENABLE_DRAW_TELEMETRY
+                g_drawTelemetry.facesDrawnTextured++;
+#endif
+                continue;
             }
 
             if (gouraudShading && !partiallyClipped)

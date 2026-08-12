@@ -217,11 +217,10 @@ namespace pip3D
             if (faceNormal.dot(viewDir) < 0.0f)
                 faceNormal = -faceNormal;
 
-            Shading::calculateLighting(
-                position, faceNormal, viewDir,
-                nullptr, 0,
+            Shading::calculateLambert(
+                faceNormal, nullptr, 0,
                 baseR, baseG, baseB,
-                outQuad.litR, outQuad.litG, outQuad.litB, true);
+                outQuad.litR, outQuad.litG, outQuad.litB);
         }
         else
         {
