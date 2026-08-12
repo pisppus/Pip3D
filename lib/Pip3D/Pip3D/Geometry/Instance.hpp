@@ -4,6 +4,7 @@
 #include "Math/Algebra.hpp"
 #include "Geometry/Mesh.hpp"
 #include "Rendering/Pipeline/DrawCache.hpp"
+#include "Rendering/Pipeline/Shading.hpp"
 
 namespace pip3D
 {
@@ -22,13 +23,13 @@ namespace pip3D
               cachedWorldCenter(0.0f, 0.0f, 0.0f),
               scale(1.0f, 1.0f, 1.0f),
               rotation(0.0f, 0.0f, 0.0f, 1.0f),
-              rotationValid(true)
+              rotationValid(true),
+              shadingOverride_(-1)
         {
             localTransform.reset();
         }
 
         ~MeshInstance() = default;
-
         MeshInstance(const MeshInstance &) = delete;
         MeshInstance &operator=(const MeshInstance &) = delete;
         MeshInstance(MeshInstance &&) = delete;
@@ -39,27 +40,48 @@ namespace pip3D
             sourceMesh = mesh;
             invalidateTransform();
         }
-
         PIP3D_FORCE_INLINE Mesh *getMesh() const { return sourceMesh; }
+        PIP3D_FORCE_INLINE void setColor(const Color &c) { instanceColor = c; }
+        PIP3D_FORCE_INLINE Color color() const { return instanceColor; }
+
+        PIP3D_FORCE_INLINE void setVisible(bool v)
+        {
+            if (v)
+                stateFlags |= kFlagVisible;
+            else
+                stateFlags &= ~kFlagVisible;
+        }
+        PIP3D_FORCE_INLINE bool isVisible() const
+        {
+            return (stateFlags & kFlagVisible) != 0 && sourceMesh;
+        }
+        PIP3D_FORCE_INLINE void setBlobShadow(bool enabled)
+        {
+            if (enabled)
+                stateFlags |= kFlagBlobShadow;
+            else
+                stateFlags &= ~kFlagBlobShadow;
+        }
+        PIP3D_FORCE_INLINE bool getBlobShadow() const
+        {
+            return (stateFlags & kFlagBlobShadow) != 0;
+        }
 
         void setPosition(const Vector3 &pos)
         {
             position = pos;
             invalidateTransform();
         }
-
         PIP3D_FORCE_INLINE void setPosition(float x, float y, float z)
         {
             setPosition(Vector3(x, y, z));
         }
-
         void setRotation(const Quaternion &rot)
         {
             rotation = rot;
             rotationValid = true;
             invalidateTransform();
         }
-
         void setEuler(float pitchDeg, float yawDeg, float rollDeg)
         {
             rotation = Quaternion::fromEuler(pitchDeg * kDegToRad,
@@ -68,14 +90,12 @@ namespace pip3D
             rotationValid = true;
             invalidateTransform();
         }
-
         void setScale(const Vector3 &scl)
         {
             scale = scl;
             cachedMaxAbsScale = computeMaxAbsScale(scl);
             invalidateTransform();
         }
-
         PIP3D_FORCE_INLINE void setTransform(const Vector3 &pos,
                                              const Quaternion &rot,
                                              const Vector3 &scl)
@@ -87,7 +107,6 @@ namespace pip3D
             cachedMaxAbsScale = computeMaxAbsScale(scl);
             invalidateTransform();
         }
-
         PIP3D_FORCE_INLINE void setTransformPRS(const Vector3 &pos,
                                                 float pitchDeg,
                                                 float yawDeg,
@@ -120,38 +139,30 @@ namespace pip3D
             ++transformVersion;
         }
 
-        PIP3D_FORCE_INLINE void setColor(const Color &c) { instanceColor = c; }
-        PIP3D_FORCE_INLINE Color color() const { return instanceColor; }
-
-        PIP3D_FORCE_INLINE void setBlobShadow(bool enabled)
+        PIP3D_FORCE_INLINE void setShadingOverride(ShadingMode mode)
         {
-            if (enabled)
-                stateFlags |= kFlagBlobShadow;
-            else
-                stateFlags &= ~kFlagBlobShadow;
+            shadingOverride_ = static_cast<int8_t>(mode);
         }
-        PIP3D_FORCE_INLINE bool getBlobShadow() const { return (stateFlags & kFlagBlobShadow) != 0; }
-
-        PIP3D_FORCE_INLINE void setVisible(bool v)
+        PIP3D_FORCE_INLINE void clearShadingOverride()
         {
-            if (v)
-                stateFlags |= kFlagVisible;
-            else
-                stateFlags &= ~kFlagVisible;
+            shadingOverride_ = -1;
         }
-        PIP3D_FORCE_INLINE bool isVisible() const
+        PIP3D_FORCE_INLINE bool hasShadingOverride() const
         {
-            return (stateFlags & kFlagVisible) != 0 && sourceMesh;
+            return shadingOverride_ >= 0;
+        }
+        PIP3D_FORCE_INLINE ShadingMode getEffectiveShadingMode(ShadingMode globalMode) const
+        {
+            return (shadingOverride_ >= 0)
+                       ? static_cast<ShadingMode>(shadingOverride_)
+                       : globalMode;
         }
 
         PIP3D_FORCE_INLINE const Vector3 &pos() const { return position; }
         PIP3D_FORCE_INLINE const Vector3 &getScale() const { return scale; }
-
         PIP3D_FORCE_INLINE const Quaternion &getRotation() const { return rotation; }
         PIP3D_FORCE_INLINE bool isRotationValid() const { return rotationValid; }
-
         PIP3D_FORCE_INLINE uint32_t version() const { return transformVersion; }
-
         PIP3D_FORCE_INLINE DrawCache &drawCache() noexcept { return drawCache_; }
         PIP3D_FORCE_INLINE const DrawCache &drawCache() const noexcept { return drawCache_; }
 
@@ -161,14 +172,12 @@ namespace pip3D
                 updateTransform();
             return localTransform;
         }
-
         PIP3D_FORCE_INLINE const Vector3 &center() const
         {
             if (unlikely(cacheFlags & kFlagBoundsDirty))
                 updateBounds();
             return cachedWorldCenter;
         }
-
         PIP3D_FORCE_INLINE float radius() const
         {
             if (unlikely(cacheFlags & kFlagBoundsDirty))
@@ -196,6 +205,7 @@ namespace pip3D
         bool rotationValid;
         mutable Matrix4x4 localTransform;
         DrawCache drawCache_;
+        int8_t shadingOverride_;
 
         PIP3D_FORCE_INLINE void invalidateTransform()
         {

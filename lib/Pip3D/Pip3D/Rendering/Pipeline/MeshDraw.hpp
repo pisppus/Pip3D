@@ -142,7 +142,7 @@ namespace pip3D
             {
 
                 float finalR, finalG, finalB;
-                Shading::calculateFaceLightingWithFog(
+                Shading::calculateFaceLighting(
                     v0, v1, v2, camPos,
                     lights, activeLightCount,
                     baseR, baseG, baseB,
