@@ -24,7 +24,11 @@ namespace pip3D
               scale(1.0f, 1.0f, 1.0f),
               rotation(0.0f, 0.0f, 0.0f, 1.0f),
               rotationValid(true),
-              shadingOverride_(-1)
+              shadingOverride_(-1),
+              emissiveColor_(Color::WHITE),
+              emissiveIntensity_(1.0f),
+              emissiveShape_(255),
+              emissiveBoxSize_(0.0f, 0.0f, 0.0f)
         {
             localTransform.reset();
         }
@@ -55,6 +59,7 @@ namespace pip3D
         {
             return (stateFlags & kFlagVisible) != 0 && sourceMesh;
         }
+
         PIP3D_FORCE_INLINE void setBlobShadow(bool enabled)
         {
             if (enabled)
@@ -66,6 +71,43 @@ namespace pip3D
         {
             return (stateFlags & kFlagBlobShadow) != 0;
         }
+
+        PIP3D_FORCE_INLINE void setEmissive(bool enabled,
+                                            Color glowColor = Color::WHITE,
+                                            float intensity = 1.2f,
+                                            uint8_t shapeMode = 255)
+        {
+            if (enabled)
+                stateFlags |= kFlagEmissive;
+            else
+                stateFlags &= ~kFlagEmissive;
+
+            emissiveColor_ = glowColor;
+            emissiveIntensity_ = intensity;
+            emissiveShape_ = shapeMode;
+        }
+
+        PIP3D_FORCE_INLINE void setEmissiveBoxSize(float w, float h, float d = 0.0f)
+        {
+            emissiveBoxSize_ = Vector3(w, h, d);
+        }
+        PIP3D_FORCE_INLINE void setEmissiveBoxSize(const Vector3 &whd)
+        {
+            emissiveBoxSize_ = whd;
+        }
+        PIP3D_FORCE_INLINE const Vector3 &emissiveBoxSize() const
+        {
+            return emissiveBoxSize_;
+        }
+
+        PIP3D_FORCE_INLINE bool isEmissive() const
+        {
+            return (stateFlags & kFlagEmissive) != 0 && sourceMesh && isVisible();
+        }
+
+        PIP3D_FORCE_INLINE Color emissiveColor() const { return emissiveColor_; }
+        PIP3D_FORCE_INLINE float emissiveIntensity() const { return emissiveIntensity_; }
+        PIP3D_FORCE_INLINE uint8_t emissiveShape() const { return emissiveShape_; }
 
         void setPosition(const Vector3 &pos)
         {
@@ -190,6 +232,7 @@ namespace pip3D
         static constexpr uint8_t kFlagBoundsDirty = 0x02;
         static constexpr uint8_t kFlagVisible = 0x10;
         static constexpr uint8_t kFlagBlobShadow = 0x20;
+        static constexpr uint8_t kFlagEmissive = 0x40;
 
         Mesh *sourceMesh;
         Color instanceColor;
@@ -206,6 +249,11 @@ namespace pip3D
         mutable Matrix4x4 localTransform;
         DrawCache drawCache_;
         int8_t shadingOverride_;
+
+        Color emissiveColor_;
+        float emissiveIntensity_;
+        uint8_t emissiveShape_;
+        Vector3 emissiveBoxSize_;
 
         PIP3D_FORCE_INLINE void invalidateTransform()
         {

@@ -105,6 +105,9 @@ namespace pip3D
                 shadowQueue_.push_back(instance);
         }
 
+        if (instance->isEmissive())
+            emissiveQueue_.push_back(instance);
+
         opaqueQueue_.push_back(instance);
     }
 
@@ -338,7 +341,8 @@ namespace pip3D
         float baseR, baseG, baseB;
         MeshRenderer::decodeColorToFloat(instColor565, baseR, baseG, baseB);
 
-        const bool useUniformColor = mesh->getSingleColorLighting();
+        const bool isEmissiveInst = instance->isEmissive();
+        const bool useUniformColor = mesh->getSingleColorLighting() || isEmissiveInst;
         uint16_t uniformColor = 0;
 
         Light localLights[4];
@@ -350,24 +354,31 @@ namespace pip3D
 
         if (useUniformColor)
         {
-            NormalMatrix nmUniform(worldTransform);
-            const Vector3 localNormal = (mesh->numVertices() > 0) ? vbase[0].normal.get() : Vector3(0.0f, 1.0f, 0.0f);
-            const Vector3 worldNormal = nmUniform.transform(localNormal);
+            if (isEmissiveInst)
+            {
+                uniformColor = instance->color().rgb565;
+            }
+            else
+            {
+                NormalMatrix nmUniform(worldTransform);
+                const Vector3 localNormal = (mesh->numVertices() > 0) ? vbase[0].normal.get() : Vector3(0.0f, 1.0f, 0.0f);
+                const Vector3 worldNormal = nmUniform.transform(localNormal);
 
-            float litR, litG, litB;
-            Shading::calculateLambert(worldNormal, localLights, localLightCount,
-                                      baseR, baseG, baseB,
-                                      litR, litG, litB);
+                float litR, litG, litB;
+                Shading::calculateLambert(worldNormal, localLights, localLightCount,
+                                          baseR, baseG, baseB,
+                                          litR, litG, litB);
 
-            const float vx = cam.position.x - center.x;
-            const float vy = cam.position.y - center.y;
-            const float vz = cam.position.z - center.z;
-            const float viewDistSq = vx * vx + vy * vy + vz * vz;
-            const float invLen = (viewDistSq > 1e-8f) ? FastMath::fastInvSqrt(viewDistSq) : 0.0f;
-            const float dist = viewDistSq * invLen;
-            Shading::applyFog(dist, litR, litG, litB, litR, litG, litB);
+                const float vx = cam.position.x - center.x;
+                const float vy = cam.position.y - center.y;
+                const float vz = cam.position.z - center.z;
+                const float viewDistSq = vx * vx + vy * vy + vz * vz;
+                const float invLen = (viewDistSq > 1e-8f) ? FastMath::fastInvSqrt(viewDistSq) : 0.0f;
+                const float dist = viewDistSq * invLen;
+                Shading::applyFog(dist, litR, litG, litB, litR, litG, litB);
 
-            uniformColor = Color::fromFloat(litR, litG, litB).rgb565;
+                uniformColor = Color::fromFloat(litR, litG, litB).rgb565;
+            }
         }
 
         const uint16_t vertexCountUsed = mesh->numVertices();

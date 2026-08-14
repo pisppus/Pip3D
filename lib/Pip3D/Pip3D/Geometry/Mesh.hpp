@@ -43,6 +43,7 @@ namespace pip3D
         static constexpr float kQScaleFactor = 0.5f * (1.0f / 32767.0f);
 
         PIP3D_COLD void calculateBoundingSphere() const;
+        PIP3D_COLD void recomputeHalfExtentsFromVertices() const;
 
         PIP3D_COLD void cleanup()
         {
@@ -59,6 +60,7 @@ namespace pip3D
         mutable uint8_t flags_;
         mutable Vector3 boundsCenter_;
         mutable float boundsRadius_;
+        mutable Vector3 boundsHalfExtents_;
         const Texture *meshTexture_;
         uint16_t maxVertices_;
         uint16_t maxFaces_;
@@ -74,6 +76,7 @@ namespace pip3D
               flags_(kFlagCastShadows),
               boundsCenter_(0.0f, 0.0f, 0.0f),
               boundsRadius_(0.0f),
+              boundsHalfExtents_(0.0f, 0.0f, 0.0f),
               meshTexture_(nullptr),
               maxVertices_(maxVerts), maxFaces_(maxFaces),
               deleter_(&defaultDeleter)
@@ -106,6 +109,7 @@ namespace pip3D
               flags_(kFlagCastShadows | (staticStorage ? kFlagStaticStorage : 0u)),
               boundsCenter_(0.0f, 0.0f, 0.0f),
               boundsRadius_(0.0f),
+              boundsHalfExtents_(0.0f, 0.0f, 0.0f),
               meshTexture_(nullptr),
               maxVertices_(vertCount), maxFaces_(faceCountIn),
               deleter_(&defaultDeleter)
@@ -185,6 +189,20 @@ namespace pip3D
             outRadius = boundsRadius_;
         }
 
+        PIP3D_FORCE_INLINE void getLocalExtents(Vector3 &outHalfExtents) const
+        {
+            if (unlikely(!(flags_ & kFlagBoundsValid)))
+                calculateBoundingSphere();
+            if (boundsHalfExtents_.x == 0.0f &&
+                boundsHalfExtents_.y == 0.0f &&
+                boundsHalfExtents_.z == 0.0f &&
+                boundsRadius_ > 1e-4f)
+            {
+                recomputeHalfExtentsFromVertices();
+            }
+            outHalfExtents = boundsHalfExtents_;
+        }
+
         [[nodiscard]] PIP3D_FORCE_INLINE const Vector3 &center() const
         {
             if (unlikely(!(flags_ & kFlagBoundsValid)))
@@ -221,7 +239,7 @@ namespace pip3D
         [[nodiscard]] PIP3D_FORCE_INLINE bool isTextured() const { return meshTexture_ != nullptr; }
     };
 
-    static_assert(sizeof(void*) == 4 ? sizeof(Mesh) == 48 : true);
+    static_assert(sizeof(void *) == 4 ? sizeof(Mesh) == 60 : true);
 
     PIP3D_COLD inline void Mesh::calculateBoundingSphere() const
     {
@@ -229,6 +247,7 @@ namespace pip3D
         {
             boundsCenter_ = Vector3(0.0f, 0.0f, 0.0f);
             boundsRadius_ = 0.0f;
+            boundsHalfExtents_ = Vector3(0.0f, 0.0f, 0.0f);
             flags_ |= kFlagBoundsValid;
             return;
         }
@@ -237,27 +256,54 @@ namespace pip3D
         const uint16_t vN = vertexCount_;
         const float scale = qScale_;
 
+        float minX = 1e30f, maxX = -1e30f;
+        float minY = 1e30f, maxY = -1e30f;
+        float minZ = 1e30f, maxZ = -1e30f;
+
         uint16_t iMinX = 0, iMaxX = 0;
         uint16_t iMinY = 0, iMaxY = 0;
         uint16_t iMinZ = 0, iMaxZ = 0;
-        for (uint16_t i = 1; i < vN; ++i)
+        for (uint16_t i = 0; i < vN; ++i)
         {
             const int16_t x = vPtr[i].px;
             const int16_t y = vPtr[i].py;
             const int16_t z = vPtr[i].pz;
-            if (x < vPtr[iMinX].px)
-                iMinX = i;
-            if (x > vPtr[iMaxX].px)
-                iMaxX = i;
-            if (y < vPtr[iMinY].py)
-                iMinY = i;
-            if (y > vPtr[iMaxY].py)
-                iMaxY = i;
-            if (z < vPtr[iMinZ].pz)
-                iMinZ = i;
-            if (z > vPtr[iMaxZ].pz)
-                iMaxZ = i;
+            const float fx = float(x) * scale;
+            const float fy = float(y) * scale;
+            const float fz = float(z) * scale;
+
+            if (i > 0)
+            {
+                if (x < vPtr[iMinX].px)
+                    iMinX = i;
+                if (x > vPtr[iMaxX].px)
+                    iMaxX = i;
+                if (y < vPtr[iMinY].py)
+                    iMinY = i;
+                if (y > vPtr[iMaxY].py)
+                    iMaxY = i;
+                if (z < vPtr[iMinZ].pz)
+                    iMinZ = i;
+                if (z > vPtr[iMaxZ].pz)
+                    iMaxZ = i;
+            }
+
+            if (fx < minX)
+                minX = fx;
+            if (fx > maxX)
+                maxX = fx;
+            if (fy < minY)
+                minY = fy;
+            if (fy > maxY)
+                maxY = fy;
+            if (fz < minZ)
+                minZ = fz;
+            if (fz > maxZ)
+                maxZ = fz;
         }
+        boundsHalfExtents_ = Vector3((maxX - minX) * 0.5f,
+                                     (maxY - minY) * 0.5f,
+                                     (maxZ - minZ) * 0.5f);
 
         const Vector3 extremes[6] = {
             Vector3(float(vPtr[iMinX].px) * scale, float(vPtr[iMinX].py) * scale, float(vPtr[iMinX].pz) * scale),
@@ -316,4 +362,34 @@ namespace pip3D
         flags_ |= kFlagBoundsValid;
     }
 
+    PIP3D_COLD inline void Mesh::recomputeHalfExtentsFromVertices() const
+    {
+        if (!vertices_ || vertexCount_ == 0)
+            return;
+        const float scale = qScale_;
+        float minX = 1e30f, maxX = -1e30f;
+        float minY = 1e30f, maxY = -1e30f;
+        float minZ = 1e30f, maxZ = -1e30f;
+        for (uint16_t i = 0; i < vertexCount_; ++i)
+        {
+            const float px = float(vertices_[i].px) * scale;
+            const float py = float(vertices_[i].py) * scale;
+            const float pz = float(vertices_[i].pz) * scale;
+            if (px < minX)
+                minX = px;
+            if (px > maxX)
+                maxX = px;
+            if (py < minY)
+                minY = py;
+            if (py > maxY)
+                maxY = py;
+            if (pz < minZ)
+                minZ = pz;
+            if (pz > maxZ)
+                maxZ = pz;
+        }
+        boundsHalfExtents_ = Vector3((maxX - minX) * 0.5f,
+                                     (maxY - minY) * 0.5f,
+                                     (maxZ - minZ) * 0.5f);
+    }
 }

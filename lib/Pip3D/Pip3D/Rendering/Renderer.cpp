@@ -192,6 +192,7 @@ namespace pip3D
         shadowQueue_.reserve(16);
         opaqueQueue_.reserve(16);
         blobShadowQueue_.reserve(16);
+        emissiveQueue_.reserve(16);
 
         LOGI(::pip3D::Debug::LOG_MODULE_RENDER, "Renderer::init OK: viewport %dx%d", cfg.width, cfg.height);
 
@@ -242,6 +243,7 @@ namespace pip3D
         shadowQueue_.clear();
         opaqueQueue_.clear();
         blobShadowQueue_.clear();
+        emissiveQueue_.clear();
 
         if (bandIndex < 0)
             bandIndex = 0;

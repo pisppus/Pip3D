@@ -24,6 +24,7 @@
 #include "Rendering/Pipeline/MeshDraw.hpp"
 #include "Rendering/Pipeline/Billboard.hpp"
 #include "Rendering/Pipeline/Telemetry.hpp"
+#include "Rendering/Effects/Glow.hpp"
 #include "Rendering/UI/Font.hpp"
 #include "Rendering/UI/HUD.hpp"
 
@@ -66,6 +67,7 @@ namespace pip3D
         std::vector<MeshInstance *> shadowQueue_;
         std::vector<MeshInstance *> opaqueQueue_;
         std::vector<MeshInstance *> blobShadowQueue_;
+        std::vector<MeshInstance *> emissiveQueue_;
 
         std::vector<Vector3> vertexColors_;
 
@@ -309,7 +311,7 @@ namespace pip3D
 
         void setMipmapsEnabled(bool enabled) { Rasterizer::g_mipmapsEnabled = enabled; }
         bool getMipmapsEnabled() const { return Rasterizer::g_mipmapsEnabled; }
-        
+
         void setFogColor(const Color &color) { fogColor = color; }
         Color getFogColor() const { return fogColor; }
         void setFogLimits(float nearDist, float farDist)
@@ -322,6 +324,7 @@ namespace pip3D
 
         void draw(MeshInstance *instance);
         void flushQueue();
+        const std::vector<MeshInstance *> &getEmissiveQueue() const { return emissiveQueue_; }
 
         bool clipAndDrawNearTextured(const DrawTelemetryClipVert inVerts[3],
                                      float nearD,
