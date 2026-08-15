@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <cstdlib>
+#include <algorithm>
 
 #if defined(ARDUINO_ARCH_ESP32) || defined(ESP_PLATFORM) || defined(ESP32)
 #define PIP3D_TARGET_ESP32 1
@@ -16,10 +18,8 @@
 
 #if PIP3D_TARGET_ESP32
 #include <esp_attr.h>
-#endif
-
-#if !PIP3D_TARGET_PC
-#include <Arduino.h>
+#include <esp_timer.h>
+#include <esp_random.h>
 #endif
 
 #include "Debug/Logging.hpp"
@@ -100,24 +100,24 @@
 #define PIP3D_SCREEN_BAND_COUNT 4
 #endif
 
-#if PIP3D_TARGET_PC
-#include <cstdlib>
 inline long random(long minVal, long maxVal)
 {
     if (maxVal <= minVal)
         return minVal;
     const unsigned long range = static_cast<unsigned long>(maxVal - minVal);
-    const unsigned long r = static_cast<unsigned long>(std::rand());
-    return minVal + static_cast<long>(r % range);
-}
+#if PIP3D_TARGET_ESP32
+    return minVal + static_cast<long>(esp_random() % range);
+#else
+    return minVal + static_cast<long>(std::rand() % range);
 #endif
+}
 
 namespace pip3D
 {
-    template <typename T>
-    PIP3D_FORCE_INLINE constexpr T clamp(T value, T min_val, T max_val)
+    template <typename T, typename MinT, typename MaxT>
+    PIP3D_FORCE_INLINE constexpr T clamp(T value, MinT min_val, MaxT max_val)
     {
-        return value < min_val ? min_val : (value > max_val ? max_val : value);
+        return (value < static_cast<T>(min_val)) ? static_cast<T>(min_val) : ((value > static_cast<T>(max_val)) ? static_cast<T>(max_val) : value);
     }
 
     inline constexpr uint16_t SCREEN_WIDTH = PIP3D_SCREEN_WIDTH;

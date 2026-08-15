@@ -106,7 +106,7 @@ namespace pip3D
               faces_(const_cast<Face *>(extFaces)),
               qScale_(1.0f),
               vertexCount_(vertCount), faceCount_(faceCountIn),
-              flags_(kFlagCastShadows | (staticStorage ? kFlagStaticStorage : 0u)),
+              flags_(static_cast<uint8_t>(kFlagCastShadows | (staticStorage ? kFlagStaticStorage : 0u))),
               boundsCenter_(0.0f, 0.0f, 0.0f),
               boundsRadius_(0.0f),
               boundsHalfExtents_(0.0f, 0.0f, 0.0f),
@@ -159,8 +159,8 @@ namespace pip3D
         [[nodiscard]] PIP3D_FORCE_INLINE uint16_t numFaces() const { return faceCount_; }
         [[nodiscard]] PIP3D_FORCE_INLINE uint16_t numVertices() const { return vertexCount_; }
 
-        [[nodiscard]] PIP3D_FORCE_INLINE const Vertex *PIP3D_RESTRICT vertexData() const { return vertices_; }
-        [[nodiscard]] PIP3D_FORCE_INLINE const Face *PIP3D_RESTRICT faceData() const { return faces_; }
+        [[nodiscard]] PIP3D_FORCE_INLINE const Vertex *vertexData() const { return vertices_; }
+        [[nodiscard]] PIP3D_FORCE_INLINE const Face *faceData() const { return faces_; }
 
         [[nodiscard]] PIP3D_FORCE_INLINE Vector3 decodePosition(const Vertex &v) const
         {

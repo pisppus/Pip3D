@@ -159,7 +159,7 @@ namespace pip3D
                                      framebuffer.getConfig());
         }
 
-        PIP3D_HOT static void clipAndDrawNearTextured(const ClipVert inVerts[3],
+        PIP3D_HOT inline void clipAndDrawNearTextured(const ClipVert inVerts[3],
                                                       float nearD,
                                                       const Viewport &viewport,
                                                       const Matrix4x4 &viewProjMatrix,
@@ -286,7 +286,7 @@ namespace pip3D
             }
         }
 
-        PIP3D_HOT static void drawTriangle3D_Preprojected(
+        PIP3D_HOT inline void drawTriangle3D_Preprojected(
             const Vector3 &v0, const Vector3 &v1, const Vector3 &v2,
             const Vector3 &p0, const Vector3 &p1, const Vector3 &p2,
             float d0, float d1, float d2,
@@ -338,7 +338,7 @@ namespace pip3D
                             uniformColor);
         }
 
-        PIP3D_HOT static void drawTriangle3D(
+        PIP3D_HOT inline void drawTriangle3D(
             const Vector3 &v0, const Vector3 &v1, const Vector3 &v2,
             uint16_t color,
             const Camera &camera,

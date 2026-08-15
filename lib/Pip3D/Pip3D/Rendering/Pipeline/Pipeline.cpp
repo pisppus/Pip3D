@@ -674,6 +674,7 @@ namespace pip3D
                         framebuffer, &zBuffer,
                         *meshTexture,
                         mesh, i, frameStamp);
+                    (void)drew;
 #if PIP3D_ENABLE_DRAW_TELEMETRY
                     if (drew)
                         g_drawTelemetry.facesDrawnClipped++;

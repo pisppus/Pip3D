@@ -3,19 +3,18 @@
 #include "Node.hpp"
 #include "Core/Platform.hpp"
 #include "Rendering/Renderer.hpp"
+#include <string>
+#include <vector>
 
 namespace pip3D
 {
-
     __attribute__((always_inline, hot)) inline void MeshNode::render(Renderer *renderer)
     {
         if (!visible || !enabled || !mesh || !instance)
             return;
 
         instance->setWorldMatrix(getWorldTransform());
-
         renderer->draw(instance);
-
         Node::render(renderer);
     }
 
@@ -42,28 +41,28 @@ namespace pip3D
         Node *getRoot() { return root; }
 
         template <typename T>
-        T *createNode(const String &name = "")
+        T *createNode(const std::string &name = "")
         {
-            T *node = new T(name.isEmpty() ? String("Node") : name);
+            T *node = new T(name.empty() ? std::string("Node") : name);
             root->addChild(node);
             return node;
         }
 
-        MeshNode *createMeshNode(Mesh *mesh, const String &name = "MeshNode")
+        MeshNode *createMeshNode(Mesh *mesh, const std::string &name = "MeshNode")
         {
             MeshNode *node = new MeshNode(mesh, name, false);
             root->addChild(node);
             return node;
         }
 
-        CameraNode *createCameraNode(const String &name = "Camera")
+        CameraNode *createCameraNode(const std::string &name = "Camera")
         {
             CameraNode *node = new CameraNode(name);
             root->addChild(node);
             return node;
         }
 
-        LightNode *createLightNode(LightType type = LIGHT_DIRECTIONAL, const String &name = "Light")
+        LightNode *createLightNode(LightType type = LIGHT_DIRECTIONAL, const std::string &name = "Light")
         {
             LightNode *node = new LightNode(name);
             node->setLightType(type);
@@ -120,13 +119,13 @@ namespace pip3D
             }
         }
 
-        Node *findNode(const String &name)
+        Node *findNode(const std::string &name)
         {
             return findNodeRecursive(root, name);
         }
 
     private:
-        Node *findNodeRecursive(Node *node, const String &name)
+        Node *findNodeRecursive(Node *node, const std::string &name)
         {
             if (node->getName() == name)
             {
@@ -188,7 +187,7 @@ namespace pip3D
             return *this;
         }
 
-        MeshNode *addMesh(Mesh *mesh, const String &name = "Object")
+        MeshNode *addMesh(Mesh *mesh, const std::string &name = "Object")
         {
             return scene->createMeshNode(mesh, name);
         }
@@ -198,5 +197,4 @@ namespace pip3D
             return scene;
         }
     };
-
 }
