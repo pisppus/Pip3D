@@ -104,10 +104,6 @@ namespace pip3D
             const float dz_dx = (dz02 * dy12 - dy02 * dz12) * invDet;
             const float dz_dy = (dx02 * dz12 - dz02 * dx12) * invDet;
 
-            const float dz_dx_scaled = dz_dx;
-            const float dz_dy_scaled = dz_dy;
-            const float z2_scaled = z2;
-
             const float texW = tex.dimFlt();
             const float texH = tex.dimFlt();
 
@@ -329,6 +325,7 @@ namespace pip3D
                             const int32_t intLod = static_cast<int32_t>(lodLevel);
                             chunkFracLod = static_cast<uint32_t>((lodLevel - static_cast<float>(intLod)) * 256.0f);
                             chunkLod = intLod;
+                            (void)chunkLod;
 
                             if (intLod == 0)
                             {
@@ -443,8 +440,8 @@ namespace pip3D
                                     else
                                     {
                                         const uint32_t inv_f_alpha = 32 - f_alpha;
-                                        const uint32_t rb = ((litColor & 0xF81F) * inv_f_alpha + fogColorRb * f_alpha >> 5) & 0xF81F;
-                                        const uint32_t g = ((litColor & 0x07E0) * inv_f_alpha + fogColorG * f_alpha >> 5) & 0x07E0;
+                                        const uint32_t rb = (((litColor & 0xF81F) * inv_f_alpha + fogColorRb * f_alpha) >> 5) & 0xF81F;
+                                        const uint32_t g = (((litColor & 0x07E0) * inv_f_alpha + fogColorG * f_alpha) >> 5) & 0x07E0;
                                         *fb = static_cast<uint16_t>(rb | g);
                                     }
                                 }
@@ -552,8 +549,8 @@ namespace pip3D
                                     else
                                     {
                                         const uint32_t inv_f_alpha = 32 - f_alpha;
-                                        const uint32_t rb = ((litColor & 0xF81F) * inv_f_alpha + fogColorRb * f_alpha >> 5) & 0xF81F;
-                                        const uint32_t g = ((litColor & 0x07E0) * inv_f_alpha + fogColorG * f_alpha >> 5) & 0x07E0;
+                                        const uint32_t rb = (((litColor & 0xF81F) * inv_f_alpha + fogColorRb * f_alpha) >> 5) & 0xF81F;
+                                        const uint32_t g = (((litColor & 0x07E0) * inv_f_alpha + fogColorG * f_alpha) >> 5) & 0x07E0;
                                         *fb = static_cast<uint16_t>(rb | g);
                                     }
                                 }

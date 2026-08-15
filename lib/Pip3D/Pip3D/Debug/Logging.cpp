@@ -3,10 +3,20 @@
 
 #if PIP3D_ENABLE_LOGGING
 
-#if defined(PIP3D_PC)
 #include <cstdio>
+#include <cstdarg>
+
+#if PIP3D_TARGET_ESP32
+#include <esp_timer.h>
+#define GET_MICROS() static_cast<uint32_t>(esp_timer_get_time())
 #else
-#include <Arduino.h>
+#include <chrono>
+static inline uint32_t getHostMicros()
+{
+    using namespace std::chrono;
+    return static_cast<uint32_t>(duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count());
+}
+#define GET_MICROS() getHostMicros()
 #endif
 
 namespace pip3D
@@ -58,7 +68,7 @@ namespace pip3D
             g_state.timestamps = timestamps;
             if (!g_state.initialized)
             {
-                g_state.startMicros = micros();
+                g_state.startMicros = GET_MICROS();
                 g_state.initialized = true;
             }
         }
@@ -131,7 +141,7 @@ namespace pip3D
 
             if (!g_state.initialized)
             {
-                g_state.startMicros = micros();
+                g_state.startMicros = GET_MICROS();
                 g_state.initialized = true;
             }
 
@@ -143,7 +153,7 @@ namespace pip3D
 
             if (g_state.timestamps)
             {
-                const uint32_t now = micros();
+                const uint32_t now = GET_MICROS();
                 const uint32_t dt = now - g_state.startMicros;
                 const uint32_t ms = dt / 1000u;
                 const uint32_t s = ms / 1000u;
@@ -167,11 +177,7 @@ namespace pip3D
             vsnprintf(line + prefixLen, sizeof(line) - static_cast<size_t>(prefixLen), fmt, args);
             va_end(args);
 
-#if defined(PIP3D_PC)
             std::printf("%s\n", line);
-#else
-            Serial.println(line);
-#endif
         }
     }
 }

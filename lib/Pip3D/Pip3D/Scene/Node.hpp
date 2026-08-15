@@ -7,15 +7,15 @@
 #include "Geometry/Instance.hpp"
 #include "Rendering/Lighting/Lighting.hpp"
 #include <vector>
+#include <string>
 #include <algorithm>
 
 namespace pip3D
 {
-
     class Node
     {
     protected:
-        String name;
+        std::string name;
         bool visible;
         bool enabled;
 
@@ -31,7 +31,7 @@ namespace pip3D
         bool transformDirty;
 
     public:
-        Node(const String &nodeName = "Node")
+        Node(const std::string &nodeName = "Node")
             : name(nodeName), visible(true), enabled(true),
               position(0, 0, 0), rotation(0, 0, 0), scale(1, 1, 1),
               parent(nullptr), transformDirty(true)
@@ -101,7 +101,7 @@ namespace pip3D
             return nullptr;
         }
 
-        Node *findChild(const String &childName) const
+        Node *findChild(const std::string &childName) const
         {
             for (Node *child : children)
                 if (child->name == childName)
@@ -278,8 +278,8 @@ namespace pip3D
         void setEnabled(bool en) { enabled = en; }
         bool isEnabled() const { return enabled; }
 
-        void setName(const String &newName) { name = newName; }
-        const String &getName() const { return name; }
+        void setName(const std::string &newName) { name = newName; }
+        const std::string &getName() const { return name; }
 
         virtual void update(float deltaTime)
         {
@@ -369,10 +369,10 @@ namespace pip3D
         MeshInstance *instance;
 
     public:
-        MeshNode(const String &nodeName = "MeshNode")
+        MeshNode(const std::string &nodeName = "MeshNode")
             : Node(nodeName), mesh(nullptr), ownsMesh(false), instance(nullptr) {}
 
-        MeshNode(Mesh *meshPtr, const String &nodeName = "MeshNode", bool owns = false)
+        MeshNode(Mesh *meshPtr, const std::string &nodeName = "MeshNode", bool owns = false)
             : Node(nodeName), mesh(nullptr), ownsMesh(false), instance(nullptr)
         {
             setMesh(meshPtr, owns);
@@ -417,7 +417,7 @@ namespace pip3D
         float farPlane;
 
     public:
-        CameraNode(const String &nodeName = "Camera")
+        CameraNode(const std::string &nodeName = "Camera")
             : Node(nodeName), fov(60.0f), nearPlane(0.1f), farPlane(100.0f) {}
 
         void setFOV(float fieldOfView) { fov = fieldOfView; }
@@ -468,7 +468,7 @@ namespace pip3D
         float range;
 
     public:
-        LightNode(const String &nodeName = "Light")
+        LightNode(const std::string &nodeName = "Light")
             : Node(nodeName), lightType(LIGHT_DIRECTIONAL), color(Color::WHITE),
               intensity(1.0f), direction(0, -1, 0), range(0.0f) {}
 

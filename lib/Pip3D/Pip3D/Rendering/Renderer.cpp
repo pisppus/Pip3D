@@ -11,6 +11,7 @@ namespace pip3D
 {
     Renderer::Renderer() : reflectBuffer(nullptr),
                            reflectWriteBuffer(nullptr),
+                           physicsWorld(nullptr),
 #if defined(PIP3D_PC)
                            pcDisplayReady(false),
 #else
@@ -19,13 +20,19 @@ namespace pip3D
                            cameras(1),
                            activeCameraIndex(0),
                            viewProjMatrixDirty(true),
+                           cachedHfovRad_(0.0f),
+                           hfovCacheValid_(false),
                            lights(1),
                            activeLightCount(1),
+                           pointLights(),
+                           deferredLightingEnabled(false),
                            shadowsEnabled(true),
                            backfaceCullingEnabled(true),
                            occlusionCullingEnabled(false),
+                           shadowSettings(),
                            shadowCacheGeneration(1),
                            lastAutoShadowColor(Color::BLACK),
+                           perfCounter(),
                            shadingMode(SHADING_FLAT),
                            statsTrianglesTotal(0),
                            statsTrianglesBackfaceCulled(0),
@@ -36,8 +43,7 @@ namespace pip3D
                            fogEnabled(false),
                            fogColor(Color::rgb(140, 160, 175)),
                            fogNear(10.0f),
-                           fogFar(80.0f),
-                           deferredLightingEnabled(false)
+                           fogFar(80.0f)
     {
         lights[0].type = LIGHT_DIRECTIONAL;
         lights[0].direction = Vector3(-0.5f, -1.0f, -0.5f);
