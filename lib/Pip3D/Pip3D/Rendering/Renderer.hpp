@@ -39,6 +39,15 @@ namespace pip3D
 {
     class PhysicsWorld;
 
+    struct BandCullItem
+    {
+        MeshInstance *inst;
+        int16_t minY;
+        int16_t maxY;
+        float zEye;
+        float radiusPixels;
+    };
+
     struct FlushJob
     {
         pipcore::Display *display;
@@ -102,6 +111,8 @@ namespace pip3D
         bool backfaceCullingEnabled;
         bool occlusionCullingEnabled;
 
+        bool opaqueSortEnabled_ = false;
+
         ShadowSettings shadowSettings;
         uint32_t shadowCacheGeneration;
         Color lastAutoShadowColor;
@@ -135,8 +146,10 @@ namespace pip3D
                                        const Color &waterColor, uint8_t alphaByte, const DisplayConfig &cfg,
                                        uint16_t *frameBufferPtr);
 
-        IRAM_ATTR void drawMeshInstanceInternal(MeshInstance *instance, bool performFrustumCull);
-        IRAM_ATTR void drawMeshInstanceShadow(MeshInstance *instance);
+        void drawMeshInstanceInternal(MeshInstance *instance, bool performFrustumCull);
+        void drawMeshInstanceBanded(MeshInstance *instance, float zEye, float radiusPixels);
+        void drawMeshInstanceShadow(MeshInstance *instance);
+        void prepareFrameState(bool incrementFrameStamp);
 
         __attribute__((always_inline)) inline float ensureHfovCached()
         {
@@ -171,8 +184,23 @@ namespace pip3D
         void endFrame();
         void beginFrameBand(int bandIndex);
         void endFrameBand(int bandIndex);
+
         void drawSkyboxBackground();
+
+        void fillSkyGradient();
+        void drawCloudsAfterGeometry();
+
         Vector3 project(const Vector3 &v);
+
+        void updateCameraView();
+
+        size_t buildBandCullList(const MeshInstance *const *instances, size_t count,
+                                 BandCullItem *outItems);
+
+        void buildBandCullList(const std::vector<MeshInstance *> &instances,
+                               std::vector<BandCullItem> &outItems);
+
+        void drawBandInstances(int bandIndex, const BandCullItem *items, size_t count);
 
         int createCamera();
         void setActiveCamera(int index);
@@ -218,6 +246,9 @@ namespace pip3D
         bool getBackfaceCullingEnabled() const { return backfaceCullingEnabled; }
         void setOcclusionCullingEnabled(bool enabled) { occlusionCullingEnabled = enabled; }
         bool getOcclusionCullingEnabled() const { return occlusionCullingEnabled; }
+
+        void setOpaqueSortEnabled(bool enabled) { opaqueSortEnabled_ = enabled; }
+        bool isOpaqueSortEnabled() const { return opaqueSortEnabled_; }
         void setShadingMode(ShadingMode mode) { shadingMode = mode; }
         ShadingMode getShadingMode() const { return shadingMode; }
 
@@ -341,7 +372,7 @@ namespace pip3D
         void drawTriangle3D(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2, uint16_t color);
         void drawBlobShadow(const Vector3 &position, float radius, float opacity);
 
-        IRAM_ATTR void drawWaterMesh(MeshInstance *instance, float time);
+        void drawWaterMesh(MeshInstance *instance, float time);
         void drawWater(float yLevel, float size, Color color, float alpha, float time);
         static constexpr uint16_t reflectWidth() { return REFLECT_WIDTH; }
         static constexpr uint16_t reflectHeight() { return REFLECT_HEIGHT; }

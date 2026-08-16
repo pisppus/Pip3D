@@ -114,7 +114,8 @@ namespace pip3D
     void Renderer::flushQueue()
     {
         const size_t n = opaqueQueue_.size();
-        if (n > 1)
+
+        if (opaqueSortEnabled_ && n > 1)
         {
             const Camera &cam = cameras[activeCameraIndex];
             const Vector3 camPos = cam.position;
@@ -323,12 +324,9 @@ namespace pip3D
             }
         }
 
-        statsInstancesTotal++;
-
-        const DisplayConfig &framebufferConfig = framebuffer.getConfig();
-
         if (occlusionCullingEnabled &&
             zEye - radius > cam.nearPlane &&
+            zEye > cam.nearPlane &&
             Culling::isInstanceOccluded(
                 center, radius, zEye, radiusPixels,
                 viewport, viewProjMatrix, &zBuffer))
@@ -336,6 +334,29 @@ namespace pip3D
             statsInstancesOcclusionCulled++;
             return;
         }
+
+        drawMeshInstanceBanded(instance, zEye, radiusPixels);
+    }
+
+    IRAM_ATTR void Renderer::drawMeshInstanceBanded(MeshInstance *instance,
+                                                    float zEye, float radiusPixels)
+    {
+        if (!instance || !instance->isVisible())
+            return;
+
+        Mesh *mesh = instance->getMesh();
+        if (!mesh)
+            return;
+
+        const Camera &cam = cameras[activeCameraIndex];
+
+        if (zEye > cam.nearPlane && radiusPixels < 1.0f)
+            return;
+
+        const Vector3 center = instance->center();
+        const float radius = instance->radius();
+
+        const DisplayConfig &framebufferConfig = framebuffer.getConfig();
 
         const uint16_t instColor565 = instance->color().rgb565;
         float baseR, baseG, baseB;
@@ -427,6 +448,8 @@ namespace pip3D
             (effectiveShading == SHADING_PHONG) && !useUniformColor && !isTextured;
 
         const Texture *const meshTexture = isTextured ? mesh->getTexture() : nullptr;
+
+        const Vector3 &camFwd = cam.forward();
 
         if (likely(worldVerts))
         {
@@ -584,6 +607,34 @@ namespace pip3D
 
             if (!partiallyClipped)
             {
+                const float minY = (p0.y < p1.y) ? ((p0.y < p2.y) ? p0.y : p2.y)
+                                                 : ((p1.y < p2.y) ? p1.y : p2.y);
+                const float maxY = (p0.y > p1.y) ? ((p0.y > p2.y) ? p0.y : p2.y)
+                                                 : ((p1.y > p2.y) ? p1.y : p2.y);
+                if (maxY < bandTop || minY >= bandBottom)
+                {
+#if PIP3D_ENABLE_DRAW_TELEMETRY
+                    g_drawTelemetry.recordSkip(
+                        SkipReason::BAND_Y, frameStamp, i, mesh,
+                        d0, d1, d2, 0.0f,
+                        p0.x, p0.y, p0.z, p1.x, p1.y, p2.x, p2.y,
+                        v0.x, v0.y, v0.z, camPos.x, camPos.y, camPos.z,
+                        camFwd.x, camFwd.y, camFwd.z, nearPlane, bandTop, bandBottom,
+                        false, isTextured);
+#endif
+                    continue;
+                }
+
+                const float minX = (p0.x < p1.x) ? ((p0.x < p2.x) ? p0.x : p2.x)
+                                                 : ((p1.x < p2.x) ? p1.x : p2.x);
+                const float maxX = (p0.x > p1.x) ? ((p0.x > p2.x) ? p0.x : p2.x)
+                                                 : ((p1.x > p2.x) ? p1.x : p2.x);
+                if (maxX < 0.0f || minX >= viewportWidth)
+                    continue;
+            }
+
+            if (!partiallyClipped)
+            {
                 const float area = (p1.x - p0.x) * (p2.y - p0.y) - (p2.x - p0.x) * (p1.y - p0.y);
 
                 if (fabsf(area) <= 1.0f)
@@ -688,23 +739,6 @@ namespace pip3D
 #endif
                 }
                 continue;
-            }
-
-            if (!partiallyClipped)
-            {
-                const float minY = (p0.y < p1.y) ? ((p0.y < p2.y) ? p0.y : p2.y)
-                                                 : ((p1.y < p2.y) ? p1.y : p2.y);
-                const float maxY = (p0.y > p1.y) ? ((p0.y > p2.y) ? p0.y : p2.y)
-                                                 : ((p1.y > p2.y) ? p1.y : p2.y);
-                if (maxY < bandTop || minY >= bandBottom)
-                    continue;
-
-                const float minX = (p0.x < p1.x) ? ((p0.x < p2.x) ? p0.x : p2.x)
-                                                 : ((p1.x < p2.x) ? p1.x : p2.x);
-                const float maxX = (p0.x > p1.x) ? ((p0.x > p2.x) ? p0.x : p2.x)
-                                                 : ((p1.x > p2.x) ? p1.x : p2.x);
-                if (maxX < 0.0f || minX >= viewportWidth)
-                    continue;
             }
 
             if (phongShading && !partiallyClipped)

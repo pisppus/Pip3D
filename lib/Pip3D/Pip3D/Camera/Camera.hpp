@@ -459,15 +459,16 @@ namespace pip3D
       const float clipX = m[0] * v.x + m[4] * v.y + m[8] * v.z + m[12];
       const float clipY = m[1] * v.x + m[5] * v.y + m[9] * v.z + m[13];
       const float clipW = m[3] * v.x + m[7] * v.y + m[11] * v.z + m[15];
-      const float invW = FastMath::fastReciprocal(clipW);
-      const float ndcX = clipX * invW;
-      const float ndcY = clipY * invW;
 
+      const float invW = FastMath::fastReciprocal(clipW);
+      const float invW_hW = invW * halfWidth;
+      const float invW_hH = invW * halfHeight;
+
+      const float screenX = clipX * invW_hW + (halfWidth + static_cast<float>(viewportX));
+      const float screenY = -clipY * invW_hH + (halfHeight + static_cast<float>(viewportY));
       const float wDepth = g_wBufferScale * invW;
-      return Vector3(
-          (ndcX + 1.0f) * halfWidth + static_cast<float>(viewportX),
-          (1.0f - ndcY) * halfHeight + static_cast<float>(viewportY),
-          wDepth);
+
+      return Vector3(screenX, screenY, wDepth);
     }
 
     PIP3D_FORCE_INLINE static Vector3 project(const Vector3 &v,

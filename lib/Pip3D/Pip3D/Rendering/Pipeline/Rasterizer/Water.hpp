@@ -78,10 +78,6 @@ namespace pip3D
             const float dz_dx = (dz02 * dy12 - dy02 * dz12) * invDet;
             const float dz_dy = (dx02 * dz12 - dz02 * dx12) * invDet;
 
-            const float dz_dx_scaled = dz_dx;
-            const float dz_dy_scaled = dz_dy;
-            const float z2_scaled = z2;
-
             const int startTop = static_cast<int>(ceilf(y0 - 0.5f));
             int endTopExclusive = static_cast<int>(ceilf(y1 - 0.5f));
             const int startBottom = static_cast<int>(ceilf(y1 - 0.5f));
@@ -170,7 +166,7 @@ namespace pip3D
                 const uint32_t refRowInvA = 32u - refRowAlpha;
 
                 const uint16_t skyColor = waterSkyFallback ? skybox.getColorAtY(0).rgb565
-                                           : skybox.getColorAtY(mirrorY).rgb565;
+                                                           : skybox.getColorAtY(mirrorY).rgb565;
 
                 const size_t offsetBase = static_cast<size_t>(y) * width;
                 uint16_t *__restrict__ zbRow = zBufferPtr + offsetBase;

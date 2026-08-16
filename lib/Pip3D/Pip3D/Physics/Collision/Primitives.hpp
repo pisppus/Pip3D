@@ -152,14 +152,11 @@ namespace pip3D
         Vector3 Ea = a->size * 0.5f;
         Vector3 Eb = b->size * 0.5f;
 
-        float R[3][3];
         float AbsR[3][3];
         for (int i = 0; i < 3; ++i)
             for (int j = 0; j < 3; ++j)
             {
-                float v = Aa[i].dot(Ab[j]);
-                R[i][j] = v;
-                AbsR[i][j] = fabsf(v) + eps;
+                AbsR[i][j] = fabsf(Aa[i].dot(Ab[j])) + eps;
             }
 
         Vector3 tWorld = Cb - Ca;
@@ -295,7 +292,6 @@ namespace pip3D
         int refIndex = bestAxisIdx;
         bool refOnB = (bestType == 1);
 
-        Vector3 refNormal = refOnB ? Ab[refIndex] : Aa[refIndex];
         float refExtent = refOnB
                               ? ((refIndex == 0) ? Eb.x : (refIndex == 1) ? Eb.y
                                                                           : Eb.z)

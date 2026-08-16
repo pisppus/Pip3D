@@ -121,7 +121,7 @@ namespace pip3D
                          float intensity,
                          const GlowContext &ctx) noexcept;
 
-        void IRAM_ATTR compositeStamps(
+        void compositeStamps(
             uint16_t *PIP3D_RESTRICT fbBand,
             uint16_t bandWidth,
             uint16_t bandHeight,
@@ -244,7 +244,7 @@ namespace pip3D
             return static_cast<uint8_t>((visibleCount * 255u) / totalCount);
         }
 
-        void IRAM_ATTR drawStampPassRadial(
+        void drawStampPassRadial(
             const GlowStamp &s,
             uint16_t *PIP3D_RESTRICT fbBand,
             uint16_t bandWidth,
@@ -253,7 +253,7 @@ namespace pip3D
             const uint16_t *PIP3D_RESTRICT zData,
             bool innerPass) const noexcept;
 
-        void IRAM_ATTR drawStampPassSegment(
+        void drawStampPassSegment(
             const GlowStamp &s,
             uint16_t *PIP3D_RESTRICT fbBand,
             uint16_t bandWidth,
@@ -262,7 +262,7 @@ namespace pip3D
             const uint16_t *PIP3D_RESTRICT zData,
             bool innerPass) const noexcept;
 
-        void IRAM_ATTR drawStampPassRect(
+        void drawStampPassRect(
             const GlowStamp &s,
             uint16_t *PIP3D_RESTRICT fbBand,
             uint16_t bandWidth,

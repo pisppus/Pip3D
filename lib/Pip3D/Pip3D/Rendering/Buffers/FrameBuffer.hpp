@@ -342,6 +342,19 @@ namespace pip3D
                                              camPos, fwd, right, up, vfovRad, hfovRad);
         }
 
+        template <uint16_t WIDTH, uint16_t HEIGHT>
+        __attribute__((always_inline, hot)) inline void
+        drawCloudsZTested(const Vector3 &camPos,
+                          const Vector3 &fwd, const Vector3 &right, const Vector3 &up,
+                          float vfovRad, float hfovRad,
+                          const uint16_t *zBuf) noexcept
+        {
+            clouds.drawCloudsZTested<WIDTH, HEIGHT>(storage[activeSlot], zBuf,
+                                                    g_bandOffsetY,
+                                                    camPos, fwd, right, up,
+                                                    vfovRad, hfovRad);
+        }
+
         __attribute__((always_inline)) inline void
         endFrameRegion(int16_t x, int16_t y, int16_t w, int16_t h) noexcept
         {
