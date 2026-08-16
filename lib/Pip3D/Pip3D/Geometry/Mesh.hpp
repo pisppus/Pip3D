@@ -106,7 +106,7 @@ namespace pip3D
               faces_(const_cast<Face *>(extFaces)),
               qScale_(1.0f),
               vertexCount_(vertCount), faceCount_(faceCountIn),
-              flags_(static_cast<uint8_t>(kFlagCastShadows | (staticStorage ? kFlagStaticStorage : 0u))),
+              flags_(static_cast<uint8_t>(kFlagCastShadows | (staticStorage ? static_cast<uint8_t>(kFlagStaticStorage) : 0u))),
               boundsCenter_(0.0f, 0.0f, 0.0f),
               boundsRadius_(0.0f),
               boundsHalfExtents_(0.0f, 0.0f, 0.0f),

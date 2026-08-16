@@ -392,7 +392,6 @@ namespace pip3D
                         {
                             const uint16_t dst = fb[idx];
                             const uint32_t cur_a = a >> 3;
-                            const uint32_t inv_a = 32 - cur_a;
 
                             uint32_t rDst = (dst >> 11) & 0x1F;
                             uint32_t gDst = (dst >> 5) & 0x3F;

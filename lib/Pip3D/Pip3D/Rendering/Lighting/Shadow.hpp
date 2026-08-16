@@ -1,6 +1,6 @@
 #pragma once
 
-#include <math.h>
+#include <cmath>
 
 #include "Core/Platform.hpp"
 #include "Math/Algebra.hpp"
@@ -115,7 +115,7 @@ namespace pip3D
     private:
         __attribute__((always_inline)) static inline bool isFiniteProjectedPoint(const Vector3 &p)
         {
-            return isfinite(p.x) && isfinite(p.y) && isfinite(p.z);
+            return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z);
         }
 
         __attribute__((always_inline)) static inline bool isShadowProjectionReasonable(const Vector3 &p0,

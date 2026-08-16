@@ -29,6 +29,7 @@ namespace pip3D
                            shadowsEnabled(true),
                            backfaceCullingEnabled(true),
                            occlusionCullingEnabled(false),
+                           opaqueSortEnabled_(false),
                            shadowSettings(),
                            shadowCacheGeneration(1),
                            lastAutoShadowColor(Color::BLACK),
@@ -229,6 +230,94 @@ namespace pip3D
         perfCounter.endFrame();
     }
 
+    void Renderer::prepareFrameState(bool incrementFrameStamp)
+    {
+        if (incrementFrameStamp)
+        {
+            g_frameStamp++;
+            perfCounter.begin();
+
+            for (int i = 0; i < activeLightCount; ++i)
+            {
+                lights[i].warmCache();
+            }
+
+            Rasterizer::g_ambientScale = ambientScale;
+            Rasterizer::g_exposureScale = exposureScale;
+
+            statsTrianglesTotal = 0;
+            statsTrianglesBackfaceCulled = 0;
+            statsInstancesTotal = 0;
+            statsInstancesFrustumCulled = 0;
+            statsInstancesOcclusionCulled = 0;
+        }
+
+        const bool vpWasDirty = viewProjMatrixDirty;
+        CameraController::updateViewProjectionIfNeeded(cameras[activeCameraIndex],
+                                                       viewport,
+                                                       viewMatrix,
+                                                       projMatrix,
+                                                       viewProjMatrix,
+                                                       frustum,
+                                                       viewProjMatrixDirty);
+        if (vpWasDirty)
+        {
+            hfovCacheValid_ = false;
+        }
+
+        const bool skyEnabled = framebuffer.isSkyboxEnabled();
+        const Color skyHorizon = skyEnabled ? framebuffer.getSkybox().horizon
+                                            : Color::rgb(40, 42, 50);
+
+        if (shadowSettings.shadowColorAuto)
+        {
+            const Color autoColor = skyHorizon.darken(200);
+            if (autoColor.rgb565 != lastAutoShadowColor.rgb565)
+            {
+                lastAutoShadowColor = autoColor;
+                shadowSettings.shadowColor = autoColor;
+                ++shadowCacheGeneration;
+            }
+        }
+
+        Rasterizer::g_fogState.enabled = fogEnabled;
+
+        {
+            const Camera &cam = cameras[activeCameraIndex];
+            const float camNear = cam.nearPlane;
+
+            const float wScale = static_cast<float>(Z_DEPTH_MAX) * camNear;
+            g_wBufferScale = wScale;
+            g_wBufferInvScale = FastMath::fastReciprocal(wScale);
+            Rasterizer::g_fogState.wScale = wScale;
+        }
+
+        if (fogEnabled)
+        {
+            const Color activeFogColor = skyEnabled ? skyHorizon : fogColor;
+            const uint16_t fogRGB = activeFogColor.rgb565;
+
+            Rasterizer::g_fogState.color = fogRGB;
+            Rasterizer::g_fogState.color_rb = fogRGB & 0xF81F;
+            Rasterizer::g_fogState.color_g = fogRGB & 0x07E0;
+            Rasterizer::g_fogState.worldNear = fogNear;
+
+            const float worldRange = fogFar - fogNear;
+            const float invWorldRange = (worldRange > 1e-4f) ? (1.0f / worldRange) : 0.0f;
+            Rasterizer::g_fogState.worldScale = invWorldRange;
+            Rasterizer::g_fogState.worldScale32 = 32.0f * invWorldRange;
+        }
+        Rasterizer::rebuildFogLut();
+    }
+
+    void Renderer::updateCameraView()
+    {
+        if (!isInitialized())
+            return;
+
+        prepareFrameState(false);
+    }
+
     void IRAM_ATTR Renderer::beginFrameBand(int bandIndex)
     {
         if (!isInitialized())
@@ -244,6 +333,7 @@ namespace pip3D
 #if PIP3D_ENABLE_DRAW_TELEMETRY
             g_drawTelemetry.resetFrame();
 #endif
+            prepareFrameState(true);
         }
 
         shadowQueue_.clear();
@@ -259,83 +349,6 @@ namespace pip3D
         int16_t bandTop = static_cast<int16_t>(bandIndex * BAND_HEIGHT);
         g_bandOffsetY = bandTop;
         g_bandHeight = BAND_HEIGHT;
-
-        if (bandIndex == 0)
-        {
-            g_frameStamp++;
-            perfCounter.begin();
-
-            for (int i = 0; i < activeLightCount; ++i)
-            {
-                lights[i].warmCache();
-            }
-
-            Rasterizer::g_ambientScale = ambientScale;
-            Rasterizer::g_exposureScale = exposureScale;
-
-            const bool vpWasDirty = viewProjMatrixDirty;
-            CameraController::updateViewProjectionIfNeeded(cameras[activeCameraIndex],
-                                                           viewport,
-                                                           viewMatrix,
-                                                           projMatrix,
-                                                           viewProjMatrix,
-                                                           frustum,
-                                                           viewProjMatrixDirty);
-            if (vpWasDirty)
-            {
-                hfovCacheValid_ = false;
-            }
-
-            statsTrianglesTotal = 0;
-            statsTrianglesBackfaceCulled = 0;
-            statsInstancesTotal = 0;
-            statsInstancesFrustumCulled = 0;
-            statsInstancesOcclusionCulled = 0;
-
-            const bool skyEnabled = framebuffer.isSkyboxEnabled();
-            const Color skyHorizon = skyEnabled ? framebuffer.getSkybox().horizon
-                                                : Color::rgb(40, 42, 50);
-
-            if (shadowSettings.shadowColorAuto)
-            {
-                const Color autoColor = skyHorizon.darken(200);
-                if (autoColor.rgb565 != lastAutoShadowColor.rgb565)
-                {
-                    lastAutoShadowColor = autoColor;
-                    shadowSettings.shadowColor = autoColor;
-                    ++shadowCacheGeneration;
-                }
-            }
-
-            Rasterizer::g_fogState.enabled = fogEnabled;
-
-            {
-                const Camera &cam = cameras[activeCameraIndex];
-                const float camNear = cam.nearPlane;
-
-                const float wScale = static_cast<float>(Z_DEPTH_MAX) * camNear;
-                g_wBufferScale = wScale;
-                g_wBufferInvScale = FastMath::fastReciprocal(wScale);
-                Rasterizer::g_fogState.wScale = wScale;
-            }
-
-            if (fogEnabled)
-            {
-                const Color activeFogColor = skyEnabled ? skyHorizon : fogColor;
-                const uint16_t fogRGB = activeFogColor.rgb565;
-
-                Rasterizer::g_fogState.color = fogRGB;
-                Rasterizer::g_fogState.color_rb = fogRGB & 0xF81F;
-                Rasterizer::g_fogState.color_g = fogRGB & 0x07E0;
-                Rasterizer::g_fogState.worldNear = fogNear;
-
-                const float worldRange = fogFar - fogNear;
-                const float invWorldRange = (worldRange > 1e-4f) ? (1.0f / worldRange) : 0.0f;
-                Rasterizer::g_fogState.worldScale = invWorldRange;
-                Rasterizer::g_fogState.worldScale32 = 32.0f * invWorldRange;
-            }
-            Rasterizer::rebuildFogLut();
-        }
 
         zBuffer.clear();
 
@@ -481,9 +494,172 @@ namespace pip3D
         }
     }
 
+    void Renderer::fillSkyGradient()
+    {
+        const Camera &cam = cameras[activeCameraIndex];
+        const Vector3 &fwd = cam.forward();
+        const float pitch = asinf(clamp(fwd.y, -1.0f, 1.0f));
+        const float vfov = cam.fov * kDegToRad;
+        const float pitchShiftRows =
+            (vfov > 1e-4f) ? (pitch / vfov) * static_cast<float>(SCREEN_HEIGHT) : 0.0f;
+
+        framebuffer.fillBackground<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>(pitchShiftRows);
+    }
+
+    void Renderer::drawCloudsAfterGeometry()
+    {
+        if (!framebuffer.getClouds().isReady())
+            return;
+
+        const Camera &cam = cameras[activeCameraIndex];
+        const Vector3 &fwd = cam.forward();
+        const float vfov = cam.fov * kDegToRad;
+        const float hfov = ensureHfovCached();
+
+        framebuffer.drawCloudsZTested<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>(
+            cam.position, fwd, cam.right(), cam.upVec(), vfov, hfov,
+            zBuffer.data());
+    }
+
     Vector3 Renderer::project(const Vector3 &v)
     {
         return CameraController::project(v, viewProjMatrix, viewport);
+    }
+
+    size_t Renderer::buildBandCullList(const MeshInstance *const *instances, size_t count,
+                                       BandCullItem *outItems)
+    {
+        if (!isInitialized() || !instances || !outItems || count == 0)
+            return 0;
+
+        prepareFrameState(false);
+
+        const Camera &cam = cameras[activeCameraIndex];
+        const Vector3 camPos = cam.position;
+        const Vector3 camFwd = cam.forward();
+        const float projScale = Culling::ensureProjScale(cam, viewport);
+        const int16_t screenH = static_cast<int16_t>(viewport.height);
+
+        size_t outCount = 0;
+        for (size_t i = 0; i < count; ++i)
+        {
+            MeshInstance *inst = const_cast<MeshInstance *>(instances[i]);
+            if (!inst || !inst->isVisible())
+                continue;
+
+            const Vector3 center = inst->center();
+            const float radius = inst->radius();
+
+            if (!frustum.testSphere(center, radius))
+            {
+                ++statsInstancesFrustumCulled;
+                continue;
+            }
+
+            ++statsInstancesTotal;
+
+            const float zEye = Culling::computeEyeZ(center, camPos, camFwd);
+            if (zEye <= cam.nearPlane)
+            {
+
+                outItems[outCount++] = {inst, 0, screenH, zEye, 0.0f};
+                continue;
+            }
+
+            if (zEye - radius <= cam.nearPlane)
+            {
+                const float rPix = Culling::computeScreenRadius(radius, zEye, projScale);
+                outItems[outCount++] = {inst, 0, screenH, zEye, rPix};
+                continue;
+            }
+
+            const float rPix = Culling::computeScreenRadius(radius, zEye, projScale);
+            if (rPix < 0.5f)
+                continue;
+
+            const Vector3 scrCenter = CameraController::project(center, viewProjMatrix, viewport);
+
+            const float screenHf = static_cast<float>(screenH);
+            if (rPix >= screenHf)
+            {
+                outItems[outCount++] = {inst, 0, screenH, zEye, rPix};
+                continue;
+            }
+
+            int32_t minY32 = static_cast<int32_t>(scrCenter.y - rPix);
+            int32_t maxY32 = static_cast<int32_t>(scrCenter.y + rPix);
+
+            if (maxY32 < 0 || minY32 >= screenH)
+                continue;
+
+            if (minY32 < 0)
+                minY32 = 0;
+            if (maxY32 >= screenH)
+                maxY32 = screenH - 1;
+
+            outItems[outCount++] = {inst,
+                                    static_cast<int16_t>(minY32),
+                                    static_cast<int16_t>(maxY32),
+                                    zEye, rPix};
+        }
+        return outCount;
+    }
+
+    void Renderer::buildBandCullList(const std::vector<MeshInstance *> &instances,
+                                     std::vector<BandCullItem> &outItems)
+    {
+        if (instances.size() > outItems.size())
+            outItems.resize(instances.size());
+
+        const size_t n = buildBandCullList(instances.data(), instances.size(),
+                                           outItems.data());
+        outItems.resize(n);
+    }
+
+    void Renderer::drawBandInstances(int bandIndex, const BandCullItem *items, size_t count)
+    {
+        if (!items || count == 0)
+            return;
+
+        const int16_t bandTop = static_cast<int16_t>(bandIndex * BAND_HEIGHT);
+        const int16_t bandBottom = static_cast<int16_t>(bandTop + BAND_HEIGHT);
+
+        for (size_t i = 0; i < count; ++i)
+        {
+            const BandCullItem &item = items[i];
+            if (item.maxY < bandTop || item.minY >= bandBottom)
+                continue;
+
+            drawMeshInstanceBanded(item.inst, item.zEye, item.radiusPixels);
+        }
+
+        if (!shadowsEnabled)
+            return;
+
+        const float blobOpacity = shadowSettings.shadowOpacity;
+        for (size_t i = 0; i < count; ++i)
+        {
+            const BandCullItem &item = items[i];
+            if (item.maxY < bandTop || item.minY >= bandBottom)
+                continue;
+
+            MeshInstance *inst = item.inst;
+            if (!inst || !inst->isVisible())
+                continue;
+
+            Mesh *mesh = inst->getMesh();
+            if (!mesh)
+                continue;
+
+            if (inst->getBlobShadow())
+            {
+                drawBlobShadow(inst->pos(), inst->radius(), blobOpacity);
+            }
+            else if (mesh->getCastShadows())
+            {
+                drawMeshInstanceShadow(inst);
+            }
+        }
     }
 
     int Renderer::createCamera()

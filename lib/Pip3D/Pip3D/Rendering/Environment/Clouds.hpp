@@ -181,6 +181,41 @@ namespace pip3D
                    float vfovRad,
                    float hfovRad) const noexcept
         {
+            drawCloudsImpl<WIDTH, HEIGHT, false>(buf, nullptr, bandOffY,
+                                                 camPos, camFwd, camRight, rawCamUp,
+                                                 vfovRad, hfovRad);
+        }
+
+        template <uint16_t WIDTH, uint16_t HEIGHT>
+        PIP3D_FORCE_INLINE PIP3D_HOT IRAM_ATTR void
+        drawCloudsZTested(uint16_t *__restrict__ buf,
+                          const uint16_t *__restrict__ zBuf,
+                          int16_t bandOffY,
+                          const Vector3 &camPos,
+                          const Vector3 &camFwd,
+                          const Vector3 &camRight,
+                          const Vector3 &rawCamUp,
+                          float vfovRad,
+                          float hfovRad) const noexcept
+        {
+            drawCloudsImpl<WIDTH, HEIGHT, true>(buf, zBuf, bandOffY,
+                                                camPos, camFwd, camRight, rawCamUp,
+                                                vfovRad, hfovRad);
+        }
+
+    private:
+        template <uint16_t WIDTH, uint16_t HEIGHT, bool Z_TEST>
+        PIP3D_HOT IRAM_ATTR void
+        drawCloudsImpl(uint16_t *__restrict__ buf,
+                       const uint16_t *__restrict__ zBuf,
+                       int16_t bandOffY,
+                       const Vector3 &camPos,
+                       const Vector3 &camFwd,
+                       const Vector3 &camRight,
+                       const Vector3 &rawCamUp,
+                       float vfovRad,
+                       float hfovRad) const noexcept
+        {
             if (unlikely(!enabled))
                 return;
 
@@ -254,6 +289,10 @@ namespace pip3D
                 uint32_t *__restrict__ fbRow32 =
                     reinterpret_cast<uint32_t *>(buf + static_cast<size_t>(yb) * WIDTH);
 
+                const uint16_t *__restrict__ zbRow = Z_TEST
+                                                         ? (zBuf + static_cast<size_t>(yb) * WIDTH)
+                                                         : nullptr;
+
                 uint16_t x2 = 0;
                 for (; x2 + UNROLL <= widthHalf; x2 += UNROLL)
                 {
@@ -285,31 +324,158 @@ namespace pip3D
 
                     if (a5_0 > 0u)
                     {
-                        const uint16_t sh = lutPtr[shadeBase[ti0]];
-                        const uint16_t px = (a5_0 >= 32u) ? sh
-                                                          : blend565(static_cast<uint16_t>(fbRow32[x2]), sh, a5_0);
-                        fbRow32[x2] = static_cast<uint32_t>(px) | (static_cast<uint32_t>(px) << 16);
+                        if constexpr (Z_TEST)
+                        {
+
+                            const uint16_t z0a = zbRow[x2 * 2];
+                            const uint16_t z0b = zbRow[x2 * 2 + 1];
+                            if (z0a == 0 || z0b == 0)
+                            {
+                                const uint16_t sh = lutPtr[shadeBase[ti0]];
+                                if (z0a == 0 && z0b == 0)
+                                {
+
+                                    const uint16_t px = (a5_0 >= 32u) ? sh
+                                                                      : blend565(static_cast<uint16_t>(fbRow32[x2]), sh, a5_0);
+                                    fbRow32[x2] = static_cast<uint32_t>(px) | (static_cast<uint32_t>(px) << 16);
+                                }
+                                else
+                                {
+
+                                    const uint32_t orig = fbRow32[x2];
+                                    const uint16_t orig0 = static_cast<uint16_t>(orig);
+                                    const uint16_t orig1 = static_cast<uint16_t>(orig >> 16);
+                                    const uint16_t px0 = (z0a == 0)
+                                                             ? ((a5_0 >= 32u) ? sh : blend565(orig0, sh, a5_0))
+                                                             : orig0;
+                                    const uint16_t px1 = (z0b == 0)
+                                                             ? ((a5_0 >= 32u) ? sh : blend565(orig1, sh, a5_0))
+                                                             : orig1;
+                                    fbRow32[x2] = static_cast<uint32_t>(px0) | (static_cast<uint32_t>(px1) << 16);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            const uint16_t sh = lutPtr[shadeBase[ti0]];
+                            const uint16_t px = (a5_0 >= 32u) ? sh
+                                                              : blend565(static_cast<uint16_t>(fbRow32[x2]), sh, a5_0);
+                            fbRow32[x2] = static_cast<uint32_t>(px) | (static_cast<uint32_t>(px) << 16);
+                        }
                     }
                     if (a5_1 > 0u)
                     {
-                        const uint16_t sh = lutPtr[shadeBase[ti1]];
-                        const uint16_t px = (a5_1 >= 32u) ? sh
-                                                          : blend565(static_cast<uint16_t>(fbRow32[x2 + 1]), sh, a5_1);
-                        fbRow32[x2 + 1] = static_cast<uint32_t>(px) | (static_cast<uint32_t>(px) << 16);
+                        if constexpr (Z_TEST)
+                        {
+                            const uint16_t z1a = zbRow[(x2 + 1) * 2];
+                            const uint16_t z1b = zbRow[(x2 + 1) * 2 + 1];
+                            if (z1a == 0 || z1b == 0)
+                            {
+                                const uint16_t sh = lutPtr[shadeBase[ti1]];
+                                if (z1a == 0 && z1b == 0)
+                                {
+                                    const uint16_t px = (a5_1 >= 32u) ? sh
+                                                                      : blend565(static_cast<uint16_t>(fbRow32[x2 + 1]), sh, a5_1);
+                                    fbRow32[x2 + 1] = static_cast<uint32_t>(px) | (static_cast<uint32_t>(px) << 16);
+                                }
+                                else
+                                {
+                                    const uint32_t orig = fbRow32[x2 + 1];
+                                    const uint16_t orig0 = static_cast<uint16_t>(orig);
+                                    const uint16_t orig1 = static_cast<uint16_t>(orig >> 16);
+                                    const uint16_t px0 = (z1a == 0)
+                                                             ? ((a5_1 >= 32u) ? sh : blend565(orig0, sh, a5_1))
+                                                             : orig0;
+                                    const uint16_t px1 = (z1b == 0)
+                                                             ? ((a5_1 >= 32u) ? sh : blend565(orig1, sh, a5_1))
+                                                             : orig1;
+                                    fbRow32[x2 + 1] = static_cast<uint32_t>(px0) | (static_cast<uint32_t>(px1) << 16);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            const uint16_t sh = lutPtr[shadeBase[ti1]];
+                            const uint16_t px = (a5_1 >= 32u) ? sh
+                                                              : blend565(static_cast<uint16_t>(fbRow32[x2 + 1]), sh, a5_1);
+                            fbRow32[x2 + 1] = static_cast<uint32_t>(px) | (static_cast<uint32_t>(px) << 16);
+                        }
                     }
                     if (a5_2 > 0u)
                     {
-                        const uint16_t sh = lutPtr[shadeBase[ti2]];
-                        const uint16_t px = (a5_2 >= 32u) ? sh
-                                                          : blend565(static_cast<uint16_t>(fbRow32[x2 + 2]), sh, a5_2);
-                        fbRow32[x2 + 2] = static_cast<uint32_t>(px) | (static_cast<uint32_t>(px) << 16);
+                        if constexpr (Z_TEST)
+                        {
+                            const uint16_t z2a = zbRow[(x2 + 2) * 2];
+                            const uint16_t z2b = zbRow[(x2 + 2) * 2 + 1];
+                            if (z2a == 0 || z2b == 0)
+                            {
+                                const uint16_t sh = lutPtr[shadeBase[ti2]];
+                                if (z2a == 0 && z2b == 0)
+                                {
+                                    const uint16_t px = (a5_2 >= 32u) ? sh
+                                                                      : blend565(static_cast<uint16_t>(fbRow32[x2 + 2]), sh, a5_2);
+                                    fbRow32[x2 + 2] = static_cast<uint32_t>(px) | (static_cast<uint32_t>(px) << 16);
+                                }
+                                else
+                                {
+                                    const uint32_t orig = fbRow32[x2 + 2];
+                                    const uint16_t orig0 = static_cast<uint16_t>(orig);
+                                    const uint16_t orig1 = static_cast<uint16_t>(orig >> 16);
+                                    const uint16_t px0 = (z2a == 0)
+                                                             ? ((a5_2 >= 32u) ? sh : blend565(orig0, sh, a5_2))
+                                                             : orig0;
+                                    const uint16_t px1 = (z2b == 0)
+                                                             ? ((a5_2 >= 32u) ? sh : blend565(orig1, sh, a5_2))
+                                                             : orig1;
+                                    fbRow32[x2 + 2] = static_cast<uint32_t>(px0) | (static_cast<uint32_t>(px1) << 16);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            const uint16_t sh = lutPtr[shadeBase[ti2]];
+                            const uint16_t px = (a5_2 >= 32u) ? sh
+                                                              : blend565(static_cast<uint16_t>(fbRow32[x2 + 2]), sh, a5_2);
+                            fbRow32[x2 + 2] = static_cast<uint32_t>(px) | (static_cast<uint32_t>(px) << 16);
+                        }
                     }
                     if (a5_3 > 0u)
                     {
-                        const uint16_t sh = lutPtr[shadeBase[ti3]];
-                        const uint16_t px = (a5_3 >= 32u) ? sh
-                                                          : blend565(static_cast<uint16_t>(fbRow32[x2 + 3]), sh, a5_3);
-                        fbRow32[x2 + 3] = static_cast<uint32_t>(px) | (static_cast<uint32_t>(px) << 16);
+                        if constexpr (Z_TEST)
+                        {
+                            const uint16_t z3a = zbRow[(x2 + 3) * 2];
+                            const uint16_t z3b = zbRow[(x2 + 3) * 2 + 1];
+                            if (z3a == 0 || z3b == 0)
+                            {
+                                const uint16_t sh = lutPtr[shadeBase[ti3]];
+                                if (z3a == 0 && z3b == 0)
+                                {
+                                    const uint16_t px = (a5_3 >= 32u) ? sh
+                                                                      : blend565(static_cast<uint16_t>(fbRow32[x2 + 3]), sh, a5_3);
+                                    fbRow32[x2 + 3] = static_cast<uint32_t>(px) | (static_cast<uint32_t>(px) << 16);
+                                }
+                                else
+                                {
+                                    const uint32_t orig = fbRow32[x2 + 3];
+                                    const uint16_t orig0 = static_cast<uint16_t>(orig);
+                                    const uint16_t orig1 = static_cast<uint16_t>(orig >> 16);
+                                    const uint16_t px0 = (z3a == 0)
+                                                             ? ((a5_3 >= 32u) ? sh : blend565(orig0, sh, a5_3))
+                                                             : orig0;
+                                    const uint16_t px1 = (z3b == 0)
+                                                             ? ((a5_3 >= 32u) ? sh : blend565(orig1, sh, a5_3))
+                                                             : orig1;
+                                    fbRow32[x2 + 3] = static_cast<uint32_t>(px0) | (static_cast<uint32_t>(px1) << 16);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            const uint16_t sh = lutPtr[shadeBase[ti3]];
+                            const uint16_t px = (a5_3 >= 32u) ? sh
+                                                              : blend565(static_cast<uint16_t>(fbRow32[x2 + 3]), sh, a5_3);
+                            fbRow32[x2 + 3] = static_cast<uint32_t>(px) | (static_cast<uint32_t>(px) << 16);
+                        }
                     }
                 }
 
@@ -320,10 +486,41 @@ namespace pip3D
                     const uint32_t a5 = (static_cast<uint32_t>(a8) * rowAlphaMul32 + 127u) >> 8;
                     if (a5 > 0u)
                     {
-                        const uint16_t shaded = lutPtr[shadeBase[texIdx]];
-                        const uint16_t outPix = (a5 >= 32u) ? shaded
-                                                            : blend565(static_cast<uint16_t>(fbRow32[x2]), shaded, a5);
-                        fbRow32[x2] = static_cast<uint32_t>(outPix) | (static_cast<uint32_t>(outPix) << 16);
+                        if constexpr (Z_TEST)
+                        {
+                            const uint16_t za = zbRow[x2 * 2];
+                            const uint16_t zb = zbRow[x2 * 2 + 1];
+                            if (za == 0 || zb == 0)
+                            {
+                                const uint16_t shaded = lutPtr[shadeBase[texIdx]];
+                                if (za == 0 && zb == 0)
+                                {
+                                    const uint16_t outPix = (a5 >= 32u) ? shaded
+                                                                        : blend565(static_cast<uint16_t>(fbRow32[x2]), shaded, a5);
+                                    fbRow32[x2] = static_cast<uint32_t>(outPix) | (static_cast<uint32_t>(outPix) << 16);
+                                }
+                                else
+                                {
+                                    const uint32_t orig = fbRow32[x2];
+                                    const uint16_t orig0 = static_cast<uint16_t>(orig);
+                                    const uint16_t orig1 = static_cast<uint16_t>(orig >> 16);
+                                    const uint16_t px0 = (za == 0)
+                                                             ? ((a5 >= 32u) ? shaded : blend565(orig0, shaded, a5))
+                                                             : orig0;
+                                    const uint16_t px1 = (zb == 0)
+                                                             ? ((a5 >= 32u) ? shaded : blend565(orig1, shaded, a5))
+                                                             : orig1;
+                                    fbRow32[x2] = static_cast<uint32_t>(px0) | (static_cast<uint32_t>(px1) << 16);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            const uint16_t shaded = lutPtr[shadeBase[texIdx]];
+                            const uint16_t outPix = (a5 >= 32u) ? shaded
+                                                                : blend565(static_cast<uint16_t>(fbRow32[x2]), shaded, a5);
+                            fbRow32[x2] = static_cast<uint32_t>(outPix) | (static_cast<uint32_t>(outPix) << 16);
+                        }
                     }
                     u_fp += du_fp2;
                     v_fp += dv_fp2;
@@ -337,10 +534,23 @@ namespace pip3D
                     const uint32_t a5 = (static_cast<uint32_t>(a8) * rowAlphaMul32 + 127u) >> 8;
                     if (a5 > 0u)
                     {
-                        const uint16_t shaded = lutPtr[shadeBase[texIdx]];
-                        buf[static_cast<size_t>(yb) * WIDTH + xLast] =
-                            (a5 >= 32u) ? shaded
-                                        : blend565(buf[static_cast<size_t>(yb) * WIDTH + xLast], shaded, a5);
+                        if constexpr (Z_TEST)
+                        {
+                            if (zbRow[xLast] == 0)
+                            {
+                                const uint16_t shaded = lutPtr[shadeBase[texIdx]];
+                                buf[static_cast<size_t>(yb) * WIDTH + xLast] =
+                                    (a5 >= 32u) ? shaded
+                                                : blend565(buf[static_cast<size_t>(yb) * WIDTH + xLast], shaded, a5);
+                            }
+                        }
+                        else
+                        {
+                            const uint16_t shaded = lutPtr[shadeBase[texIdx]];
+                            buf[static_cast<size_t>(yb) * WIDTH + xLast] =
+                                (a5 >= 32u) ? shaded
+                                            : blend565(buf[static_cast<size_t>(yb) * WIDTH + xLast], shaded, a5);
+                        }
                     }
                 }
             }
