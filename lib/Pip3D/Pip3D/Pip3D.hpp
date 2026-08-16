@@ -19,6 +19,9 @@
 #include "Camera/Frustum.hpp"
 #include "Camera/Timeline.hpp"
 
+#include "Audio/SpatialAudio.hpp"
+#include "Audio/Reverb.hpp"
+
 #include "Geometry/Mesh.hpp"
 #include "Geometry/Instance.hpp"
 #include "Geometry/Primitives/Basic.hpp"
@@ -28,34 +31,40 @@
 #include "Geometry/Primitives/Torus.hpp"
 #include "Geometry/Primitives/TrefoilKnot.hpp"
 
-#include "Rendering/Display/FrameBuffer.hpp"
-#include "Rendering/Display/ZBuffer.hpp"
-#include "Rendering/Display/Sky.hpp"
-#include "Rendering/Display/Texture.hpp"
-#include "Rendering/Renderer.hpp"
+#include "Rendering/Resources/Texture.hpp"
+#include "Rendering/Buffers/FrameBuffer.hpp"
+#include "Rendering/Buffers/ZBuffer.hpp"
 
-#include "Rendering/Pipeline/Rasterizer.hpp"
-#include "Rendering/Pipeline/Shading.hpp"
-#include "Rendering/Pipeline/Billboard.hpp"
+#include "Rendering/Environment/Sky.hpp"
+#include "Rendering/Environment/Clouds.hpp"
+#include "Rendering/Environment/TimeOfDay.hpp"
 
 #include "Rendering/Lighting/Lighting.hpp"
 #include "Rendering/Lighting/Shadow.hpp"
+#include "Rendering/Lighting/Deferred.hpp"
 
+#include "Rendering/Pipeline/Shading.hpp"
+#include "Rendering/Pipeline/Billboard.hpp"
+#include "Rendering/Pipeline/Culling.hpp"
+#include "Rendering/Pipeline/MeshDraw.hpp"
+#include "Rendering/Pipeline/DrawCache.hpp"
+
+#include "Rendering/Effects/Glow.hpp"
 #include "Rendering/Effects/Particles.hpp"
-
 #include "Rendering/UI/Font.hpp"
 #include "Rendering/UI/HUD.hpp"
+
+#include "Rendering/Renderer.hpp"
 
 #include "Scene/Node.hpp"
 #include "Scene/Graph.hpp"
 #include "Scene/Helper.hpp"
-#include "Scene/Atmosphere.hpp"
 #include "Scene/Character.hpp"
 
 namespace pip3D
 {
     inline constexpr uint8_t VERSION_MAJOR = 0;
-    inline constexpr uint8_t VERSION_MINOR = 2;
+    inline constexpr uint8_t VERSION_MINOR = 3;
     inline constexpr uint8_t VERSION_PATCH = 0;
     inline constexpr const char *VERSION = "0.3.0 - beta";
 
@@ -98,6 +107,14 @@ namespace pip3D
             r.setShadowsEnabled(true);
             r.setShadowPlaneY(0.0f);
         }
+
+#if PIPCORE_ENABLE_AUDIO
+        if (pipcore::Audio *a = pipcore::GetPlatform()->audio())
+        {
+            a->configure({});
+            a->begin();
+        }
+#endif
 
         return r;
     }
