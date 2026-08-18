@@ -2,47 +2,101 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <cmath>
 #include <algorithm>
 
-#if defined(ARDUINO_ARCH_ESP32) || defined(ESP_PLATFORM) || defined(ESP32)
+#if defined(ARDUINO_ARCH_ESP32) || defined(ESP_PLATFORM)
 #define PIP3D_TARGET_ESP32 1
+#define PIP3D_TARGET_PC 0
 #else
 #define PIP3D_TARGET_ESP32 0
-#endif
-
-#if defined(PIP3D_PC)
 #define PIP3D_TARGET_PC 1
-#else
-#define PIP3D_TARGET_PC 0
 #endif
 
 #if PIP3D_TARGET_ESP32
+
 #include <esp_attr.h>
 #include <esp_timer.h>
 #include <esp_random.h>
+#else
+
+using SemaphoreHandle_t = void *;
+using TaskHandle_t = void *;
+using BaseType_t = long;
+using UBaseType_t = unsigned long;
+using TickType_t = uint32_t;
+
+#ifndef portMAX_DELAY
+#define portMAX_DELAY 0xFFFFFFFFUL
+#endif
+#ifndef pdTRUE
+#define pdTRUE 1
+#endif
+#ifndef pdFALSE
+#define pdFALSE 0
+#endif
+#ifndef pdPASS
+#define pdPASS 1
+#endif
+#ifndef pdFAIL
+#define pdFAIL 0
+#endif
+#ifndef pdMS_TO_TICKS
+#define pdMS_TO_TICKS(ms) (ms)
+#endif
+
+inline void vSemaphoreDelete(SemaphoreHandle_t) {}
+inline SemaphoreHandle_t xSemaphoreCreateBinary() { return reinterpret_cast<SemaphoreHandle_t>(1); }
+inline SemaphoreHandle_t xSemaphoreCreateMutex() { return reinterpret_cast<SemaphoreHandle_t>(1); }
+inline SemaphoreHandle_t xSemaphoreCreateCounting(unsigned long, unsigned long) { return reinterpret_cast<SemaphoreHandle_t>(1); }
+inline BaseType_t xSemaphoreTake(SemaphoreHandle_t, TickType_t) { return pdTRUE; }
+inline BaseType_t xSemaphoreGive(SemaphoreHandle_t) { return pdTRUE; }
+
+inline void vTaskDelay(TickType_t) {}
+inline void vTaskDelete(TaskHandle_t) {}
+inline void taskYIELD() {}
+inline void xTaskNotifyGive(TaskHandle_t) {}
+inline uint32_t ulTaskNotifyTake(BaseType_t, TickType_t) { return 1; }
 #endif
 
 #include "Debug/Logging.hpp"
 
 #if defined(_MSC_VER)
+#include <intrin.h>
+
 #define PIP3D_FORCE_INLINE __forceinline
 #define PIP3D_FLATTEN __forceinline
 #define PIP3D_NOINLINE __declspec(noinline)
+#define PIP3D_RESTRICT __restrict
+
+#ifndef __restrict__
+#define __restrict__ __restrict
+#endif
+#ifndef __attribute__
+#define __attribute__(x)
+#endif
+#ifndef __builtin_expect
+#define __builtin_expect(x, v) (x)
+#endif
+#ifndef __builtin_prefetch
+#define __builtin_prefetch(ptr, ...) ((void)0)
+#endif
+#ifndef __builtin_inff
+#define __builtin_inff() (1e30f)
+#endif
+#ifndef __sync_synchronize
+#define __sync_synchronize() _ReadWriteBarrier()
+#endif
+
 #elif defined(__GNUC__) || defined(__clang__)
 #define PIP3D_FORCE_INLINE inline __attribute__((always_inline))
 #define PIP3D_FLATTEN __attribute__((flatten))
 #define PIP3D_NOINLINE __attribute__((noinline))
+#define PIP3D_RESTRICT __restrict__
 #else
 #define PIP3D_FORCE_INLINE inline
 #define PIP3D_FLATTEN
 #define PIP3D_NOINLINE
-#endif
-
-#if defined(_MSC_VER)
-#define PIP3D_RESTRICT __restrict
-#elif defined(__GNUC__) || defined(__clang__)
-#define PIP3D_RESTRICT __restrict__
-#else
 #define PIP3D_RESTRICT
 #endif
 
@@ -54,8 +108,11 @@
 #define PIP3D_COLD
 #endif
 
-#if !defined(IRAM_ATTR)
+#ifndef IRAM_ATTR
 #define IRAM_ATTR
+#endif
+#ifndef DRAM_ATTR
+#define DRAM_ATTR
 #endif
 
 #if PIP3D_TARGET_ESP32

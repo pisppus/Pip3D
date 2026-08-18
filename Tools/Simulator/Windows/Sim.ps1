@@ -268,7 +268,10 @@ New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
 
 if ($Clean) {
     Write-Step "Cleaning build outputs..."
-    if (Test-Path $cmakeBuildDir) { Remove-Item $cmakeBuildDir -Recurse -Force }
+    if (Test-Path $cmakeBuildDir) { 
+        cmd.exe /c "rd /s /q `"\`?\`?$cmakeBuildDir`"" 2>$null
+        if (Test-Path $cmakeBuildDir) { Remove-Item $cmakeBuildDir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
     if (Test-Path $exe) { Remove-Item $exe -Force }
     foreach ($stale in @(
         "pipgui-sim.exe", "pipgui-sim-debug.exe", "pipgui-sim-debug.pdb", "pipgui-sim-debug.ilk",

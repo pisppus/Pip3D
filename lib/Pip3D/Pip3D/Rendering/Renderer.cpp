@@ -61,6 +61,8 @@ namespace pip3D
             MemUtils::freeData(reflectWriteBuffer);
 
         JobSystem::shutdown();
+
+#if !defined(PIP3D_PC)
         for (int i = 0; i < FLUSH_JOB_SLOTS; ++i)
         {
             if (flushSlotSem[i])
@@ -69,6 +71,7 @@ namespace pip3D
                 flushSlotSem[i] = nullptr;
             }
         }
+#endif
     }
 
     bool Renderer::ensureReflectBuffers()
@@ -102,6 +105,7 @@ namespace pip3D
         initialized = false;
         JobSystem::init();
 
+#if !defined(PIP3D_PC)
         for (int i = 0; i < FLUSH_JOB_SLOTS; ++i)
         {
             if (flushSlotSem[i])
@@ -116,6 +120,7 @@ namespace pip3D
                 LOGE(::pip3D::Debug::LOG_MODULE_RENDER,
                      "Renderer::init: flushSlotSem[%d] creation failed", i);
         }
+#endif
 
         LOGI(::pip3D::Debug::LOG_MODULE_RENDER,
              "Renderer::init: display %dx%d @ %dMHz (cs=%d, dc=%d, mosi=%d, sclk=%d, rst=%d, bl=%d, rotation=%u)",
@@ -460,19 +465,20 @@ namespace pip3D
     void Renderer::flushJobFunc(void *userData)
     {
         FlushJob *job = static_cast<FlushJob *>(userData);
-        if (!job || !job->display || !job->pixels)
+        if (!job || !job->pixels)
             return;
 
 #if defined(PIP3D_PC)
         pipcore::desktop::Runtime::instance().writeRect565(
             job->x, job->y, job->w, job->h, job->pixels, job->stridePixels);
 #else
+        if (!job->display)
+            return;
         job->display->writeRect565(job->x, job->y, job->w, job->h,
                                    job->pixels, job->stridePixels);
-#endif
-
         if (job->doneSem)
             xSemaphoreGive(job->doneSem);
+#endif
     }
 
     void Renderer::drawSkyboxBackground()
