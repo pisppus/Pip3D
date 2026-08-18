@@ -524,11 +524,6 @@ namespace pip3D
         const Face *PIP3D_RESTRICT fbase = mesh->faceData();
         for (uint16_t i = 0; i < faceCount; ++i)
         {
-            statsTrianglesTotal++;
-#if PIP3D_ENABLE_DRAW_TELEMETRY
-            g_drawTelemetry.facesTotal++;
-#endif
-
             const Face &face = fbase[i];
 
             Vector3 v0, v1, v2;
@@ -632,6 +627,11 @@ namespace pip3D
                 if (maxX < 0.0f || minX >= viewportWidth)
                     continue;
             }
+
+            statsTrianglesTotal++;
+#if PIP3D_ENABLE_DRAW_TELEMETRY
+            g_drawTelemetry.facesTotal++;
+#endif
 
             if (!partiallyClipped)
             {

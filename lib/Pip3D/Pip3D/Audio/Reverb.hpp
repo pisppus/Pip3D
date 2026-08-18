@@ -189,8 +189,7 @@ namespace pip3D
 
         PIP3D_FORCE_INLINE static int16_t clampSat16(int32_t v) noexcept
         {
-            return static_cast<int16_t>(
-                __builtin_max(-32768, __builtin_min(32767, v)));
+            return static_cast<int16_t>(std::max<int>(-32768, std::min<int>(32767, v)));
         }
 
         void init() noexcept

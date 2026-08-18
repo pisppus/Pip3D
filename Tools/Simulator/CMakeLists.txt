@@ -35,23 +35,24 @@ if(SIM_DEBUG)
 endif()
 
 add_executable(simulator WIN32 ${SIM_SOURCES})
-target_compile_features(simulator PRIVATE cxx_std_17)
+target_compile_features(simulator PRIVATE cxx_std_20)
 target_compile_definitions(simulator PRIVATE
     PIPCORE_PLATFORM=DESKTOP
     PIPCORE_DISPLAY=SIMULATOR
+    PIPCORE_TARGET_DESKTOP=1
     PIP3D_PC=1
     PIPGUI_SIM_USE_WX=1
     PIPGUI_SIM_SCALE=1
     PIPGUI_SIM_PROJECT_NAME=\"Pip3D\"
-    PIPGUI_SIM_DEFAULT_WIDTH=320
-    PIPGUI_SIM_DEFAULT_HEIGHT=240
+    PIPGUI_SIM_DEFAULT_WIDTH=480
+    PIPGUI_SIM_DEFAULT_HEIGHT=320
     WINVER=0x0601
     _WIN32_WINNT=0x0601
     WIN32_LEAN_AND_MEAN
     NOMINMAX)
 target_compile_options(simulator PRIVATE
-    $<$<CXX_COMPILER_ID:MSVC>:/FIArduino.h /EHsc>
-    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-include Arduino.h>)
+    $<$<CXX_COMPILER_ID:MSVC>:/EHsc>)
+
 if(SIM_DEBUG)
     target_compile_definitions(simulator PRIVATE DEBUG)
     target_link_options(simulator PRIVATE
@@ -62,7 +63,6 @@ else()
 endif()
 target_include_directories(simulator PRIVATE
     "${SIM_ROOT}/include"
-    "${SIM_ROOT}/lib/Pip3D/PipCore/Host/Desktop/include"
     "${SIM_ROOT}/lib/Pip3D"
     "${SIM_ROOT}/lib/Pip3D/Pip3D")
 

@@ -19,6 +19,10 @@ static inline uint32_t getHostMicros()
 #define GET_MICROS() getHostMicros()
 #endif
 
+#if defined(_MSC_VER)
+#include <intrin.h>
+#endif
+
 namespace pip3D
 {
     namespace Debug
@@ -56,8 +60,15 @@ namespace pip3D
             {
                 if (module == 0u)
                     return 0;
+#if defined(_MSC_VER)
+                unsigned long idx = 0;
+                if (_BitScanForward(&idx, static_cast<unsigned long>(module)))
+                    return (idx < 8) ? static_cast<int>(idx) : 0;
+                return 0;
+#else
                 int idx = __builtin_ctz(static_cast<unsigned int>(module));
                 return (idx < 8) ? idx : 0;
+#endif
             }
         }
 
