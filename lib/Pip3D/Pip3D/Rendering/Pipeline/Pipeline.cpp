@@ -68,7 +68,6 @@ namespace pip3D
         const int remaining = maxLights - count;
         if (scoreCount > remaining)
         {
-
             for (int i = 1; i < scoreCount; ++i)
             {
                 const LightScore temp = scores[i];
@@ -121,8 +120,7 @@ namespace pip3D
             const Vector3 camPos = cam.position;
             const Vector3 camFwd = cam.forward();
 
-            float *PIP3D_RESTRICT eyeZ = static_cast<float *>(
-                alloca(n * sizeof(float)));
+            float *PIP3D_RESTRICT eyeZ = static_cast<float *>(alloca(n * sizeof(float)));
             for (size_t i = 0; i < n; ++i)
                 eyeZ[i] = Culling::computeEyeZ(opaqueQueue_[i]->center(), camPos, camFwd);
 
@@ -130,7 +128,6 @@ namespace pip3D
             {
                 const float keyZ = eyeZ[i];
                 MeshInstance *keyInst = opaqueQueue_[i];
-
                 size_t j = i;
                 while (j > 0 && eyeZ[j - 1] > keyZ)
                 {
@@ -226,43 +223,15 @@ namespace pip3D
             const Vector3 &p1 = proj[b];
             const Vector3 &p2 = proj[c];
 
-            const float minY = (p0.y < p1.y) ? ((p0.y < p2.y) ? p0.y : p2.y)
-                                             : ((p1.y < p2.y) ? p1.y : p2.y);
-            const float maxY = (p0.y > p1.y) ? ((p0.y > p2.y) ? p0.y : p2.y)
-                                             : ((p1.y > p2.y) ? p1.y : p2.y);
+            const float minY = (p0.y < p1.y) ? ((p0.y < p2.y) ? p0.y : p2.y) : ((p1.y < p2.y) ? p1.y : p2.y);
+            const float maxY = (p0.y > p1.y) ? ((p0.y > p2.y) ? p0.y : p2.y) : ((p1.y > p2.y) ? p1.y : p2.y);
             if (maxY < bandTop || minY >= bandBottom)
-            {
-#if PIP3D_ENABLE_DRAW_TELEMETRY
-                g_drawTelemetry.recordSkip(
-                    SkipReason::BAND_Y, frameForTelemetry, faceIdxForTelemetry,
-                    meshForTelemetry, clipped[a].d, clipped[b].d, clipped[c].d, 0.0f,
-                    p0.x, p0.y, p0.z, p1.x, p1.y, p2.x, p2.y,
-                    clipped[a].pos.x, clipped[a].pos.y, clipped[a].pos.z,
-                    camera.position.x, camera.position.y, camera.position.z,
-                    camera.forward().x, camera.forward().y, camera.forward().z,
-                    nearD, bandTop, bandBottom, true, true);
-#endif
                 return false;
-            }
 
-            const float minX = (p0.x < p1.x) ? ((p0.x < p2.x) ? p0.x : p2.x)
-                                             : ((p1.x < p2.x) ? p1.x : p2.x);
-            const float maxX = (p0.x > p1.x) ? ((p0.x > p2.x) ? p0.x : p2.x)
-                                             : ((p1.x > p2.x) ? p1.x : p2.x);
+            const float minX = (p0.x < p1.x) ? ((p0.x < p2.x) ? p0.x : p2.x) : ((p1.x < p2.x) ? p1.x : p2.x);
+            const float maxX = (p0.x > p1.x) ? ((p0.x > p2.x) ? p0.x : p2.x) : ((p1.x > p2.x) ? p1.x : p2.x);
             if (maxX < 0.0f || minX >= viewportWidth)
-            {
-#if PIP3D_ENABLE_DRAW_TELEMETRY
-                g_drawTelemetry.recordSkip(
-                    SkipReason::FRUSTUM_X, frameForTelemetry, faceIdxForTelemetry,
-                    meshForTelemetry, clipped[a].d, clipped[b].d, clipped[c].d, 0.0f,
-                    p0.x, p0.y, p0.z, p1.x, p1.y, p2.x, p2.y,
-                    clipped[a].pos.x, clipped[a].pos.y, clipped[a].pos.z,
-                    camera.position.x, camera.position.y, camera.position.z,
-                    camera.forward().x, camera.forward().y, camera.forward().z,
-                    nearD, bandTop, bandBottom, true, true);
-#endif
                 return false;
-            }
 
             Rasterizer::fillTriangleTextured(
                 p0.x, p0.y - bandTopF, p0.z,
@@ -324,18 +293,169 @@ namespace pip3D
             }
         }
 
-        if (occlusionCullingEnabled &&
-            zEye - radius > cam.nearPlane &&
-            zEye > cam.nearPlane &&
-            Culling::isInstanceOccluded(
-                center, radius, zEye, radiusPixels,
-                viewport, viewProjMatrix, &zBuffer))
+        drawMeshInstanceBanded(instance, zEye, radiusPixels);
+    }
+
+    PIP3D_HOT IRAM_ATTR static void buildChunkBandCache(
+        Renderer &r,
+        MeshInstance *instance,
+        ChunkBandCache &cache,
+        uint32_t frameStamp)
+    {
+        Mesh *mesh = instance->getMesh();
+        const uint32_t chunkCount = mesh->numChunks();
+        const MeshChunk *PIP3D_RESTRICT chunks = mesh->chunkData();
+        const float qs = mesh->getQScale();
+
+        const Camera &cam = r.getCamera();
+        const Vector3 camPos = cam.position;
+        const Vector3 camFwd = cam.forward();
+        const float nearPlane = cam.nearPlane;
+        const float projScale = Culling::ensureProjScale(cam, r.getViewport());
+        const Frustum &frustum = r.getFrustum();
+        const Matrix4x4 &viewProjMatrix = r.getViewProjMatrix();
+        const Matrix4x4 &worldTransform = instance->transform();
+
+        const float viewportHalfWidth = static_cast<float>(r.getViewport().width) * 0.5f;
+        const float viewportHalfHeight = static_cast<float>(r.getViewport().height) * 0.5f;
+        const float viewportWidthF = static_cast<float>(r.getViewport().width);
+
+        const float r00 = fabsf(worldTransform.m[0]), r01 = fabsf(worldTransform.m[4]), r02 = fabsf(worldTransform.m[8]);
+        const float r10 = fabsf(worldTransform.m[1]), r11 = fabsf(worldTransform.m[5]), r12 = fabsf(worldTransform.m[9]);
+        const float r20 = fabsf(worldTransform.m[2]), r21 = fabsf(worldTransform.m[6]), r22 = fabsf(worldTransform.m[10]);
+
+        const int32_t bandCountInt = static_cast<int32_t>(SCREEN_BAND_COUNT);
+        const int32_t bandHeightInt = static_cast<int32_t>(SCREEN_BAND_HEIGHT);
+
+        cache.reset(frameStamp);
+        cache.totalChunkCount = chunkCount;
+
+        for (uint32_t i = 0; i < chunkCount; ++i)
         {
-            statsInstancesOcclusionCulled++;
-            return;
+            if (cache.visibleCount >= ChunkBandCache::MAX_RECORDS)
+                break;
+
+            const MeshChunk &chunk = chunks[i];
+
+            const Vector3 localMin(static_cast<float>(chunk.minX) * qs,
+                                   static_cast<float>(chunk.minY) * qs,
+                                   static_cast<float>(chunk.minZ) * qs);
+            const Vector3 localMax(static_cast<float>(chunk.maxX) * qs,
+                                   static_cast<float>(chunk.maxY) * qs,
+                                   static_cast<float>(chunk.maxZ) * qs);
+            const Vector3 localCenter = (localMin + localMax) * 0.5f;
+            const Vector3 localHalf = (localMax - localMin) * 0.5f;
+
+            const Vector3 worldCenter = worldTransform.transformNoDiv(localCenter);
+            const float rX = r00 * localHalf.x + r01 * localHalf.y + r02 * localHalf.z;
+            const float rY = r10 * localHalf.x + r11 * localHalf.y + r12 * localHalf.z;
+            const float rZ = r20 * localHalf.x + r21 * localHalf.y + r22 * localHalf.z;
+
+            const Vector3 worldMin = worldCenter - Vector3(rX, rY, rZ);
+            const Vector3 worldMax = worldCenter + Vector3(rX, rY, rZ);
+
+            if (!frustum.testAABB(worldMin, worldMax))
+            {
+                ++cache.frustumCulledCount;
+                continue;
+            }
+
+#if 0
+            if (chunk.coneDot > 0)
+            {
+                const Vector3 toCam = camPos - worldCenter;
+                const float dLenSq = toCam.lengthSquared();
+                if (dLenSq > 1e-4f)
+                {
+                    const float invDLen = FastMath::fastInvSqrt(dLenSq);
+                    const Vector3 viewDir = toCam * invDLen;
+
+                    const Vector3 localNorm(static_cast<float>(chunk.normX) * (1.0f / 32767.0f),
+                                            static_cast<float>(chunk.normY) * (1.0f / 32767.0f),
+                                            static_cast<float>(chunk.normZ) * (1.0f / 32767.0f));
+                    const Vector3 worldNorm = Culling::transformDirection(worldTransform, localNorm);
+
+                    const float sinHalf = static_cast<float>(chunk.coneDot) * (1.0f / 32767.0f);
+                    if (Culling::isChunkBackface(worldNorm, viewDir, sinHalf))
+                        continue;
+                }
+            }
+#endif
+
+            const float chunkEyeZ = (worldCenter.x - camPos.x) * camFwd.x +
+                                    (worldCenter.y - camPos.y) * camFwd.y +
+                                    (worldCenter.z - camPos.z) * camFwd.z;
+
+            uint8_t minBand = 0;
+            uint8_t maxBand = static_cast<uint8_t>(SCREEN_BAND_COUNT - 1);
+
+            if (chunkEyeZ > nearPlane)
+            {
+                const float chunkRadius = sqrtf(rX * rX + rY * rY + rZ * rZ);
+                const float chunkRadiusPx = chunkRadius * projScale * FastMath::fastReciprocal(chunkEyeZ);
+                const Vector3 scrCenter = CameraController::project(worldCenter, viewProjMatrix,
+                                                                    viewportHalfWidth, viewportHalfHeight, 0, 0);
+
+                const float chunkMinX = scrCenter.x - chunkRadiusPx;
+                const float chunkMaxX = scrCenter.x + chunkRadiusPx;
+                if (chunkMaxX < 0.0f || chunkMinX >= viewportWidthF)
+                {
+                    ++cache.bandCulledCount;
+                    continue;
+                }
+
+                const float chunkMinY = scrCenter.y - chunkRadiusPx;
+                const float chunkMaxY = scrCenter.y + chunkRadiusPx;
+
+                const int32_t minBand32 = static_cast<int32_t>(chunkMinY) / bandHeightInt;
+                const int32_t maxBand32 = static_cast<int32_t>(chunkMaxY) / bandHeightInt;
+
+                if (maxBand32 < 0 || minBand32 >= bandCountInt)
+                {
+                    ++cache.bandCulledCount;
+                    continue;
+                }
+
+                minBand = static_cast<uint8_t>(clamp(minBand32, 0, bandCountInt - 1));
+                maxBand = static_cast<uint8_t>(clamp(maxBand32, 0, bandCountInt - 1));
+            }
+
+            cache.records[cache.visibleCount++] = {
+                static_cast<uint16_t>(i),
+                minBand,
+                maxBand};
         }
 
-        drawMeshInstanceBanded(instance, zEye, radiusPixels);
+        const uint8_t nb = static_cast<uint8_t>(
+            (SCREEN_BAND_COUNT <= ChunkBandCache::MAX_BUCKETS) ? SCREEN_BAND_COUNT
+                                                               : ChunkBandCache::MAX_BUCKETS);
+
+        uint16_t bucketSize[ChunkBandCache::MAX_BUCKETS] = {};
+        for (uint16_t i = 0; i < cache.visibleCount; ++i)
+        {
+            const uint8_t mb = cache.records[i].minBand;
+            if (mb < nb)
+                ++bucketSize[mb];
+        }
+
+        uint16_t acc = 0;
+        for (uint8_t b = 0; b < nb; ++b)
+        {
+            cache.bucketStart[b] = acc;
+            cache.bucketCount[b] = bucketSize[b];
+            acc += bucketSize[b];
+        }
+
+        uint16_t cursor[ChunkBandCache::MAX_BUCKETS];
+        for (uint8_t b = 0; b < nb; ++b)
+            cursor[b] = cache.bucketStart[b];
+
+        for (uint16_t i = 0; i < cache.visibleCount; ++i)
+        {
+            const uint8_t mb = cache.records[i].minBand;
+            if (mb < nb)
+                cache.sortedIndices[cursor[mb]++] = i;
+        }
     }
 
     IRAM_ATTR void Renderer::drawMeshInstanceBanded(MeshInstance *instance,
@@ -349,13 +469,11 @@ namespace pip3D
             return;
 
         const Camera &cam = cameras[activeCameraIndex];
-
         if (zEye > cam.nearPlane && radiusPixels < 1.0f)
             return;
 
         const Vector3 center = instance->center();
         const float radius = instance->radius();
-
         const DisplayConfig &framebufferConfig = framebuffer.getConfig();
 
         const uint16_t instColor565 = instance->color().rgb565;
@@ -402,28 +520,13 @@ namespace pip3D
             }
         }
 
-        const uint16_t vertexCountUsed = mesh->numVertices();
-        const uint16_t faceCount = mesh->numFaces();
+        const uint32_t vertexCountUsed = mesh->numVertices();
+        const uint32_t faceCount = mesh->numFaces();
 
         DrawCache *const cache = &instance->drawCache();
 
         Vector3 *PIP3D_RESTRICT worldVerts = nullptr;
         Vector3 *PIP3D_RESTRICT screenVerts = nullptr;
-        Vector3 *PIP3D_RESTRICT localVerts = nullptr;
-
-        if (likely(cache->ensureCapacity(vertexCountUsed)))
-        {
-            worldVerts = cache->worldVerts();
-            screenVerts = cache->screenVerts();
-        }
-        else
-        {
-
-            localVerts = static_cast<Vector3 *>(
-                alloca(vertexCountUsed * sizeof(Vector3)));
-            for (uint16_t i = 0; i < vertexCountUsed; ++i)
-                localVerts[i] = mesh->decodePosition(vbase[i]);
-        }
 
         const uint32_t frameStamp = g_frameStamp;
         const uint32_t instanceVersion = instance->version();
@@ -441,243 +544,159 @@ namespace pip3D
         const bool isTextured = mesh->isTextured();
         const bool doBackfaceCull = backfaceCullingEnabled;
 
-        const ShadingMode effectiveShading =
-            instance->getEffectiveShadingMode(shadingMode);
-        const bool gouraudShading = (effectiveShading == SHADING_GOURAUD) && !useUniformColor;
-        const bool phongShading =
-            (effectiveShading == SHADING_PHONG) && !useUniformColor && !isTextured;
-
         const Texture *const meshTexture = isTextured ? mesh->getTexture() : nullptr;
-
         const Vector3 &camFwd = cam.forward();
 
-        if (likely(worldVerts))
+        const uint32_t chunkCount = mesh->numChunks();
+        const MeshChunk *PIP3D_RESTRICT chunks = mesh->chunkData();
+        const bool hasChunks = (chunkCount > 0 && chunks != nullptr);
+
+        if (!hasChunks)
         {
-            const DrawCache::ProjState projState =
-                cache->beginProjection(frameStamp, instanceVersion);
-
-            if (projState == DrawCache::ProjState::NeedsTransformAndProject)
+            if (likely(cache->ensureCapacity(static_cast<uint16_t>(
+                    vertexCountUsed > 65535 ? 65535 : vertexCountUsed))))
             {
-                for (uint16_t i = 0; i < vertexCountUsed; ++i)
-                {
-                    const Vector3 local = mesh->decodePosition(vbase[i]);
-                    const Vector3 world = worldTransform.transformNoDiv(local);
-                    worldVerts[i] = world;
-                    screenVerts[i] = CameraController::project(world, viewProjMatrix,
-                                                               viewportHalfWidth, viewportHalfHeight,
-                                                               0, 0);
-                }
-                cache->commitProjection(frameStamp, instanceVersion);
-            }
-            else if (projState == DrawCache::ProjState::NeedsReproject)
-            {
-                for (uint16_t i = 0; i < vertexCountUsed; ++i)
-                {
-                    screenVerts[i] = CameraController::project(worldVerts[i], viewProjMatrix,
-                                                               viewportHalfWidth, viewportHalfHeight,
-                                                               0, 0);
-                }
-                cache->commitProjection(frameStamp, instanceVersion);
-            }
-        }
-
-        Vector3 *PIP3D_RESTRICT worldNormals = nullptr;
-        if (gouraudShading || phongShading)
-        {
-            NormalMatrix nmGouraud(worldTransform);
-
-            if (gouraudShading)
-            {
-                if (vertexColors_.size() < vertexCountUsed)
-                    vertexColors_.resize(vertexCountUsed);
-
-                for (uint16_t vi = 0; vi < vertexCountUsed; ++vi)
-                {
-                    const Vector3 localNormal = vbase[vi].normal.get();
-                    const Vector3 worldNormal = nmGouraud.transform(localNormal);
-
-                    const Vector3 v = worldVerts ? worldVerts[vi]
-                                                 : worldTransform.transformNoDiv(localVerts[vi]);
-
-                    float r, g, b;
-                    Shading::calculateVertexLightingGouraud(
-                        v, worldNormal, camPos,
-                        localLights, localLightCount,
-                        baseR, baseG, baseB, r, g, b);
-
-                    vertexColors_[vi] = Vector3(r, g, b);
-                }
+                worldVerts = cache->worldVerts();
+                screenVerts = cache->screenVerts();
             }
 
-            if (phongShading)
-            {
-                worldNormals = static_cast<Vector3 *>(
-                    alloca(vertexCountUsed * sizeof(Vector3)));
-                for (uint16_t vi = 0; vi < vertexCountUsed; ++vi)
-                {
-                    const Vector3 localNormal = vbase[vi].normal.get();
-                    worldNormals[vi] = nmGouraud.transform(localNormal);
-                }
-            }
-        }
-
-        const Face *PIP3D_RESTRICT fbase = mesh->faceData();
-        for (uint16_t i = 0; i < faceCount; ++i)
-        {
-            const Face &face = fbase[i];
-
-            Vector3 v0, v1, v2;
             if (likely(worldVerts))
             {
-                v0 = worldVerts[face.v0];
-                v1 = worldVerts[face.v1];
-                v2 = worldVerts[face.v2];
-            }
-            else
-            {
-                v0 = worldTransform.transformNoDiv(localVerts[face.v0]);
-                v1 = worldTransform.transformNoDiv(localVerts[face.v1]);
-                v2 = worldTransform.transformNoDiv(localVerts[face.v2]);
-            }
+                const DrawCache::ProjState projState = cache->beginProjection(frameStamp, instanceVersion);
 
-            const float d0 = (v0.x - camPos.x) * camFwd.x + (v0.y - camPos.y) * camFwd.y + (v0.z - camPos.z) * camFwd.z;
-            const float d1 = (v1.x - camPos.x) * camFwd.x + (v1.y - camPos.y) * camFwd.y + (v1.z - camPos.z) * camFwd.z;
-            const float d2 = (v2.x - camPos.x) * camFwd.x + (v2.y - camPos.y) * camFwd.y + (v2.z - camPos.z) * camFwd.z;
-
-            if (unlikely(d0 < nearClip && d1 < nearClip && d2 < nearClip))
-            {
-                statsTrianglesBackfaceCulled++;
-#if PIP3D_ENABLE_DRAW_TELEMETRY
-                g_drawTelemetry.recordSkip(
-                    SkipReason::NEAR_FULLY, frameStamp, i, mesh,
-                    d0, d1, d2, 0.0f, 0, 0, 0, 0, 0, 0, 0,
-                    v0.x, v0.y, v0.z, camPos.x, camPos.y, camPos.z,
-                    camFwd.x, camFwd.y, camFwd.z, nearPlane, bandTop, bandBottom,
-                    true, isTextured);
-#endif
-                continue;
-            }
-
-            const bool partiallyClipped = unlikely(d0 < nearClip || d1 < nearClip || d2 < nearClip);
-
-            if (doBackfaceCull)
-            {
-                const float e1x = v1.x - v0.x, e1y = v1.y - v0.y, e1z = v1.z - v0.z;
-                const float e2x = v2.x - v0.x, e2y = v2.y - v0.y, e2z = v2.z - v0.z;
-                const float nx = e1y * e2z - e1z * e2y;
-                const float ny = e1z * e2x - e1x * e2z;
-                const float nz = e1x * e2y - e1y * e2x;
-                const float vx = v0.x - camPos.x;
-                const float vy = v0.y - camPos.y;
-                const float vz = v0.z - camPos.z;
-
-                if (nx * vx + ny * vy + nz * vz >= 0.0f)
+                if (projState == DrawCache::ProjState::NeedsTransformAndProject)
                 {
-                    statsTrianglesBackfaceCulled++;
-#if PIP3D_ENABLE_DRAW_TELEMETRY
-                    g_drawTelemetry.recordSkip(
-                        SkipReason::BACKFACE, frameStamp, i, mesh,
-                        d0, d1, d2, 0.0f, 0, 0, 0, 0, 0, 0, 0,
-                        v0.x, v0.y, v0.z, camPos.x, camPos.y, camPos.z,
-                        camFwd.x, camFwd.y, camFwd.z, nearPlane, bandTop, bandBottom,
-                        partiallyClipped, isTextured);
-#endif
-                    continue;
+                    for (uint32_t i = 0; i < vertexCountUsed; ++i)
+                    {
+                        const Vector3 local = mesh->decodePosition(vbase[i]);
+                        const Vector3 world = worldTransform.transformNoDiv(local);
+                        worldVerts[i] = world;
+                        screenVerts[i] = CameraController::project(world, viewProjMatrix,
+                                                                   viewportHalfWidth, viewportHalfHeight, 0, 0);
+                    }
+                    cache->commitProjection(frameStamp, instanceVersion);
+                }
+                else if (projState == DrawCache::ProjState::NeedsReproject)
+                {
+                    for (uint32_t i = 0; i < vertexCountUsed; ++i)
+                    {
+                        screenVerts[i] = CameraController::project(worldVerts[i], viewProjMatrix,
+                                                                   viewportHalfWidth, viewportHalfHeight, 0, 0);
+                    }
+                    cache->commitProjection(frameStamp, instanceVersion);
                 }
             }
 
-            Vector3 p0, p1, p2;
-            if (likely(screenVerts))
-            {
-                p0 = screenVerts[face.v0];
-                p1 = screenVerts[face.v1];
-                p2 = screenVerts[face.v2];
-            }
-            else
-            {
-                p0 = CameraController::project(v0, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, 0, 0);
-                p1 = CameraController::project(v1, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, 0, 0);
-                p2 = CameraController::project(v2, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, 0, 0);
-            }
+            const bool is32 = mesh->isIndex32();
+            const Face16 *PIP3D_RESTRICT fbase16 = is32 ? nullptr : mesh->faceData16();
+            const Face32 *PIP3D_RESTRICT fbase32 = is32 ? mesh->faceData32() : nullptr;
 
-            if (!partiallyClipped)
+            for (uint32_t i = 0; i < faceCount; ++i)
             {
-                const float minY = (p0.y < p1.y) ? ((p0.y < p2.y) ? p0.y : p2.y)
-                                                 : ((p1.y < p2.y) ? p1.y : p2.y);
-                const float maxY = (p0.y > p1.y) ? ((p0.y > p2.y) ? p0.y : p2.y)
-                                                 : ((p1.y > p2.y) ? p1.y : p2.y);
-                if (maxY < bandTop || minY >= bandBottom)
+                uint32_t vIdx0, vIdx1, vIdx2;
+                if (likely(!is32))
                 {
-#if PIP3D_ENABLE_DRAW_TELEMETRY
-                    g_drawTelemetry.recordSkip(
-                        SkipReason::BAND_Y, frameStamp, i, mesh,
-                        d0, d1, d2, 0.0f,
-                        p0.x, p0.y, p0.z, p1.x, p1.y, p2.x, p2.y,
-                        v0.x, v0.y, v0.z, camPos.x, camPos.y, camPos.z,
-                        camFwd.x, camFwd.y, camFwd.z, nearPlane, bandTop, bandBottom,
-                        false, isTextured);
-#endif
-                    continue;
-                }
-
-                const float minX = (p0.x < p1.x) ? ((p0.x < p2.x) ? p0.x : p2.x)
-                                                 : ((p1.x < p2.x) ? p1.x : p2.x);
-                const float maxX = (p0.x > p1.x) ? ((p0.x > p2.x) ? p0.x : p2.x)
-                                                 : ((p1.x > p2.x) ? p1.x : p2.x);
-                if (maxX < 0.0f || minX >= viewportWidth)
-                    continue;
-            }
-
-            statsTrianglesTotal++;
-#if PIP3D_ENABLE_DRAW_TELEMETRY
-            g_drawTelemetry.facesTotal++;
-#endif
-
-            if (!partiallyClipped)
-            {
-                const float area = (p1.x - p0.x) * (p2.y - p0.y) - (p2.x - p0.x) * (p1.y - p0.y);
-
-                if (fabsf(area) <= 1.0f)
-                {
-                    statsTrianglesBackfaceCulled++;
-#if PIP3D_ENABLE_DRAW_TELEMETRY
-                    g_drawTelemetry.recordSkip(
-                        SkipReason::DEGENERATE, frameStamp, i, mesh,
-                        d0, d1, d2, area,
-                        p0.x, p0.y, p0.z, p1.x, p1.y, p2.x, p2.y,
-                        v0.x, v0.y, v0.z, camPos.x, camPos.y, camPos.z,
-                        camFwd.x, camFwd.y, camFwd.z, nearPlane, bandTop, bandBottom,
-                        partiallyClipped, isTextured);
-#endif
-                    continue;
-                }
-            }
-
-            if (isTextured)
-            {
-                const Vertex &vert0 = vbase[face.v0];
-                const Vertex &vert1 = vbase[face.v1];
-                const Vertex &vert2 = vbase[face.v2];
-
-                float lr0, lg0, lb0, lr1, lg1, lb1, lr2, lg2, lb2;
-                if (gouraudShading)
-                {
-                    const Vector3 &cv0 = vertexColors_[face.v0];
-                    const Vector3 &cv1 = vertexColors_[face.v1];
-                    const Vector3 &cv2 = vertexColors_[face.v2];
-                    lr0 = cv0.x;
-                    lg0 = cv0.y;
-                    lb0 = cv0.z;
-                    lr1 = cv1.x;
-                    lg1 = cv1.y;
-                    lb1 = cv1.z;
-                    lr2 = cv2.x;
-                    lg2 = cv2.y;
-                    lb2 = cv2.z;
+                    vIdx0 = fbase16[i].v0;
+                    vIdx1 = fbase16[i].v1;
+                    vIdx2 = fbase16[i].v2;
                 }
                 else
                 {
+                    vIdx0 = fbase32[i].v0;
+                    vIdx1 = fbase32[i].v1;
+                    vIdx2 = fbase32[i].v2;
+                }
 
+                Vector3 v0, v1, v2;
+                if (likely(worldVerts))
+                {
+                    v0 = worldVerts[vIdx0];
+                    v1 = worldVerts[vIdx1];
+                    v2 = worldVerts[vIdx2];
+                }
+                else
+                {
+                    v0 = worldTransform.transformNoDiv(mesh->decodePosition(vbase[vIdx0]));
+                    v1 = worldTransform.transformNoDiv(mesh->decodePosition(vbase[vIdx1]));
+                    v2 = worldTransform.transformNoDiv(mesh->decodePosition(vbase[vIdx2]));
+                }
+
+                const float d0 = (v0.x - camPos.x) * camFwd.x + (v0.y - camPos.y) * camFwd.y + (v0.z - camPos.z) * camFwd.z;
+                const float d1 = (v1.x - camPos.x) * camFwd.x + (v1.y - camPos.y) * camFwd.y + (v1.z - camPos.z) * camFwd.z;
+                const float d2 = (v2.x - camPos.x) * camFwd.x + (v2.y - camPos.y) * camFwd.y + (v2.z - camPos.z) * camFwd.z;
+
+                if (unlikely(d0 < nearClip && d1 < nearClip && d2 < nearClip))
+                {
+                    statsTrianglesBackfaceCulled++;
+                    continue;
+                }
+
+                const bool partiallyClipped = unlikely(d0 < nearClip || d1 < nearClip || d2 < nearClip);
+
+                if (doBackfaceCull)
+                {
+                    const float e1x = v1.x - v0.x, e1y = v1.y - v0.y, e1z = v1.z - v0.z;
+                    const float e2x = v2.x - v0.x, e2y = v2.y - v0.y, e2z = v2.z - v0.z;
+                    const float nx = e1y * e2z - e1z * e2y;
+                    const float ny = e1z * e2x - e1x * e2z;
+                    const float nz = e1x * e2y - e1y * e2x;
+                    const float vx = v0.x - camPos.x;
+                    const float vy = v0.y - camPos.y;
+                    const float vz = v0.z - camPos.z;
+
+                    if (nx * vx + ny * vy + nz * vz >= 0.0f)
+                    {
+                        statsTrianglesBackfaceCulled++;
+                        continue;
+                    }
+                }
+
+                Vector3 p0, p1, p2;
+                if (likely(screenVerts))
+                {
+                    p0 = screenVerts[vIdx0];
+                    p1 = screenVerts[vIdx1];
+                    p2 = screenVerts[vIdx2];
+                }
+                else
+                {
+                    p0 = CameraController::project(v0, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, 0, 0);
+                    p1 = CameraController::project(v1, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, 0, 0);
+                    p2 = CameraController::project(v2, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, 0, 0);
+                }
+
+                if (!partiallyClipped)
+                {
+                    const float minY = (p0.y < p1.y) ? ((p0.y < p2.y) ? p0.y : p2.y) : ((p1.y < p2.y) ? p1.y : p2.y);
+                    const float maxY = (p0.y > p1.y) ? ((p0.y > p2.y) ? p0.y : p2.y) : ((p1.y > p2.y) ? p1.y : p2.y);
+                    if (maxY < bandTop || minY >= bandBottom)
+                        continue;
+
+                    const float minX = (p0.x < p1.x) ? ((p0.x < p2.x) ? p0.x : p2.x) : ((p1.x < p2.x) ? p1.x : p2.x);
+                    const float maxX = (p0.x > p1.x) ? ((p0.x > p2.x) ? p0.x : p2.x) : ((p1.x > p2.x) ? p1.x : p2.x);
+                    if (maxX < 0.0f || minX >= viewportWidth)
+                        continue;
+                }
+
+                statsTrianglesTotal++;
+
+                if (!partiallyClipped)
+                {
+                    const float area = (p1.x - p0.x) * (p2.y - p0.y) - (p2.x - p0.x) * (p1.y - p0.y);
+                    if (fabsf(area) <= 1.0f)
+                    {
+                        statsTrianglesBackfaceCulled++;
+                        continue;
+                    }
+                }
+
+                if (isTextured)
+                {
+                    const Vertex &vert0 = vbase[vIdx0];
+                    const Vertex &vert1 = vbase[vIdx1];
+                    const Vertex &vert2 = vbase[vIdx2];
+
+                    float lr0, lg0, lb0, lr1, lg1, lb1, lr2, lg2, lb2;
                     Shading::calculateFaceLighting(
                         v0, v1, v2, camPos,
                         localLights, localLightCount,
@@ -689,116 +708,297 @@ namespace pip3D
                     lr2 = lr0;
                     lg2 = lg0;
                     lb2 = lb0;
-                }
 
-                if (!partiallyClipped)
-                {
-                    Rasterizer::fillTriangleTextured(
-                        p0.x, p0.y - bandTopF, p0.z,
-                        p1.x, p1.y - bandTopF, p1.z,
-                        p2.x, p2.y - bandTopF, p2.z,
-                        vert0.tu, vert0.tv,
-                        vert1.tu, vert1.tv,
-                        vert2.tu, vert2.tv,
-                        d0, d1, d2,
-                        lr0, lg0, lb0,
-                        lr1, lg1, lb1,
-                        lr2, lg2, lb2,
-                        *meshTexture,
-                        framebuffer.getBuffer(),
-                        &zBuffer,
-                        framebufferConfig);
-#if PIP3D_ENABLE_DRAW_TELEMETRY
-                    g_drawTelemetry.facesDrawnTextured++;
-#endif
-                }
-                else
-                {
-
-                    const DrawTelemetryClipVert cv[3] = {
-                        {v0, vert0.tu, vert0.tv, d0, lr0, lg0, lb0},
-                        {v1, vert1.tu, vert1.tv, d1, lr1, lg1, lb1},
-                        {v2, vert2.tu, vert2.tv, d2, lr2, lg2, lb2}};
-                    const bool drew = clipAndDrawNearTextured(
-                        cv, nearClip,
-                        cam, viewport, viewProjMatrix,
-                        framebuffer, &zBuffer,
-                        *meshTexture,
-                        mesh, i, frameStamp);
-                    (void)drew;
-#if PIP3D_ENABLE_DRAW_TELEMETRY
-                    if (drew)
-                        g_drawTelemetry.facesDrawnClipped++;
+                    if (!partiallyClipped)
+                    {
+                        Rasterizer::fillTriangleTextured(
+                            p0.x, p0.y - bandTopF, p0.z,
+                            p1.x, p1.y - bandTopF, p1.z,
+                            p2.x, p2.y - bandTopF, p2.z,
+                            vert0.tu, vert0.tv,
+                            vert1.tu, vert1.tv,
+                            vert2.tu, vert2.tv,
+                            d0, d1, d2,
+                            lr0, lg0, lb0,
+                            lr1, lg1, lb1,
+                            lr2, lg2, lb2,
+                            *meshTexture,
+                            framebuffer.getBuffer(),
+                            &zBuffer,
+                            framebufferConfig);
+                    }
                     else
-                        g_drawTelemetry.recordSkip(
-                            SkipReason::CLIP_OUTCOUNT_LT3, frameStamp, i, mesh,
-                            d0, d1, d2, 0.0f, 0, 0, 0, 0, 0, 0, 0,
-                            v0.x, v0.y, v0.z, camPos.x, camPos.y, camPos.z,
-                            camFwd.x, camFwd.y, camFwd.z, nearPlane, bandTop, bandBottom,
-                            true, true);
-#endif
+                    {
+                        const DrawTelemetryClipVert cv[3] = {
+                            {v0, vert0.tu, vert0.tv, d0, lr0, lg0, lb0},
+                            {v1, vert1.tu, vert1.tv, d1, lr1, lg1, lb1},
+                            {v2, vert2.tu, vert2.tv, d2, lr2, lg2, lb2}};
+                        clipAndDrawNearTextured(
+                            cv, nearClip,
+                            cam, viewport, viewProjMatrix,
+                            framebuffer, &zBuffer,
+                            *meshTexture,
+                            mesh, static_cast<uint16_t>(i), frameStamp);
+                    }
+                    continue;
                 }
-                continue;
-            }
 
-            if (phongShading && !partiallyClipped)
-            {
-                const Vector3 &n0 = worldNormals[face.v0];
-                const Vector3 &n1 = worldNormals[face.v1];
-                const Vector3 &n2 = worldNormals[face.v2];
-
-                Rasterizer::fillTrianglePhong(
-                    (int16_t)p0.x, (int16_t)(p0.y - bandTopF), p0.z,
-                    (int16_t)p1.x, (int16_t)(p1.y - bandTopF), p1.z,
-                    (int16_t)p2.x, (int16_t)(p2.y - bandTopF), p2.z,
-                    v0.x, v0.y, v0.z,
-                    v1.x, v1.y, v1.z,
-                    v2.x, v2.y, v2.z,
-                    n0.x, n0.y, n0.z,
-                    n1.x, n1.y, n1.z,
-                    n2.x, n2.y, n2.z,
+                MeshRenderer::drawTriangle3D_Preprojected(
+                    v0, v1, v2, p0, p1, p2,
                     d0, d1, d2,
-                    baseR, baseG, baseB,
+                    partiallyClipped,
+                    nearClip,
                     camPos,
+                    instColor565,
+                    viewProjMatrix,
+                    viewport,
+                    viewportHalfWidth, viewportHalfHeight, viewportWidth,
+                    bandTop, bandBottom, bandTopF,
+                    framebuffer, &zBuffer,
                     localLights, localLightCount,
-                    framebuffer.getBuffer(),
-                    &zBuffer,
-                    framebufferConfig);
-#if PIP3D_ENABLE_DRAW_TELEMETRY
-                g_drawTelemetry.facesDrawnTextured++;
-#endif
-                continue;
+                    useUniformColor, uniformColor);
             }
+            return;
+        }
 
-            if (gouraudShading && !partiallyClipped)
+        const uint16_t chunkCacheVerts = mesh->maxChunkVertexCount();
+        if (likely(cache->ensureCapacity(chunkCacheVerts)))
+        {
+            worldVerts = cache->worldVerts();
+            screenVerts = cache->screenVerts();
+        }
+
+        const bool is32 = mesh->isIndex32();
+        const Face16 *PIP3D_RESTRICT fbase16 = is32 ? nullptr : mesh->faceData16();
+        const Face32 *PIP3D_RESTRICT fbase32 = is32 ? mesh->faceData32() : nullptr;
+
+        const int32_t bandIndex32 = static_cast<int32_t>(g_bandOffsetY) / static_cast<int32_t>(SCREEN_BAND_HEIGHT);
+        const uint8_t bandIndex = static_cast<uint8_t>(
+            (bandIndex32 < 0) ? 0
+                              : ((bandIndex32 >= static_cast<int32_t>(SCREEN_BAND_COUNT))
+                                     ? static_cast<int32_t>(SCREEN_BAND_COUNT - 1)
+                                     : bandIndex32));
+
+        ChunkBandCache &chunkCache = instance->chunkBandCache();
+        if (chunkCache.frameStamp != frameStamp || chunkCache.instanceVersion != instanceVersion)
+        {
+            buildChunkBandCache(*this, instance, chunkCache, frameStamp);
+            chunkCache.instanceVersion = instanceVersion;
+        }
+
+        const uint8_t nb = static_cast<uint8_t>(
+            (SCREEN_BAND_COUNT <= ChunkBandCache::MAX_BUCKETS) ? SCREEN_BAND_COUNT
+                                                               : ChunkBandCache::MAX_BUCKETS);
+
+        for (uint8_t b = 0; b <= bandIndex && b < nb; ++b)
+        {
+            const uint16_t bStart = chunkCache.bucketStart[b];
+            const uint16_t bCount = chunkCache.bucketCount[b];
+            if (bCount == 0)
+                continue;
+
+            for (uint16_t k = 0; k < bCount; ++k)
             {
-                const Vector3 &c0 = vertexColors_[face.v0];
-                const Vector3 &c1 = vertexColors_[face.v1];
-                const Vector3 &c2 = vertexColors_[face.v2];
+                const uint16_t recIdx = chunkCache.sortedIndices[bStart + k];
+                const ChunkBandRecord &rec = chunkCache.records[recIdx];
 
-                Rasterizer::fillTriangleSmooth(
-                    (int16_t)p0.x, (int16_t)(p0.y - bandTopF), p0.z,
-                    (int16_t)p1.x, (int16_t)(p1.y - bandTopF), p1.z,
-                    (int16_t)p2.x, (int16_t)(p2.y - bandTopF), p2.z,
-                    c0.x, c0.y, c0.z, c1.x, c1.y, c1.z, c2.x, c2.y, c2.z,
-                    framebuffer.getBuffer(), &zBuffer, framebufferConfig);
-                continue;
+                if (bandIndex > rec.maxBand)
+                    continue;
+
+                const MeshChunk &chunk = chunks[rec.chunkIdx];
+                const uint16_t chunkVCount = chunk.vCount;
+                const uint32_t chunkVOffset = chunk.vOffset;
+                const uint32_t chunkFOffset = chunk.faceOffset;
+                const uint16_t chunkFCount = chunk.faceCount;
+
+                if (likely(worldVerts && screenVerts))
+                {
+                    if (chunkCache.currentChunkIdx != rec.chunkIdx)
+                    {
+                        const Vertex *PIP3D_RESTRICT chunkVBase = vbase + chunkVOffset;
+                        for (uint16_t i = 0; i < chunkVCount; ++i)
+                        {
+                            const Vector3 local = mesh->decodePosition(chunkVBase[i]);
+                            const Vector3 world = worldTransform.transformNoDiv(local);
+                            worldVerts[i] = world;
+                            screenVerts[i] = CameraController::project(world, viewProjMatrix,
+                                                                       viewportHalfWidth, viewportHalfHeight, 0, 0);
+                        }
+                        chunkCache.currentChunkIdx = rec.chunkIdx;
+                    }
+                }
+
+                for (uint16_t fi = 0; fi < chunkFCount; ++fi)
+                {
+                    const uint32_t faceIdx = chunkFOffset + fi;
+                    uint32_t vIdx0, vIdx1, vIdx2;
+                    if (likely(!is32))
+                    {
+                        vIdx0 = fbase16[faceIdx].v0;
+                        vIdx1 = fbase16[faceIdx].v1;
+                        vIdx2 = fbase16[faceIdx].v2;
+                    }
+                    else
+                    {
+                        vIdx0 = fbase32[faceIdx].v0;
+                        vIdx1 = fbase32[faceIdx].v1;
+                        vIdx2 = fbase32[faceIdx].v2;
+                    }
+
+                    Vector3 v0, v1, v2;
+                    if (likely(worldVerts))
+                    {
+                        v0 = worldVerts[vIdx0];
+                        v1 = worldVerts[vIdx1];
+                        v2 = worldVerts[vIdx2];
+                    }
+                    else
+                    {
+                        const Vertex *chunkVBase = vbase + chunkVOffset;
+                        v0 = worldTransform.transformNoDiv(mesh->decodePosition(chunkVBase[vIdx0]));
+                        v1 = worldTransform.transformNoDiv(mesh->decodePosition(chunkVBase[vIdx1]));
+                        v2 = worldTransform.transformNoDiv(mesh->decodePosition(chunkVBase[vIdx2]));
+                    }
+
+                    const float d0 = (v0.x - camPos.x) * camFwd.x + (v0.y - camPos.y) * camFwd.y + (v0.z - camPos.z) * camFwd.z;
+                    const float d1 = (v1.x - camPos.x) * camFwd.x + (v1.y - camPos.y) * camFwd.y + (v1.z - camPos.z) * camFwd.z;
+                    const float d2 = (v2.x - camPos.x) * camFwd.x + (v2.y - camPos.y) * camFwd.y + (v2.z - camPos.z) * camFwd.z;
+
+                    if (unlikely(d0 < nearClip && d1 < nearClip && d2 < nearClip))
+                    {
+                        statsTrianglesBackfaceCulled++;
+                        continue;
+                    }
+
+                    const bool partiallyClipped = unlikely(d0 < nearClip || d1 < nearClip || d2 < nearClip);
+
+                    if (doBackfaceCull)
+                    {
+                        const float e1x = v1.x - v0.x, e1y = v1.y - v0.y, e1z = v1.z - v0.z;
+                        const float e2x = v2.x - v0.x, e2y = v2.y - v0.y, e2z = v2.z - v0.z;
+                        const float nx = e1y * e2z - e1z * e2y;
+                        const float ny = e1z * e2x - e1x * e2z;
+                        const float nz = e1x * e2y - e1y * e2x;
+                        const float vx = v0.x - camPos.x;
+                        const float vy = v0.y - camPos.y;
+                        const float vz = v0.z - camPos.z;
+
+                        if (nx * vx + ny * vy + nz * vz >= 0.0f)
+                        {
+                            statsTrianglesBackfaceCulled++;
+                            continue;
+                        }
+                    }
+
+                    Vector3 p0, p1, p2;
+                    if (likely(screenVerts))
+                    {
+                        p0 = screenVerts[vIdx0];
+                        p1 = screenVerts[vIdx1];
+                        p2 = screenVerts[vIdx2];
+                    }
+                    else
+                    {
+                        p0 = CameraController::project(v0, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, 0, 0);
+                        p1 = CameraController::project(v1, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, 0, 0);
+                        p2 = CameraController::project(v2, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, 0, 0);
+                    }
+
+                    if (!partiallyClipped)
+                    {
+                        const float minY = (p0.y < p1.y) ? ((p0.y < p2.y) ? p0.y : p2.y) : ((p1.y < p2.y) ? p1.y : p2.y);
+                        const float maxY = (p0.y > p1.y) ? ((p0.y > p2.y) ? p0.y : p2.y) : ((p1.y > p2.y) ? p1.y : p2.y);
+                        if (maxY < bandTop || minY >= bandBottom)
+                            continue;
+
+                        const float minX = (p0.x < p1.x) ? ((p0.x < p2.x) ? p0.x : p2.x) : ((p1.x < p2.x) ? p1.x : p2.x);
+                        const float maxX = (p0.x > p1.x) ? ((p0.x > p2.x) ? p0.x : p2.x) : ((p1.x > p2.x) ? p1.x : p2.x);
+                        if (maxX < 0.0f || minX >= viewportWidth)
+                            continue;
+                    }
+
+                    statsTrianglesTotal++;
+
+                    if (!partiallyClipped)
+                    {
+                        const float area = (p1.x - p0.x) * (p2.y - p0.y) - (p2.x - p0.x) * (p1.y - p0.y);
+                        if (fabsf(area) <= 1.0f)
+                        {
+                            statsTrianglesBackfaceCulled++;
+                            continue;
+                        }
+                    }
+
+                    if (isTextured)
+                    {
+                        const Vertex *chunkVBase = vbase + chunkVOffset;
+                        const Vertex &vert0 = chunkVBase[vIdx0];
+                        const Vertex &vert1 = chunkVBase[vIdx1];
+                        const Vertex &vert2 = chunkVBase[vIdx2];
+
+                        float lr0, lg0, lb0, lr1, lg1, lb1, lr2, lg2, lb2;
+                        Shading::calculateFaceLighting(
+                            v0, v1, v2, camPos,
+                            localLights, localLightCount,
+                            baseR, baseG, baseB,
+                            lr0, lg0, lb0);
+                        lr1 = lr0;
+                        lg1 = lg0;
+                        lb1 = lb0;
+                        lr2 = lr0;
+                        lg2 = lg0;
+                        lb2 = lb0;
+
+                        if (!partiallyClipped)
+                        {
+                            Rasterizer::fillTriangleTextured(
+                                p0.x, p0.y - bandTopF, p0.z,
+                                p1.x, p1.y - bandTopF, p1.z,
+                                p2.x, p2.y - bandTopF, p2.z,
+                                vert0.tu, vert0.tv,
+                                vert1.tu, vert1.tv,
+                                vert2.tu, vert2.tv,
+                                d0, d1, d2,
+                                lr0, lg0, lb0,
+                                lr1, lg1, lb1,
+                                lr2, lg2, lb2,
+                                *meshTexture,
+                                framebuffer.getBuffer(),
+                                &zBuffer,
+                                framebufferConfig);
+                        }
+                        else
+                        {
+                            const DrawTelemetryClipVert cv[3] = {
+                                {v0, vert0.tu, vert0.tv, d0, lr0, lg0, lb0},
+                                {v1, vert1.tu, vert1.tv, d1, lr1, lg1, lb1},
+                                {v2, vert2.tu, vert2.tv, d2, lr2, lg2, lb2}};
+                            clipAndDrawNearTextured(
+                                cv, nearClip,
+                                cam, viewport, viewProjMatrix,
+                                framebuffer, &zBuffer,
+                                *meshTexture,
+                                mesh, static_cast<uint16_t>(faceIdx), frameStamp);
+                        }
+                        continue;
+                    }
+
+                    MeshRenderer::drawTriangle3D_Preprojected(
+                        v0, v1, v2, p0, p1, p2,
+                        d0, d1, d2,
+                        partiallyClipped,
+                        nearClip,
+                        camPos,
+                        instColor565,
+                        viewProjMatrix,
+                        viewport,
+                        viewportHalfWidth, viewportHalfHeight, viewportWidth,
+                        bandTop, bandBottom, bandTopF,
+                        framebuffer, &zBuffer,
+                        localLights, localLightCount,
+                        useUniformColor, uniformColor);
+                }
             }
-
-            MeshRenderer::drawTriangle3D_Preprojected(
-                v0, v1, v2, p0, p1, p2,
-                d0, d1, d2,
-                partiallyClipped,
-                nearClip,
-                camPos,
-                instColor565,
-                viewProjMatrix,
-                viewport,
-                viewportHalfWidth, viewportHalfHeight, viewportWidth,
-                bandTop, bandBottom, bandTopF,
-                framebuffer, &zBuffer,
-                localLights, localLightCount,
-                useUniformColor, uniformColor);
         }
     }
 

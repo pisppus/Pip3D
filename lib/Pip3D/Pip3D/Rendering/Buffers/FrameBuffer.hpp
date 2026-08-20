@@ -70,10 +70,16 @@ namespace pip3D
         pack565Dithered(uint32_t r8, uint32_t g8, uint32_t b8,
                         uint8_t dr, uint8_t dg) noexcept
         {
-            return static_cast<uint16_t>(
-                (((r8 + dr) >> 3) << 11) |
-                (((g8 + dg) >> 2) << 5) |
-                ((b8 + dr) >> 3));
+            uint32_t r = (r8 + dr) >> 3;
+            uint32_t g = (g8 + dg) >> 2;
+            uint32_t b = (b8 + dr) >> 3;
+            if (r > 31u)
+                r = 31u;
+            if (g > 63u)
+                g = 63u;
+            if (b > 31u)
+                b = 31u;
+            return static_cast<uint16_t>((r << 11) | (g << 5) | b);
         }
 
         static PIP3D_FORCE_INLINE int32_t

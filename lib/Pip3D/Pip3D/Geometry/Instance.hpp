@@ -8,6 +8,52 @@
 
 namespace pip3D
 {
+
+    struct ChunkBandRecord
+    {
+        uint16_t chunkIdx;
+        uint8_t minBand;
+        uint8_t maxBand;
+    };
+
+    struct ChunkBandCache
+    {
+
+        static constexpr uint16_t MAX_RECORDS = 2048;
+
+        uint32_t frameStamp = 0;
+        uint32_t instanceVersion = 0;
+
+        uint16_t visibleCount = 0;
+        uint16_t currentChunkIdx = 0xFFFF;
+
+        uint32_t totalChunkCount = 0;
+        uint32_t frustumCulledCount = 0;
+        uint32_t bandCulledCount = 0;
+
+        ChunkBandRecord records[MAX_RECORDS];
+        uint16_t sortedIndices[MAX_RECORDS];
+
+        static constexpr uint8_t MAX_BUCKETS = 16;
+        uint16_t bucketStart[MAX_BUCKETS];
+        uint16_t bucketCount[MAX_BUCKETS];
+
+        PIP3D_FORCE_INLINE void reset(uint32_t newFrameStamp) noexcept
+        {
+            visibleCount = 0;
+            currentChunkIdx = 0xFFFF;
+            frameStamp = newFrameStamp;
+            totalChunkCount = 0;
+            frustumCulledCount = 0;
+            bandCulledCount = 0;
+            for (uint8_t i = 0; i < MAX_BUCKETS; ++i)
+            {
+                bucketStart[i] = 0;
+                bucketCount[i] = 0;
+            }
+        }
+    };
+
     class MeshInstance
     {
     public:
@@ -205,8 +251,12 @@ namespace pip3D
         PIP3D_FORCE_INLINE const Quaternion &getRotation() const { return rotation; }
         PIP3D_FORCE_INLINE bool isRotationValid() const { return rotationValid; }
         PIP3D_FORCE_INLINE uint32_t version() const { return transformVersion; }
+
         PIP3D_FORCE_INLINE DrawCache &drawCache() noexcept { return drawCache_; }
         PIP3D_FORCE_INLINE const DrawCache &drawCache() const noexcept { return drawCache_; }
+
+        PIP3D_FORCE_INLINE ChunkBandCache &chunkBandCache() noexcept { return chunkBandCache_; }
+        PIP3D_FORCE_INLINE const ChunkBandCache &chunkBandCache() const noexcept { return chunkBandCache_; }
 
         PIP3D_FORCE_INLINE const Matrix4x4 &transform() const
         {
@@ -248,6 +298,7 @@ namespace pip3D
         bool rotationValid;
         mutable Matrix4x4 localTransform;
         DrawCache drawCache_;
+        ChunkBandCache chunkBandCache_;
         int8_t shadingOverride_;
 
         Color emissiveColor_;

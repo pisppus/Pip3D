@@ -7,6 +7,7 @@
 namespace pip3D
 {
     struct Texture;
+
     struct alignas(16) Vertex
     {
         int16_t px, py, pz;
@@ -21,13 +22,35 @@ namespace pip3D
     static_assert(sizeof(Vertex) == 16);
     static_assert(alignof(Vertex) == 16);
 
-    struct Face
+    struct alignas(2) Face16
     {
         uint16_t v0, v1, v2;
-        constexpr Face() : v0(0), v1(0), v2(0) {}
-        constexpr Face(uint16_t a, uint16_t b, uint16_t c) : v0(a), v1(b), v2(c) {}
+        constexpr Face16() : v0(0), v1(0), v2(0) {}
+        constexpr Face16(uint16_t a, uint16_t b, uint16_t c) : v0(a), v1(b), v2(c) {}
     };
-    static_assert(sizeof(Face) == 6);
+    static_assert(sizeof(Face16) == 6);
+    using Face = Face16;
+
+    struct alignas(4) Face32
+    {
+        uint32_t v0, v1, v2;
+        constexpr Face32() : v0(0), v1(0), v2(0) {}
+        constexpr Face32(uint32_t a, uint32_t b, uint32_t c) : v0(a), v1(b), v2(c) {}
+    };
+    static_assert(sizeof(Face32) == 12);
+
+    struct alignas(4) MeshChunk
+    {
+        int16_t minX, minY, minZ;
+        int16_t maxX, maxY, maxZ;
+        uint32_t vOffset;
+        uint32_t faceOffset;
+        uint16_t vCount;
+        uint16_t faceCount;
+        int16_t normX, normY, normZ;
+        int16_t coneDot;
+    };
+    static_assert(sizeof(MeshChunk) == 32, "MeshChunk layout changed — sync with Convert.py!");
 
     class Mesh
     {
@@ -37,7 +60,8 @@ namespace pip3D
             kFlagCastShadows = 1u << 0,
             kFlagSingleColorLighting = 1u << 1,
             kFlagStaticStorage = 1u << 2,
-            kFlagBoundsValid = 1u << 3
+            kFlagBoundsValid = 1u << 3,
+            kFlagIndex32 = 1u << 4
         };
 
         static constexpr float kQScaleFactor = 0.5f * (1.0f / 32767.0f);
@@ -49,28 +73,39 @@ namespace pip3D
         {
             if (!(flags_ & kFlagStaticStorage) && vertices_)
                 MemUtils::freeData(vertices_);
+            vertices_ = nullptr;
+            faces_ = nullptr;
+            chunks_ = nullptr;
         }
 
     protected:
         Vertex *PIP3D_RESTRICT vertices_;
-        Face *PIP3D_RESTRICT faces_;
+        union
+        {
+            Face16 *faces_;
+            Face16 *faces16_;
+            Face32 *faces32_;
+            void *facesRaw_;
+        };
+        const MeshChunk *chunks_;
+        uint32_t chunkCount_;
         float qScale_;
-        uint16_t vertexCount_;
-        uint16_t faceCount_;
+        uint32_t vertexCount_;
+        uint32_t faceCount_;
         mutable uint8_t flags_;
         mutable Vector3 boundsCenter_;
         mutable float boundsRadius_;
         mutable Vector3 boundsHalfExtents_;
         const Texture *meshTexture_;
-        uint16_t maxVertices_;
-        uint16_t maxFaces_;
+        uint32_t maxVertices_;
+        uint32_t maxFaces_;
         void (*deleter_)(Mesh *);
 
         ~Mesh() { cleanup(); }
 
     public:
-        explicit Mesh(uint16_t maxVerts, uint16_t maxFaces)
-            : vertices_(nullptr), faces_(nullptr),
+        explicit Mesh(uint32_t maxVerts, uint32_t maxFaces)
+            : vertices_(nullptr), faces_(nullptr), chunks_(nullptr), chunkCount_(0),
               qScale_(1.0f),
               vertexCount_(0), faceCount_(0),
               flags_(kFlagCastShadows),
@@ -82,31 +117,43 @@ namespace pip3D
               deleter_(&defaultDeleter)
         {
             const size_t vBytes = static_cast<size_t>(maxVerts) * sizeof(Vertex);
-            const size_t fBytes = static_cast<size_t>(maxFaces) * sizeof(Face);
-            Vertex *buf = static_cast<Vertex *>(
-                MemUtils::allocData(vBytes + fBytes, 16));
+            const size_t fBytes = static_cast<size_t>(maxFaces) * sizeof(Face16);
+            Vertex *buf = static_cast<Vertex *>(MemUtils::allocData(vBytes + fBytes, 16));
             vertices_ = buf;
-            faces_ = (buf != nullptr)
-                         ? reinterpret_cast<Face *>(buf + maxVerts)
-                         : nullptr;
-
-            if (unlikely(!buf))
-            {
-                LOGE(::pip3D::Debug::LOG_MODULE_RESOURCES,
-                     "Mesh ctor: alloc failed (maxVerts=%u maxFaces=%u)",
-                     static_cast<unsigned>(maxVerts),
-                     static_cast<unsigned>(maxFaces));
-            }
+            faces_ = (buf != nullptr) ? reinterpret_cast<Face16 *>(buf + maxVerts) : nullptr;
         }
 
-        Mesh(const Vertex *extVerts, uint16_t vertCount,
-             const Face *extFaces, uint16_t faceCountIn,
-             bool staticStorage = true)
+        Mesh(const Vertex *extVerts, uint32_t vertCount,
+             const Face16 *extFaces, uint32_t faceCountIn,
+             bool staticStorage = true,
+             const MeshChunk *extChunks = nullptr, uint32_t chunkCountIn = 0)
             : vertices_(const_cast<Vertex *>(extVerts)),
-              faces_(const_cast<Face *>(extFaces)),
+              faces_(const_cast<Face16 *>(extFaces)),
+              chunks_(extChunks),
+              chunkCount_(chunkCountIn),
               qScale_(1.0f),
               vertexCount_(vertCount), faceCount_(faceCountIn),
               flags_(static_cast<uint8_t>(kFlagCastShadows | (staticStorage ? static_cast<uint8_t>(kFlagStaticStorage) : 0u))),
+              boundsCenter_(0.0f, 0.0f, 0.0f),
+              boundsRadius_(0.0f),
+              boundsHalfExtents_(0.0f, 0.0f, 0.0f),
+              meshTexture_(nullptr),
+              maxVertices_(vertCount), maxFaces_(faceCountIn),
+              deleter_(&defaultDeleter)
+        {
+        }
+
+        Mesh(const Vertex *extVerts, uint32_t vertCount,
+             const Face32 *extFaces, uint32_t faceCountIn,
+             bool staticStorage = true,
+             const MeshChunk *extChunks = nullptr, uint32_t chunkCountIn = 0)
+            : vertices_(const_cast<Vertex *>(extVerts)),
+              faces32_(const_cast<Face32 *>(extFaces)),
+              chunks_(extChunks),
+              chunkCount_(chunkCountIn),
+              qScale_(1.0f),
+              vertexCount_(vertCount), faceCount_(faceCountIn),
+              flags_(static_cast<uint8_t>(kFlagCastShadows | kFlagIndex32 | (staticStorage ? static_cast<uint8_t>(kFlagStaticStorage) : 0u))),
               boundsCenter_(0.0f, 0.0f, 0.0f),
               boundsRadius_(0.0f),
               boundsHalfExtents_(0.0f, 0.0f, 0.0f),
@@ -122,16 +169,10 @@ namespace pip3D
         PIP3D_COLD static void defaultDeleter(Mesh *p) { delete p; }
 
         template <typename T>
-        PIP3D_COLD static void typedDeleter(Mesh *p)
-        {
-            delete static_cast<T *>(p);
-        }
+        PIP3D_COLD static void typedDeleter(Mesh *p) { delete static_cast<T *>(p); }
 
         template <typename T>
-        PIP3D_COLD void bindDeleter()
-        {
-            deleter_ = &typedDeleter<T>;
-        }
+        PIP3D_COLD void bindDeleter() { deleter_ = &typedDeleter<T>; }
 
         PIP3D_COLD static void destroy(Mesh *m)
         {
@@ -145,9 +186,8 @@ namespace pip3D
             flags_ &= ~kFlagBoundsValid;
         }
 
-        PIP3D_COLD void finalizeGeometry(uint16_t vCount, uint16_t fCount,
-                                         const Vector3 &boundCenter,
-                                         float boundRadius)
+        PIP3D_COLD void finalizeGeometry(uint32_t vCount, uint32_t fCount,
+                                         const Vector3 &boundCenter, float boundRadius)
         {
             vertexCount_ = vCount;
             faceCount_ = fCount;
@@ -156,24 +196,45 @@ namespace pip3D
             flags_ |= kFlagBoundsValid;
         }
 
-        [[nodiscard]] PIP3D_FORCE_INLINE uint16_t numFaces() const { return faceCount_; }
-        [[nodiscard]] PIP3D_FORCE_INLINE uint16_t numVertices() const { return vertexCount_; }
+        [[nodiscard]] PIP3D_FORCE_INLINE uint32_t numFaces() const noexcept { return faceCount_; }
+        [[nodiscard]] PIP3D_FORCE_INLINE uint32_t numVertices() const noexcept { return vertexCount_; }
+        [[nodiscard]] PIP3D_FORCE_INLINE uint32_t numChunks() const noexcept { return chunkCount_; }
 
-        [[nodiscard]] PIP3D_FORCE_INLINE const Vertex *vertexData() const { return vertices_; }
-        [[nodiscard]] PIP3D_FORCE_INLINE const Face *faceData() const { return faces_; }
+        [[nodiscard]] PIP3D_FORCE_INLINE bool isIndex32() const noexcept { return (flags_ & kFlagIndex32) != 0; }
+        [[nodiscard]] PIP3D_FORCE_INLINE const Vertex *vertexData() const noexcept { return vertices_; }
+        [[nodiscard]] PIP3D_FORCE_INLINE const Face16 *faceData16() const noexcept { return faces16_; }
+        [[nodiscard]] PIP3D_FORCE_INLINE const Face32 *faceData32() const noexcept { return faces32_; }
+        [[nodiscard]] PIP3D_FORCE_INLINE const Face16 *faceData() const noexcept { return faces_; }
+        [[nodiscard]] PIP3D_FORCE_INLINE const MeshChunk *chunkData() const noexcept { return chunks_; }
+        [[nodiscard]] PIP3D_FORCE_INLINE const MeshChunk &getChunk(uint32_t i) const noexcept { return chunks_[i]; }
+        [[nodiscard]] PIP3D_FORCE_INLINE float getQScale() const noexcept { return qScale_; }
 
-        [[nodiscard]] PIP3D_FORCE_INLINE Vector3 decodePosition(const Vertex &v) const
+        [[nodiscard]] PIP3D_FORCE_INLINE uint16_t maxChunkVertexCount() const noexcept
+        {
+            if (chunkCount_ == 0)
+                return static_cast<uint16_t>(vertexCount_ > 65535 ? 65535 : vertexCount_);
+            uint16_t m = 0;
+            for (uint32_t i = 0; i < chunkCount_; ++i)
+            {
+                const uint16_t c = chunks_[i].vCount;
+                if (c > m)
+                    m = c;
+            }
+            return m;
+        }
+
+        [[nodiscard]] PIP3D_FORCE_INLINE Vector3 decodePosition(const Vertex &v) const noexcept
         {
             return Vector3(static_cast<float>(v.px) * qScale_,
                            static_cast<float>(v.py) * qScale_,
                            static_cast<float>(v.pz) * qScale_);
         }
 
-        PIP3D_HOT void decodePositions(Vector3 *PIP3D_RESTRICT out, uint16_t count) const
+        PIP3D_HOT void decodePositions(Vector3 *PIP3D_RESTRICT out, uint32_t count) const
         {
             const Vertex *PIP3D_RESTRICT src = vertices_;
             const float s = qScale_;
-            for (uint16_t i = 0; i < count; ++i)
+            for (uint32_t i = 0; i < count; ++i)
             {
                 out[i].x = static_cast<float>(src[i].px) * s;
                 out[i].y = static_cast<float>(src[i].py) * s;
@@ -193,13 +254,8 @@ namespace pip3D
         {
             if (unlikely(!(flags_ & kFlagBoundsValid)))
                 calculateBoundingSphere();
-            if (boundsHalfExtents_.x == 0.0f &&
-                boundsHalfExtents_.y == 0.0f &&
-                boundsHalfExtents_.z == 0.0f &&
-                boundsRadius_ > 1e-4f)
-            {
+            if (boundsHalfExtents_.x == 0.0f && boundsHalfExtents_.y == 0.0f && boundsHalfExtents_.z == 0.0f && boundsRadius_ > 1e-4f)
                 recomputeHalfExtentsFromVertices();
-            }
             outHalfExtents = boundsHalfExtents_;
         }
 
@@ -216,8 +272,8 @@ namespace pip3D
             return boundsRadius_;
         }
 
-        [[nodiscard]] PIP3D_FORCE_INLINE bool getCastShadows() const { return (flags_ & kFlagCastShadows) != 0; }
-        PIP3D_FORCE_INLINE void setCastShadows(bool e)
+        [[nodiscard]] PIP3D_FORCE_INLINE bool getCastShadows() const noexcept { return (flags_ & kFlagCastShadows) != 0; }
+        PIP3D_FORCE_INLINE void setCastShadows(bool e) noexcept
         {
             if (e)
                 flags_ |= kFlagCastShadows;
@@ -225,8 +281,8 @@ namespace pip3D
                 flags_ &= ~kFlagCastShadows;
         }
 
-        [[nodiscard]] PIP3D_FORCE_INLINE bool getSingleColorLighting() const { return (flags_ & kFlagSingleColorLighting) != 0; }
-        PIP3D_FORCE_INLINE void setSingleColorLighting(bool e)
+        [[nodiscard]] PIP3D_FORCE_INLINE bool getSingleColorLighting() const noexcept { return (flags_ & kFlagSingleColorLighting) != 0; }
+        PIP3D_FORCE_INLINE void setSingleColorLighting(bool e) noexcept
         {
             if (e)
                 flags_ |= kFlagSingleColorLighting;
@@ -234,12 +290,10 @@ namespace pip3D
                 flags_ &= ~kFlagSingleColorLighting;
         }
 
-        [[nodiscard]] PIP3D_FORCE_INLINE const Texture *getTexture() const { return meshTexture_; }
-        PIP3D_FORCE_INLINE void setTexture(const Texture *t) { meshTexture_ = t; }
-        [[nodiscard]] PIP3D_FORCE_INLINE bool isTextured() const { return meshTexture_ != nullptr; }
+        [[nodiscard]] PIP3D_FORCE_INLINE const Texture *getTexture() const noexcept { return meshTexture_; }
+        PIP3D_FORCE_INLINE void setTexture(const Texture *t) noexcept { meshTexture_ = t; }
+        [[nodiscard]] PIP3D_FORCE_INLINE bool isTextured() const noexcept { return meshTexture_ != nullptr; }
     };
-
-    static_assert(sizeof(void *) == 4 ? sizeof(Mesh) == 60 : true);
 
     PIP3D_COLD inline void Mesh::calculateBoundingSphere() const
     {
@@ -253,17 +307,17 @@ namespace pip3D
         }
 
         const Vertex *PIP3D_RESTRICT vPtr = vertices_;
-        const uint16_t vN = vertexCount_;
+        const uint32_t vN = vertexCount_;
         const float scale = qScale_;
 
         float minX = 1e30f, maxX = -1e30f;
         float minY = 1e30f, maxY = -1e30f;
         float minZ = 1e30f, maxZ = -1e30f;
 
-        uint16_t iMinX = 0, iMaxX = 0;
-        uint16_t iMinY = 0, iMaxY = 0;
-        uint16_t iMinZ = 0, iMaxZ = 0;
-        for (uint16_t i = 0; i < vN; ++i)
+        uint32_t iMinX = 0, iMaxX = 0;
+        uint32_t iMinY = 0, iMaxY = 0;
+        uint32_t iMinZ = 0, iMaxZ = 0;
+        for (uint32_t i = 0; i < vN; ++i)
         {
             const int16_t x = vPtr[i].px;
             const int16_t y = vPtr[i].py;
@@ -301,64 +355,25 @@ namespace pip3D
             if (fz > maxZ)
                 maxZ = fz;
         }
-        boundsHalfExtents_ = Vector3((maxX - minX) * 0.5f,
-                                     (maxY - minY) * 0.5f,
-                                     (maxZ - minZ) * 0.5f);
+        boundsHalfExtents_ = Vector3((maxX - minX) * 0.5f, (maxY - minY) * 0.5f, (maxZ - minZ) * 0.5f);
 
-        const Vector3 extremes[6] = {
-            Vector3(float(vPtr[iMinX].px) * scale, float(vPtr[iMinX].py) * scale, float(vPtr[iMinX].pz) * scale),
-            Vector3(float(vPtr[iMaxX].px) * scale, float(vPtr[iMaxX].py) * scale, float(vPtr[iMaxX].pz) * scale),
-            Vector3(float(vPtr[iMinY].px) * scale, float(vPtr[iMinY].py) * scale, float(vPtr[iMinY].pz) * scale),
-            Vector3(float(vPtr[iMaxY].px) * scale, float(vPtr[iMaxY].py) * scale, float(vPtr[iMaxY].pz) * scale),
-            Vector3(float(vPtr[iMinZ].px) * scale, float(vPtr[iMinZ].py) * scale, float(vPtr[iMinZ].pz) * scale),
-            Vector3(float(vPtr[iMaxZ].px) * scale, float(vPtr[iMaxZ].py) * scale, float(vPtr[iMaxZ].pz) * scale)};
-
-        float bestDistSq = 0.0f;
-        Vector3 p1 = extremes[0], p2 = extremes[1];
-        for (int i = 0; i < 6; ++i)
-            for (int j = i + 1; j < 6; ++j)
-            {
-                const float dx = extremes[i].x - extremes[j].x;
-                const float dy = extremes[i].y - extremes[j].y;
-                const float dz = extremes[i].z - extremes[j].z;
-                const float d = dx * dx + dy * dy + dz * dz;
-                if (d > bestDistSq)
-                {
-                    bestDistSq = d;
-                    p1 = extremes[i];
-                    p2 = extremes[j];
-                }
-            }
+        const Vector3 p1(float(vPtr[iMinX].px) * scale, float(vPtr[iMinY].py) * scale, float(vPtr[iMinZ].pz) * scale);
+        const Vector3 p2(float(vPtr[iMaxX].px) * scale, float(vPtr[iMaxY].py) * scale, float(vPtr[iMaxZ].pz) * scale);
 
         Vector3 center = (p1 + p2) * 0.5f;
-        float radius = (bestDistSq > 0.0f)
-                           ? 0.5f * bestDistSq * FastMath::fastInvSqrt(bestDistSq)
-                           : 0.0f;
-        float radiusSq = radius * radius;
-
-        for (uint16_t i = 0; i < vN; ++i)
+        float maxDistSq = 0.0f;
+        for (uint32_t i = 0; i < vN; ++i)
         {
-            const float px = float(vPtr[i].px) * scale;
-            const float py = float(vPtr[i].py) * scale;
-            const float pz = float(vPtr[i].pz) * scale;
-            const float dx = px - center.x;
-            const float dy = py - center.y;
-            const float dz = pz - center.z;
+            const float dx = float(vPtr[i].px) * scale - center.x;
+            const float dy = float(vPtr[i].py) * scale - center.y;
+            const float dz = float(vPtr[i].pz) * scale - center.z;
             const float dSq = dx * dx + dy * dy + dz * dz;
-            if (dSq <= radiusSq)
-                continue;
-            const float d = dSq * FastMath::fastInvSqrt(dSq);
-            const float newRadius = (radius + d) * 0.5f;
-            const float k = (d - radius) * 0.5f * FastMath::fastReciprocal(d);
-            center.x += dx * k;
-            center.y += dy * k;
-            center.z += dz * k;
-            radius = newRadius;
-            radiusSq = radius * radius;
+            if (dSq > maxDistSq)
+                maxDistSq = dSq;
         }
 
         boundsCenter_ = center;
-        boundsRadius_ = radius;
+        boundsRadius_ = sqrtf(maxDistSq);
         flags_ |= kFlagBoundsValid;
     }
 
@@ -370,7 +385,7 @@ namespace pip3D
         float minX = 1e30f, maxX = -1e30f;
         float minY = 1e30f, maxY = -1e30f;
         float minZ = 1e30f, maxZ = -1e30f;
-        for (uint16_t i = 0; i < vertexCount_; ++i)
+        for (uint32_t i = 0; i < vertexCount_; ++i)
         {
             const float px = float(vertices_[i].px) * scale;
             const float py = float(vertices_[i].py) * scale;
@@ -388,8 +403,6 @@ namespace pip3D
             if (pz > maxZ)
                 maxZ = pz;
         }
-        boundsHalfExtents_ = Vector3((maxX - minX) * 0.5f,
-                                     (maxY - minY) * 0.5f,
-                                     (maxZ - minZ) * 0.5f);
+        boundsHalfExtents_ = Vector3((maxX - minX) * 0.5f, (maxY - minY) * 0.5f, (maxZ - minZ) * 0.5f);
     }
 }
