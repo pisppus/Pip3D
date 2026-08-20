@@ -49,6 +49,23 @@ namespace pip3D
             return worldRadius * projScale * FastMath::fastReciprocal(eyeZ);
         }
 
+        PIP3D_FORCE_INLINE Vector3 transformDirection(const Matrix4x4 &m,
+                                                      const Vector3 &v) noexcept
+        {
+            return Vector3(
+                m.m[0] * v.x + m.m[4] * v.y + m.m[8] * v.z,
+                m.m[1] * v.x + m.m[5] * v.y + m.m[9] * v.z,
+                m.m[2] * v.x + m.m[6] * v.y + m.m[10] * v.z);
+        }
+
+        PIP3D_FORCE_INLINE bool isChunkBackface(const Vector3 &worldNorm,
+                                                const Vector3 &viewDir,
+                                                float sinHalf) noexcept
+        {
+
+            return worldNorm.dot(viewDir) > sinHalf;
+        }
+
         inline bool IRAM_ATTR isInstanceOccluded(
             const Vector3 &center,
             float radius,
