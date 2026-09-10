@@ -404,16 +404,30 @@ namespace pip3D
             PIP3D_FORCE_INLINE uint16_t operator()(
                 const int32_t *PIP3D_RESTRICT attrs, int32_t bayer) const noexcept
             {
+                int32_t r = (attrs[0] + bayer) >> 10;
+                int32_t g = (attrs[1] + bayer) >> 10;
+                int32_t b = (attrs[2] + bayer) >> 10;
 
-                const uint32_t ir = static_cast<uint32_t>(attrs[0] + bayer) >> 10;
-                const uint32_t ig = static_cast<uint32_t>(attrs[1] + bayer) >> 10;
-                const uint32_t ib = static_cast<uint32_t>(attrs[2] + bayer) >> 10;
+                if (r < 0)
+                    r = 0;
+                else if (r > 31)
+                    r = 31;
+                if (g < 0)
+                    g = 0;
+                else if (g > 63)
+                    g = 63;
+                if (b < 0)
+                    b = 0;
+                else if (b > 31)
+                    b = 31;
 
-                return static_cast<uint16_t>((ir << 11) | (ig << 5) | ib);
+                return static_cast<uint16_t>((static_cast<uint32_t>(r) << 11) |
+                                             (static_cast<uint32_t>(g) << 5) |
+                                             static_cast<uint32_t>(b));
             }
         };
 
-        PIP3D_FORCE_INLINE static void fillTriangleSmooth(
+        PIP3D_FORCE_INLINE static void IRAM_ATTR fillTriangleSmooth(
             int16_t x0, int16_t y0, float z0,
             int16_t x1, int16_t y1, float z1,
             int16_t x2, int16_t y2, float z2,
@@ -640,7 +654,7 @@ namespace pip3D
             }
         };
 
-        PIP3D_FORCE_INLINE static void fillTrianglePhong(
+        PIP3D_FORCE_INLINE static void IRAM_ATTR fillTrianglePhong(
             int16_t x0, int16_t y0, float z0,
             int16_t x1, int16_t y1, float z1,
             int16_t x2, int16_t y2, float z2,

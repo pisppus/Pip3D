@@ -22,23 +22,55 @@ namespace pip3D
 
   using SkyboxType = SkyType;
 
+  struct SkyPreset
+  {
+    Color top;
+    Color horizon;
+    Color ground;
+    uint16_t tempK;
+  };
+
   struct alignas(8) Sky
   {
   private:
-    static constexpr Color presets[][3] = {
-        {Color::rgb(60, 140, 255), Color::rgb(210, 230, 255), Color::rgb(110, 120, 140)},
-        {Color::rgb(250, 130, 90), Color::rgb(255, 210, 140), Color::rgb(80, 55, 100)},
-        {Color::rgb(15, 40, 100), Color::rgb(40, 90, 160), Color::rgb(10, 25, 60)},
-        {Color::rgb(120, 155, 230), Color::rgb(255, 195, 170), Color::rgb(90, 95, 120)},
-        {Color::rgb(140, 160, 175), Color::rgb(195, 205, 215), Color::rgb(95, 106, 106)},
-        {Color::rgb(180, 220, 255), Color::rgb(255, 255, 240), Color::rgb(130, 140, 120)},
-        {Color::rgb(50, 55, 65), Color::rgb(80, 85, 95), Color::rgb(30, 30, 35)},
-        {Color::rgb(200, 130, 60), Color::rgb(220, 170, 90), Color::rgb(140, 90, 40)},
-        {Color::rgb(5, 0, 20), Color::rgb(20, 10, 50), Color::rgb(0, 0, 10)},
-        {Color::rgb(10, 40, 15), Color::rgb(40, 90, 30), Color::rgb(5, 20, 8)}};
+    static constexpr SkyPreset kPresets[] = {
+        {Color::rgb(60, 140, 255), Color::rgb(210, 230, 255), Color::rgb(110, 120, 140), 5500},
+        {Color::rgb(250, 130, 90), Color::rgb(255, 210, 140), Color::rgb(80, 55, 100), 2500},
+        {Color::rgb(15, 40, 100), Color::rgb(40, 90, 160), Color::rgb(10, 25, 60), 8000},
+        {Color::rgb(120, 155, 230), Color::rgb(255, 195, 170), Color::rgb(90, 95, 120), 4000},
+        {Color::rgb(140, 160, 175), Color::rgb(195, 205, 215), Color::rgb(95, 106, 106), 6500},
+        {Color::rgb(180, 220, 255), Color::rgb(255, 255, 240), Color::rgb(130, 140, 120), 6800},
+        {Color::rgb(50, 55, 65), Color::rgb(80, 85, 95), Color::rgb(30, 30, 35), 7200},
+        {Color::rgb(200, 130, 60), Color::rgb(220, 170, 90), Color::rgb(140, 90, 40), 3800},
+        {Color::rgb(5, 0, 20), Color::rgb(20, 10, 50), Color::rgb(0, 0, 10), 9500},
+        {Color::rgb(10, 40, 15), Color::rgb(40, 90, 30), Color::rgb(5, 20, 8), 5000}};
 
-    static constexpr uint16_t temps[11] = {
-        5500, 2500, 8000, 4000, 6500, 6800, 7200, 3800, 9500, 5000, 5500};
+    static constexpr size_t kPresetCount = sizeof(kPresets) / sizeof(kPresets[0]);
+    static constexpr uint16_t kCustomTempK = 5500;
+
+    static constexpr uint16_t kRefH = 240;
+
+    PIP3D_FORCE_INLINE static uint32_t calcT(int16_t y) noexcept
+    {
+      const uint32_t yScaled = (uint32_t)y * kRefH / SCREEN_HEIGHT;
+      return (yScaled * 205u) >> 8;
+    }
+
+    PIP3D_FORCE_INLINE static uint32_t unpackR8(Color c) noexcept
+    {
+      uint32_t v = c.r5();
+      return (v << 3) | (v >> 2);
+    }
+    PIP3D_FORCE_INLINE static uint32_t unpackG8(Color c) noexcept
+    {
+      uint32_t v = c.g6();
+      return (v << 2) | (v >> 4);
+    }
+    PIP3D_FORCE_INLINE static uint32_t unpackB8(Color c) noexcept
+    {
+      uint32_t v = c.b5();
+      return (v << 3) | (v >> 2);
+    }
 
     static __attribute__((always_inline)) inline uint32_t smoothstep8(uint32_t t) noexcept
     {
@@ -59,11 +91,12 @@ namespace pip3D
     void setPreset(SkyType t) noexcept
     {
       type = t;
-      if (static_cast<uint8_t>(t) < 10u)
+      const size_t i = static_cast<size_t>(t);
+      if (i < kPresetCount)
       {
-        top = presets[t][0];
-        horizon = presets[t][1];
-        ground = presets[t][2];
+        top = kPresets[i].top;
+        horizon = kPresets[i].horizon;
+        ground = kPresets[i].ground;
       }
     }
 
@@ -77,7 +110,8 @@ namespace pip3D
 
     float getLightTemp() const noexcept
     {
-      return static_cast<float>(temps[static_cast<uint8_t>(type)]);
+      const size_t i = static_cast<size_t>(type);
+      return static_cast<float>((i < kPresetCount) ? kPresets[i].tempK : kCustomTempK);
     }
 
     __attribute__((always_inline)) inline void getColorAtY888(int16_t y, uint8_t &outR, uint8_t &outG, uint8_t &outB) const noexcept
@@ -87,13 +121,6 @@ namespace pip3D
         outR = outG = outB = 0;
         return;
       }
-
-      auto unpackR8 = [](Color c) -> uint32_t
-      { uint32_t r5 = c.r5(); return (r5 << 3) | (r5 >> 2); };
-      auto unpackG8 = [](Color c) -> uint32_t
-      { uint32_t g6 = c.g6(); return (g6 << 2) | (g6 >> 4); };
-      auto unpackB8 = [](Color c) -> uint32_t
-      { uint32_t b5 = c.b5(); return (b5 << 3) | (b5 >> 2); };
 
       if (unlikely(y <= 0))
       {
@@ -110,7 +137,7 @@ namespace pip3D
         return;
       }
 
-      const uint32_t T = (static_cast<uint32_t>(y) * 205u) >> 8;
+      const uint32_t T = calcT(y);
 
       uint32_t rA, gA, bA;
       uint32_t rB, gB, bB;
@@ -128,7 +155,7 @@ namespace pip3D
       }
       else
       {
-        s = smoothstep8(((T - 166u) * 728u) >> 8);
+        s = smoothstep8(((T - 166u) * 395u) >> 8);
         rA = unpackR8(horizon);
         gA = unpackG8(horizon);
         bA = unpackB8(horizon);
@@ -159,7 +186,7 @@ namespace pip3D
       if (unlikely(y >= static_cast<int16_t>(SCREEN_HEIGHT)))
         return ground;
 
-      const uint32_t T = (static_cast<uint32_t>(y) * 205u) >> 8;
+      const uint32_t T = calcT(y);
 
       const uint32_t topV = top.rgb565;
       const uint32_t horV = horizon.rgb565;
@@ -176,7 +203,7 @@ namespace pip3D
       }
       else
       {
-        const uint32_t s = smoothstep8(((T - 166u) * 728u) >> 8);
+        const uint32_t s = smoothstep8(((T - 166u) * 395u) >> 8);
         const uint32_t a = s >> 2;
         const uint32_t ia = 64u - a;
         const uint32_t rb = ((horV & 0xF81Fu) * ia + (grdV & 0xF81Fu) * a) >> 6 & 0xF81Fu;

@@ -14,7 +14,7 @@ namespace pip3D
 {
     namespace Rasterizer
     {
-        inline void fillTriangleWater(float x0, float y0, float z0,
+        inline bool fillTriangleWater(float x0, float y0, float z0,
                                       float x1, float y1, float z1,
                                       float x2, float y2, float z2,
                                       float time,
@@ -32,11 +32,11 @@ namespace pip3D
             const int16_t height = config.height;
 
             if (unlikely(!frameBuffer || !zBuffer))
-                return;
+                return true;
 
             uint16_t *__restrict__ zBufferPtr = zBuffer->data();
             if (unlikely(!zBufferPtr))
-                return;
+                return true;
 
             if (y0 > y1)
             {
@@ -58,9 +58,9 @@ namespace pip3D
             }
 
             if (y0 == y2)
-                return;
+                return false;
             if (unlikely(x0 == x1 && x1 == x2))
-                return;
+                return false;
 
             const float dx02 = x0 - x2;
             const float dy12 = y1 - y2;
@@ -69,7 +69,7 @@ namespace pip3D
 
             const float det = dx02 * dy12 - dy02 * dx12;
             if (unlikely(fabsf(det) < 1e-6f))
-                return;
+                return false;
 
             const float invDet = FastMath::fastReciprocal(det);
 
@@ -94,7 +94,7 @@ namespace pip3D
             const bool runTop = (clampStartY_top < endTopExclusive) && (clampStartY_top < height);
             const bool runBottom = (clampStartY_bottom < endBottomExclusive) && (clampStartY_bottom < height);
             if (!runTop && !runBottom)
-                return;
+                return true;
 
             const float dy02_val = y2 - y0;
             const float dy01_val = y1 - y0;
@@ -308,6 +308,7 @@ namespace pip3D
                     x12_fixed += step_12;
                 }
             }
+            return true;
         }
     }
 }

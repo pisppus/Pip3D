@@ -15,7 +15,7 @@ namespace pip3D
     {
         static constexpr int32_t kBlobDistSqMax = 1 << 24;
 
-        struct alignas(4) BlobParams
+        struct BlobParams
         {
             uint16_t *frameBuffer;
             uint16_t *zbBase;
@@ -173,7 +173,7 @@ namespace pip3D
             }
         }
 
-        __attribute__((hot)) inline void fillTriangleBlob(
+        __attribute__((hot)) inline bool fillTriangleBlob(
             int16_t x0, int16_t y0, float z0,
             int16_t x1, int16_t y1, float z1,
             int16_t x2, int16_t y2, float z2,
@@ -190,7 +190,7 @@ namespace pip3D
             const int16_t height = config.height;
 
             if (unlikely(!frameBuffer || !zBuffer))
-                return;
+                return true;
 
             if (y0 > y1)
             {
@@ -218,7 +218,7 @@ namespace pip3D
             }
 
             if (y0 == y2)
-                return;
+                return false;
 
             const float dx02 = x0 - x2;
             const float dy12 = y1 - y2;
@@ -227,7 +227,7 @@ namespace pip3D
 
             const float det = dx02 * dy12 - dy02 * dx12;
             if (unlikely(fabsf(det) < 1e-6f))
-                return;
+                return false;
 
             const float invDet = FastMath::fastReciprocal(det);
 
@@ -316,6 +316,7 @@ namespace pip3D
                              static_cast<int32_t>(z_base), static_cast<int32_t>(u_base), static_cast<int32_t>(v_base),
                              clampStartY_bottom, params);
             }
+            return true;
         }
     }
 }
