@@ -26,7 +26,7 @@ namespace pip3D
 
     namespace Rasterizer
     {
-        __attribute__((hot)) inline void fillTriangleBillboard(
+        __attribute__((hot)) inline bool fillTriangleBillboard(
             float x0, float y0, float z0,
             float x1, float y1, float z1,
             float x2, float y2, float z2,
@@ -56,7 +56,7 @@ namespace pip3D
                      "[BB-rast] null buffer fb=%p zb=%p",
                      static_cast<void *>(frameBuffer), static_cast<void *>(zBuffer));
 #endif
-                return;
+                return true;
             }
 
             if (y0 > y1)
@@ -97,9 +97,9 @@ namespace pip3D
             }
 
             if (y0 == y2)
-                return;
+                return false;
             if (unlikely(x0 == x1 && x1 == x2))
-                return;
+                return false;
 
             const float dx02 = x0 - x2;
             const float dy12 = y1 - y2;
@@ -107,7 +107,7 @@ namespace pip3D
             const float dx12 = x1 - x2;
             const float det = dx02 * dy12 - dy02 * dx12;
             if (unlikely(fabsf(det) < 1e-6f))
-                return;
+                return false;
             const float invDet = FastMath::fastReciprocal(det);
 
             const float dz02 = z0 - z2;
@@ -581,6 +581,7 @@ namespace pip3D
                  static_cast<int>(y0), static_cast<int>(y1), static_cast<int>(y2),
                  dbgSpan, dbgCutout, dbgZFail, dbgWritten, static_cast<int>(blendMode));
 #endif
+            return true;
         }
     }
 }

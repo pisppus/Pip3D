@@ -26,7 +26,7 @@ namespace pip3D
             uint32_t s_g_a;
         };
 
-        struct alignas(4) PlanarParams
+        struct PlanarParams
         {
             uint16_t *frameBuffer;
             uint16_t *zbBase;
@@ -252,7 +252,7 @@ namespace pip3D
             }
         }
 
-        __attribute__((hot)) inline void fillPlanarShadowTriangle(float x0, float y0, float z0,
+        __attribute__((hot)) inline bool fillPlanarShadowTriangle(float x0, float y0, float z0,
                                                                   float x1, float y1, float z1,
                                                                   float x2, float y2, float z2,
                                                                   uint16_t shadowColor,
@@ -267,7 +267,7 @@ namespace pip3D
             const int16_t height = config.height;
 
             if (unlikely(!frameBuffer || !zBuffer))
-                return;
+                return true;
 
             if (y0 > y1)
             {
@@ -289,9 +289,9 @@ namespace pip3D
             }
 
             if (y0 == y2)
-                return;
+                return false;
             if (unlikely(fabsf(x0 - x1) < 1e-6f && fabsf(x1 - x2) < 1e-6f))
-                return;
+                return false;
 
             const uint32_t s_rb = shadowColor & 0xF81F;
             const uint32_t s_g = shadowColor & 0x07E0;
@@ -303,7 +303,7 @@ namespace pip3D
 
             const float det = dx02 * dy12 - dy02 * dx12;
             if (unlikely(fabsf(det) < 1e-6f))
-                return;
+                return false;
 
             const float invDet = FastMath::fastReciprocal(det);
 
@@ -332,7 +332,7 @@ namespace pip3D
             const bool runTop = (clampStartY_top < endTopExclusive) && (clampStartY_top < height);
             const bool runBottom = (clampStartY_bottom < endBottomExclusive) && (clampStartY_bottom < height);
             if (!runTop && !runBottom)
-                return;
+                return true;
 
             PlanarParams params;
             params.frameBuffer = frameBuffer;
@@ -374,6 +374,7 @@ namespace pip3D
                                clampStartY_bottom,
                                params);
             }
+            return true;
         }
     }
 }

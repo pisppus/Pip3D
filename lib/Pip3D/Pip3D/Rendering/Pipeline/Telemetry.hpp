@@ -177,6 +177,7 @@ namespace pip3D
         float u, v;
         float d;
         float lr, lg, lb;
+        float mu = 0.0f, mv = 0.0f;
     };
 
     inline DrawTelemetryClipVert lerpClipVert(const DrawTelemetryClipVert &a,
@@ -191,6 +192,8 @@ namespace pip3D
         r.lr = a.lr + (b.lr - a.lr) * t;
         r.lg = a.lg + (b.lg - a.lg) * t;
         r.lb = a.lb + (b.lb - a.lb) * t;
+        r.mu = a.mu + (b.mu - a.mu) * t;
+        r.mv = a.mv + (b.mv - a.mv) * t;
         return r;
     }
 }

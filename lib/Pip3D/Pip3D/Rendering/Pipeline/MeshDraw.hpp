@@ -159,7 +159,7 @@ namespace pip3D
             return false;
         }
 
-        PIP3D_HOT static void drawTriangle3D_Color_Preprojected(
+        PIP3D_HOT static bool drawTriangle3D_Color_Preprojected(
             const Vector3 &v0, const Vector3 &v1, const Vector3 &v2,
             const Vector3 &p0, const Vector3 &p1, const Vector3 &p2,
             float baseR, float baseG, float baseB,
@@ -175,7 +175,7 @@ namespace pip3D
         {
 
             if (bboxCull(p0, p1, p2, bandTop, bandBottom, viewportWidth))
-                return;
+                return false;
 
             uint16_t shadedColor = uniformColor;
 
@@ -191,16 +191,16 @@ namespace pip3D
                 shadedColor = Color::fromFloat(finalR, finalG, finalB).rgb565;
             }
 
-            Rasterizer::fillTriangle(p0.x, p0.y - bandTopF, p0.z,
-                                     p1.x, p1.y - bandTopF, p1.z,
-                                     p2.x, p2.y - bandTopF, p2.z,
-                                     shadedColor,
-                                     framebuffer.getBuffer(),
-                                     zBuffer,
-                                     framebuffer.getConfig());
+            return Rasterizer::fillTriangle(p0.x, p0.y - bandTopF, p0.z,
+                                            p1.x, p1.y - bandTopF, p1.z,
+                                            p2.x, p2.y - bandTopF, p2.z,
+                                            shadedColor,
+                                            framebuffer.getBuffer(),
+                                            zBuffer,
+                                            framebuffer.getConfig());
         }
 
-        PIP3D_HOT inline void clipAndDrawNearTextured(const ClipVert inVerts[3],
+        PIP3D_HOT inline bool clipAndDrawNearTextured(const ClipVert inVerts[3],
                                                       float nearD,
                                                       const Viewport &viewport,
                                                       const Matrix4x4 &viewProjMatrix,
@@ -219,7 +219,7 @@ namespace pip3D
                 });
 
             if (outCount < 3)
-                return;
+                return false;
 
             const float viewportHalfWidth = static_cast<float>(viewport.width) * 0.5f;
             const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
@@ -235,16 +235,16 @@ namespace pip3D
                                                     viewportHalfWidth, viewportHalfHeight,
                                                     viewport.x, viewport.y);
 
-            auto drawTri = [&](int a, int b, int c)
+            auto drawTri = [&](int a, int b, int c) -> bool
             {
                 const Vector3 &p0 = proj[a];
                 const Vector3 &p1 = proj[b];
                 const Vector3 &p2 = proj[c];
 
                 if (bboxCull(p0, p1, p2, bandTop, bandBottom, viewportWidth))
-                    return;
+                    return false;
 
-                Rasterizer::fillTriangleTextured(
+                return Rasterizer::fillTriangleTextured(
                     p0.x, p0.y - bandTopF, p0.z,
                     p1.x, p1.y - bandTopF, p1.z,
                     p2.x, p2.y - bandTopF, p2.z,
@@ -261,12 +261,13 @@ namespace pip3D
                     framebufferConfig);
             };
 
-            drawTri(0, 1, 2);
+            bool drew = drawTri(0, 1, 2);
             if (outCount == 4)
-                drawTri(0, 2, 3);
+                drew |= drawTri(0, 2, 3);
+            return drew;
         }
 
-        PIP3D_HOT static void clipAndDrawNear(
+        PIP3D_HOT static bool clipAndDrawNear(
             const Vector3 &v0, const Vector3 &v1, const Vector3 &v2,
             float d0, float d1, float d2,
             float nearD,
@@ -293,7 +294,7 @@ namespace pip3D
                 });
 
             if (outCount < 3)
-                return;
+                return false;
 
             Vector3 proj[4];
             for (int i = 0; i < outCount; ++i)
@@ -301,33 +302,34 @@ namespace pip3D
                                                     viewportHalfWidth, viewportHalfHeight,
                                                     viewport.x, viewport.y);
 
-            drawTriangle3D_Color_Preprojected(clipped[0], clipped[1], clipped[2],
-                                              proj[0], proj[1], proj[2],
-                                              baseR, baseG, baseB,
-                                              camPos,
-                                              viewportWidth,
-                                              bandTop, bandBottom, bandTopF,
-                                              framebuffer, zBuffer,
-                                              lights, activeLightCount,
-                                              useUniformColor,
-                                              uniformColor);
+            bool drew = drawTriangle3D_Color_Preprojected(clipped[0], clipped[1], clipped[2],
+                                                          proj[0], proj[1], proj[2],
+                                                          baseR, baseG, baseB,
+                                                          camPos,
+                                                          viewportWidth,
+                                                          bandTop, bandBottom, bandTopF,
+                                                          framebuffer, zBuffer,
+                                                          lights, activeLightCount,
+                                                          useUniformColor,
+                                                          uniformColor);
 
             if (outCount == 4)
             {
-                drawTriangle3D_Color_Preprojected(clipped[0], clipped[2], clipped[3],
-                                                  proj[0], proj[2], proj[3],
-                                                  baseR, baseG, baseB,
-                                                  camPos,
-                                                  viewportWidth,
-                                                  bandTop, bandBottom, bandTopF,
-                                                  framebuffer, zBuffer,
-                                                  lights, activeLightCount,
-                                                  useUniformColor,
-                                                  uniformColor);
+                drew |= drawTriangle3D_Color_Preprojected(clipped[0], clipped[2], clipped[3],
+                                                          proj[0], proj[2], proj[3],
+                                                          baseR, baseG, baseB,
+                                                          camPos,
+                                                          viewportWidth,
+                                                          bandTop, bandBottom, bandTopF,
+                                                          framebuffer, zBuffer,
+                                                          lights, activeLightCount,
+                                                          useUniformColor,
+                                                          uniformColor);
             }
+            return drew;
         }
 
-        PIP3D_HOT inline void drawTriangle3D_Preprojected(
+        PIP3D_HOT inline bool drawTriangle3D_Preprojected(
             const Vector3 &v0, const Vector3 &v1, const Vector3 &v2,
             const Vector3 &p0, const Vector3 &p1, const Vector3 &p2,
             float d0, float d1, float d2,
@@ -352,34 +354,33 @@ namespace pip3D
 
             if (likely(!partiallyClipped))
             {
-                drawTriangle3D_Color_Preprojected(v0, v1, v2,
-                                                  p0, p1, p2,
-                                                  baseR, baseG, baseB,
-                                                  camPos,
-                                                  viewportWidth,
-                                                  bandTop, bandBottom, bandTopF,
-                                                  framebuffer, zBuffer,
-                                                  lights, activeLightCount,
-                                                  useUniformColor,
-                                                  uniformColor);
-                return;
+                return drawTriangle3D_Color_Preprojected(v0, v1, v2,
+                                                         p0, p1, p2,
+                                                         baseR, baseG, baseB,
+                                                         camPos,
+                                                         viewportWidth,
+                                                         bandTop, bandBottom, bandTopF,
+                                                         framebuffer, zBuffer,
+                                                         lights, activeLightCount,
+                                                         useUniformColor,
+                                                         uniformColor);
             }
 
-            clipAndDrawNear(v0, v1, v2, d0, d1, d2, nearD,
-                            baseR, baseG, baseB,
-                            camPos,
-                            viewportHalfWidth, viewportHalfHeight,
-                            viewportWidth,
-                            bandTop, bandBottom, bandTopF,
-                            viewProjMatrix,
-                            viewport,
-                            framebuffer, zBuffer,
-                            lights, activeLightCount,
-                            useUniformColor,
-                            uniformColor);
+            return clipAndDrawNear(v0, v1, v2, d0, d1, d2, nearD,
+                                   baseR, baseG, baseB,
+                                   camPos,
+                                   viewportHalfWidth, viewportHalfHeight,
+                                   viewportWidth,
+                                   bandTop, bandBottom, bandTopF,
+                                   viewProjMatrix,
+                                   viewport,
+                                   framebuffer, zBuffer,
+                                   lights, activeLightCount,
+                                   useUniformColor,
+                                   uniformColor);
         }
 
-        PIP3D_HOT inline void drawTriangle3D(
+        PIP3D_HOT inline bool drawTriangle3D(
             const Vector3 &v0, const Vector3 &v1, const Vector3 &v2,
             uint16_t color,
             const Camera &camera,
@@ -405,7 +406,7 @@ namespace pip3D
             const float d2 = Culling::computeEyeZ(v2, camPos, camFwd);
 
             if (d0 < nearD && d1 < nearD && d2 < nearD)
-                return;
+                return false;
 
             const float viewportHalfWidth = static_cast<float>(viewport.width) * 0.5f;
             const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
@@ -427,34 +428,33 @@ namespace pip3D
                 const Vector3 p2 = CameraController::project(v2, viewProjMatrix,
                                                              viewportHalfWidth, viewportHalfHeight,
                                                              viewport.x, viewport.y);
-                drawTriangle3D_Color_Preprojected(v0, v1, v2,
-                                                  p0, p1, p2,
-                                                  baseR, baseG, baseB,
-                                                  camPos,
-                                                  viewportWidth,
-                                                  bandTop, bandBottom, bandTopF,
-                                                  framebuffer, zBuffer,
-                                                  lights, activeLightCount,
-                                                  useUniformColor,
-                                                  uniformColor);
-                return;
+                return drawTriangle3D_Color_Preprojected(v0, v1, v2,
+                                                         p0, p1, p2,
+                                                         baseR, baseG, baseB,
+                                                         camPos,
+                                                         viewportWidth,
+                                                         bandTop, bandBottom, bandTopF,
+                                                         framebuffer, zBuffer,
+                                                         lights, activeLightCount,
+                                                         useUniformColor,
+                                                         uniformColor);
             }
 
-            clipAndDrawNear(v0, v1, v2, d0, d1, d2, nearD,
-                            baseR, baseG, baseB,
-                            camPos,
-                            viewportHalfWidth, viewportHalfHeight,
-                            viewportWidth,
-                            bandTop, bandBottom, bandTopF,
-                            viewProjMatrix,
-                            viewport,
-                            framebuffer, zBuffer,
-                            lights, activeLightCount,
-                            useUniformColor,
-                            uniformColor);
+            return clipAndDrawNear(v0, v1, v2, d0, d1, d2, nearD,
+                                   baseR, baseG, baseB,
+                                   camPos,
+                                   viewportHalfWidth, viewportHalfHeight,
+                                   viewportWidth,
+                                   bandTop, bandBottom, bandTopF,
+                                   viewProjMatrix,
+                                   viewport,
+                                   framebuffer, zBuffer,
+                                   lights, activeLightCount,
+                                   useUniformColor,
+                                   uniformColor);
         }
 
-        PIP3D_HOT inline void drawTriangle3D_Smooth_Preprojected(
+        PIP3D_HOT inline bool drawTriangle3D_Smooth_Preprojected(
             const Vector3 &p0, const Vector3 &p1, const Vector3 &p2,
             float lr0, float lg0, float lb0,
             float lr1, float lg1, float lb1,
@@ -465,19 +465,19 @@ namespace pip3D
             ZBuffer *zBuffer)
         {
             if (bboxCull(p0, p1, p2, bandTop, bandBottom, viewportWidth))
-                return;
+                return false;
 
-            Rasterizer::fillTriangleSmooth(
-                static_cast<int16_t>(p0.x), static_cast<int16_t>(p0.y - bandTopF), p0.z,
-                static_cast<int16_t>(p1.x), static_cast<int16_t>(p1.y - bandTopF), p1.z,
-                static_cast<int16_t>(p2.x), static_cast<int16_t>(p2.y - bandTopF), p2.z,
+            return Rasterizer::fillTriangleSmooth(
+                p0.x, p0.y - bandTopF, p0.z,
+                p1.x, p1.y - bandTopF, p1.z,
+                p2.x, p2.y - bandTopF, p2.z,
                 lr0, lg0, lb0,
                 lr1, lg1, lb1,
                 lr2, lg2, lb2,
                 framebuffer.getBuffer(), zBuffer, framebuffer.getConfig());
         }
 
-        PIP3D_HOT inline void clipAndDrawNearSmooth(
+        PIP3D_HOT inline bool clipAndDrawNearSmooth(
             const ClipVertSmooth inVerts[3],
             float nearD,
             const Viewport &viewport,
@@ -496,7 +496,7 @@ namespace pip3D
                 });
 
             if (outCount < 3)
-                return;
+                return false;
 
             const float viewportHalfWidth = static_cast<float>(viewport.width) * 0.5f;
             const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
@@ -511,9 +511,9 @@ namespace pip3D
                                                     viewportHalfWidth, viewportHalfHeight,
                                                     viewport.x, viewport.y);
 
-            auto drawTri = [&](int a, int b, int c)
+            auto drawTri = [&](int a, int b, int c) -> bool
             {
-                drawTriangle3D_Smooth_Preprojected(
+                return drawTriangle3D_Smooth_Preprojected(
                     proj[a], proj[b], proj[c],
                     clipped[a].lr, clipped[a].lg, clipped[a].lb,
                     clipped[b].lr, clipped[b].lg, clipped[b].lb,
@@ -522,12 +522,13 @@ namespace pip3D
                     framebuffer, zBuffer);
             };
 
-            drawTri(0, 1, 2);
+            bool drew = drawTri(0, 1, 2);
             if (outCount == 4)
-                drawTri(0, 2, 3);
+                drew |= drawTri(0, 2, 3);
+            return drew;
         }
 
-        PIP3D_HOT inline void drawTriangle3D_Phong_Preprojected(
+        PIP3D_HOT inline bool drawTriangle3D_Phong_Preprojected(
             const Vector3 &v0, const Vector3 &v1, const Vector3 &v2,
             const Vector3 &p0, const Vector3 &p1, const Vector3 &p2,
             const Vector3 &n0, const Vector3 &n1, const Vector3 &n2,
@@ -541,12 +542,12 @@ namespace pip3D
             const Light *lights, int activeLightCount)
         {
             if (bboxCull(p0, p1, p2, bandTop, bandBottom, viewportWidth))
-                return;
+                return false;
 
-            Rasterizer::fillTrianglePhong(
-                static_cast<int16_t>(p0.x), static_cast<int16_t>(p0.y - bandTopF), p0.z,
-                static_cast<int16_t>(p1.x), static_cast<int16_t>(p1.y - bandTopF), p1.z,
-                static_cast<int16_t>(p2.x), static_cast<int16_t>(p2.y - bandTopF), p2.z,
+            return Rasterizer::fillTrianglePhong(
+                p0.x, p0.y - bandTopF, p0.z,
+                p1.x, p1.y - bandTopF, p1.z,
+                p2.x, p2.y - bandTopF, p2.z,
                 v0.x, v0.y, v0.z,
                 v1.x, v1.y, v1.z,
                 v2.x, v2.y, v2.z,
@@ -559,7 +560,7 @@ namespace pip3D
                 framebuffer.getBuffer(), zBuffer, framebuffer.getConfig());
         }
 
-        PIP3D_HOT inline void clipAndDrawNearPhong(
+        PIP3D_HOT inline bool clipAndDrawNearPhong(
             const ClipVertPhong inVerts[3],
             float nearD,
             float baseR, float baseG, float baseB,
@@ -581,7 +582,7 @@ namespace pip3D
                 });
 
             if (outCount < 3)
-                return;
+                return false;
 
             const float viewportHalfWidth = static_cast<float>(viewport.width) * 0.5f;
             const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
@@ -596,9 +597,9 @@ namespace pip3D
                                                     viewportHalfWidth, viewportHalfHeight,
                                                     viewport.x, viewport.y);
 
-            auto drawTri = [&](int a, int b, int c)
+            auto drawTri = [&](int a, int b, int c) -> bool
             {
-                drawTriangle3D_Phong_Preprojected(
+                return drawTriangle3D_Phong_Preprojected(
                     clipped[a].pos, clipped[b].pos, clipped[c].pos,
                     proj[a], proj[b], proj[c],
                     clipped[a].normal, clipped[b].normal, clipped[c].normal,
@@ -610,9 +611,10 @@ namespace pip3D
                     lights, activeLightCount);
             };
 
-            drawTri(0, 1, 2);
+            bool drew = drawTri(0, 1, 2);
             if (outCount == 4)
-                drawTri(0, 2, 3);
+                drew |= drawTri(0, 2, 3);
+            return drew;
         }
     }
 }
