@@ -42,7 +42,7 @@ namespace pip3D
 
         inline FogLut g_fogLut{};
 
-        __attribute__((cold)) inline void rebuildFogLut()
+        PIP3D_COLD inline void rebuildFogLut()
         {
             const FogState &f = g_fogState;
             if (!f.enabled)
@@ -101,6 +101,25 @@ namespace pip3D
                 g_fogLut.alpha[i] = static_cast<uint8_t>(a + 0.5f);
             }
             g_fogLut.valid = true;
+        }
+
+        PIP3D_FORCE_INLINE uint16_t foggedColor(uint16_t litColor, uint16_t depth,
+                                                uint32_t fogRb, uint32_t fogG,
+                                                uint16_t fogColor) noexcept
+        {
+            const uint8_t *__restrict__ lut = g_fogLut.alpha;
+            const uint16_t bucket = depth >> 7;
+            const uint8_t a0 = lut[bucket];
+            const uint8_t a1 = lut[bucket + 1];
+            const int32_t alpha = a0 + (((a1 - a0) * (depth & 0x7F)) >> 7);
+            if (alpha <= 0)
+                return litColor;
+            if (alpha >= 32)
+                return fogColor;
+            const uint32_t inv = 32u - static_cast<uint32_t>(alpha);
+            const uint32_t rb = (((litColor & 0xF81F) * inv + fogRb * alpha) >> 5) & 0xF81F;
+            const uint32_t g = (((litColor & 0x07E0) * inv + fogG * alpha) >> 5) & 0x07E0;
+            return static_cast<uint16_t>(rb | g);
         }
 
         struct FogColorF

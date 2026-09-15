@@ -26,7 +26,7 @@ namespace pip3D
 
     namespace Rasterizer
     {
-        __attribute__((hot)) inline bool fillTriangleBillboard(
+        PIP3D_HOT inline bool fillTriangleBillboard(
             float x0, float y0, float z0,
             float x1, float y1, float z1,
             float x2, float y2, float z2,
@@ -180,9 +180,6 @@ namespace pip3D
             const uint32_t addI5 = isAdditive ? static_cast<uint32_t>(alphaByte >> 3) : 0u;
 
             const bool fogEnabled = g_fogState.enabled;
-            const float fogWScale = g_fogState.wScale;
-            const float fogWorldNear = g_fogState.worldNear;
-            const float fogWorldScale32 = g_fogState.worldScale32;
             const uint16_t fogColor = g_fogState.color;
             const uint32_t fogColorRb = g_fogState.color_rb;
             const uint32_t fogColorG = g_fogState.color_g;
@@ -305,25 +302,7 @@ namespace pip3D
                         }
 
                         if (fogEnabled)
-                        {
-                            float z_eye;
-                            if (d == 0)
-                                z_eye = 1e30f;
-                            else
-                                z_eye = fogWScale * FastMath::fastReciprocal(static_cast<float>(d));
-                            const float fogF = (z_eye - fogWorldNear) * fogWorldScale32;
-                            const int32_t fa = static_cast<int32_t>(fogF);
-                            if (fa >= 32)
-                                lit = fogColor;
-                            else if (fa > 0)
-                            {
-                                const uint32_t ifa = 32u - static_cast<uint32_t>(fa);
-                                const uint32_t f32 = static_cast<uint32_t>(fa);
-                                const uint32_t rb = (((lit & 0xF81F) * ifa + fogColorRb * f32) >> 5) & 0xF81F;
-                                const uint32_t gg = (((lit & 0x07E0) * ifa + fogColorG * f32) >> 5) & 0x07E0;
-                                lit = static_cast<uint16_t>(rb | gg);
-                            }
-                        }
+                            lit = foggedColor(lit, d, fogColorRb, fogColorG, fogColor);
 
                         const uint32_t dst = *fb;
                         const uint32_t rb = (((dst & 0xF81F) * invAlpha5 + (lit & 0xF81F) * alpha5) >> 5) & 0xF81F;
@@ -398,25 +377,7 @@ namespace pip3D
                         }
 
                         if (fogEnabled)
-                        {
-                            float z_eye;
-                            if (d == 0)
-                                z_eye = 1e30f;
-                            else
-                                z_eye = fogWScale * FastMath::fastReciprocal(static_cast<float>(d));
-                            const float fogF = (z_eye - fogWorldNear) * fogWorldScale32;
-                            const int32_t fa = static_cast<int32_t>(fogF);
-                            if (fa >= 32)
-                                lit = fogColor;
-                            else if (fa > 0)
-                            {
-                                const uint32_t ifa = 32u - static_cast<uint32_t>(fa);
-                                const uint32_t f32 = static_cast<uint32_t>(fa);
-                                const uint32_t rb = (((lit & 0xF81F) * ifa + fogColorRb * f32) >> 5) & 0xF81F;
-                                const uint32_t gg = (((lit & 0x07E0) * ifa + fogColorG * f32) >> 5) & 0x07E0;
-                                lit = static_cast<uint16_t>(rb | gg);
-                            }
-                        }
+                            lit = foggedColor(lit, d, fogColorRb, fogColorG, fogColor);
 
                         const uint32_t dst = *fb;
                         const uint32_t litRb = lit & 0xF81F;
@@ -462,25 +423,7 @@ namespace pip3D
                             }
 
                             if (fogEnabled)
-                            {
-                                float z_eye;
-                                if (d == 0)
-                                    z_eye = 1e30f;
-                                else
-                                    z_eye = fogWScale * FastMath::fastReciprocal(static_cast<float>(d));
-                                const float fogF = (z_eye - fogWorldNear) * fogWorldScale32;
-                                const int32_t fa = static_cast<int32_t>(fogF);
-                                if (fa >= 32)
-                                    lit = fogColor;
-                                else if (fa > 0)
-                                {
-                                    const uint32_t ifa = 32u - static_cast<uint32_t>(fa);
-                                    const uint32_t f32 = static_cast<uint32_t>(fa);
-                                    const uint32_t rb = (((lit & 0xF81F) * ifa + fogColorRb * f32) >> 5) & 0xF81F;
-                                    const uint32_t gg = (((lit & 0x07E0) * ifa + fogColorG * f32) >> 5) & 0x07E0;
-                                    lit = static_cast<uint16_t>(rb | gg);
-                                }
-                            }
+                                lit = foggedColor(lit, d, fogColorRb, fogColorG, fogColor);
 
                             *fb = lit;
 #if PIP3D_DEBUG_BILLBOARD

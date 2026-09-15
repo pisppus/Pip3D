@@ -96,7 +96,7 @@ namespace pip3D
         [[nodiscard]] static ShadingParams &params() noexcept { return g_params; }
         [[nodiscard]] static const ShadingParams &getParams() noexcept { return g_params; }
 
-        __attribute__((cold)) static void setParams(const ShadingParams &p) noexcept
+        PIP3D_COLD static void setParams(const ShadingParams &p) noexcept
         {
             const bool needRebuild =
                 !g_lutReady ||
@@ -107,12 +107,12 @@ namespace pip3D
                 rebuildSpecLUT();
         }
 
-        __attribute__((cold)) static void applyPreset(const ShadingParams &preset) noexcept
+        PIP3D_COLD static void applyPreset(const ShadingParams &preset) noexcept
         {
             setParams(preset);
         }
 
-        __attribute__((cold)) static void rebuildSpecLUT() noexcept
+        PIP3D_COLD static void rebuildSpecLUT() noexcept
         {
             const float exponent = g_params.specularExponent;
             const float strength = g_params.specularStrength;
@@ -135,7 +135,7 @@ namespace pip3D
             rebuildSpecLUT();
         }
 
-        __attribute__((noinline, hot)) static void IRAM_ATTR
+        PIP3D_NOINLINE_HOT static void IRAM_ATTR
         calculateLambert(const Vector3 &normal,
                          const Light *lights, int lightCount,
                          float baseR, float baseG, float baseB,
@@ -186,13 +186,14 @@ namespace pip3D
             toneMap3(outR, outG, outB);
         }
 
-        __attribute__((always_inline, hot)) static inline void IRAM_ATTR
+        PIP3D_ALWAYS_INLINE_HOT static inline void IRAM_ATTR
         calculateLighting(const Vector3 &fragPos,
                           const Vector3 &normal,
                           const Vector3 &viewDir,
                           const Light *lights, int lightCount,
                           float baseR, float baseG, float baseB,
-                          float &outR, float &outG, float &outB) noexcept
+                          float &outR, float &outG, float &outB,
+                          float dirScale = 1.0f) noexcept
         {
             const ShadingParams &p = g_params;
 
@@ -252,7 +253,7 @@ namespace pip3D
                     ldx = -light.direction.x;
                     ldy = -light.direction.y;
                     ldz = -light.direction.z;
-                    lightAtten = light.intensity;
+                    lightAtten = light.intensity * dirScale;
                 }
                 else if (light.type == LIGHT_POINT)
                 {
@@ -347,7 +348,7 @@ namespace pip3D
             toneMap3(outR, outG, outB);
         }
 
-        __attribute__((noinline, hot)) static void IRAM_ATTR
+        PIP3D_NOINLINE_HOT static void IRAM_ATTR
         calculateFaceLighting(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2,
                               const Vector3 &camPos,
                               const Light *lights, int lightCount,
@@ -381,13 +382,14 @@ namespace pip3D
             applyFog(dist, outR, outG, outB, outR, outG, outB);
         }
 
-        __attribute__((always_inline, hot)) static inline void IRAM_ATTR
+        PIP3D_ALWAYS_INLINE_HOT static inline void IRAM_ATTR
         calculateVertexLightingGouraud(const Vector3 &vertexPos,
                                        const Vector3 &normal,
                                        const Vector3 &camPos,
                                        const Light *lights, int lightCount,
                                        float baseR, float baseG, float baseB,
-                                       float &outR, float &outG, float &outB) noexcept
+                                       float &outR, float &outG, float &outB,
+                                       float dirScale = 1.0f) noexcept
         {
             const float dx = camPos.x - vertexPos.x;
             const float dy = camPos.y - vertexPos.y;
@@ -399,7 +401,7 @@ namespace pip3D
             calculateLighting(vertexPos, normal, viewDir,
                               lights, lightCount,
                               baseR, baseG, baseB,
-                              outR, outG, outB);
+                              outR, outG, outB, dirScale);
 
             if (Rasterizer::g_fogState.enabled)
             {

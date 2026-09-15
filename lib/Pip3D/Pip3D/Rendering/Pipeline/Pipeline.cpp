@@ -1,3 +1,4 @@
+#include <new>
 #include <vector>
 
 #include "Core/Platform.hpp"
@@ -11,15 +12,96 @@
 #include "Rendering/Pipeline/DrawCache.hpp"
 #include "Rendering/Pipeline/MeshDraw.hpp"
 #include "Rendering/Pipeline/Rasterizer/Smooth.hpp"
+#include "Rendering/Pipeline/Rasterizer/Solid.hpp"
 #include "Rendering/Pipeline/Rasterizer/Textured.hpp"
+#include "Rendering/Pipeline/Rasterizer/Lightmap.hpp"
 #include "Rendering/Pipeline/Shading.hpp"
-#include "Rendering/Pipeline/Telemetry.hpp"
+#include "Rendering/Lighting/Baked.hpp"
 #include "Rendering/Resources/Texture.hpp"
 #include "Rendering/Resources/Textures/Missing.hpp"
 #include "Rendering/Renderer.hpp"
 
 namespace pip3D
 {
+    namespace
+    {
+
+        struct ProbeLightSample
+        {
+            float sunVis;
+            float skyAO;
+            float staticR, staticG, staticB;
+        };
+
+        PIP3D_HOT inline void sampleProbe(const MeshInstance *inst, const Vector3 &worldPos,
+                                          ProbeLightSample &out) noexcept
+        {
+            const auto *grid = Rasterizer::g_bakedState.probes;
+            if (grid && grid->valid() && inst && !inst->getIgnoreBakedProbes())
+            {
+                grid->sampleWithTint(worldPos, out.sunVis, out.skyAO,
+                                     out.staticR, out.staticG, out.staticB);
+            }
+            else
+            {
+                out.sunVis = 1.0f;
+                out.skyAO = 1.0f;
+                out.staticR = out.staticG = out.staticB = 0.0f;
+            }
+        }
+
+        PIP3D_HOT inline bool usesProbes(const MeshInstance *inst) noexcept
+        {
+            return inst && !inst->hasLightmap() && !inst->getIgnoreBakedProbes() &&
+                   Rasterizer::g_bakedState.probes && Rasterizer::g_bakedState.probes->valid() &&
+                   Rasterizer::g_bakedState.mode != static_cast<uint8_t>(BakedLightMode::OFF);
+        }
+
+        PIP3D_FORCE_INLINE void probeShadeFace(float &outR, float &outG, float &outB,
+                                               float faceR, float faceG, float faceB,
+                                               const ProbeLightSample &s) noexcept
+        {
+            const float m = ProbeConsts::skyFaceMod(s.skyAO);
+            outR = clamp(faceR * m + s.staticR * faceR, 0.0f, 1.0f);
+            outG = clamp(faceG * m + s.staticG * faceG, 0.0f, 1.0f);
+            outB = clamp(faceB * m + s.staticB * faceB, 0.0f, 1.0f);
+        }
+
+        PIP3D_FORCE_INLINE void probeScaleLights(Light *dst, const Light *src, int count,
+                                                 const ProbeLightSample &s) noexcept
+        {
+            const float k = ProbeConsts::sunMod(s.sunVis);
+            for (int i = 0; i < count; ++i)
+            {
+                dst[i] = src[i];
+                if (dst[i].type == LIGHT_DIRECTIONAL)
+                {
+                    dst[i].intensity *= k;
+                    dst[i].cachedR *= k;
+                    dst[i].cachedG *= k;
+                    dst[i].cachedB *= k;
+                }
+            }
+        }
+
+        PIP3D_FORCE_INLINE void probeShadeVertex(
+            const Vector3 &vertexPos, const Vector3 &normal, const Vector3 &camPos,
+            const Light *lights, int lightCount,
+            float faceR, float faceG, float faceB,
+            const ProbeLightSample &s,
+            float &lr, float &lg, float &lb) noexcept
+        {
+            const float m = ProbeConsts::skyFaceMod(s.skyAO);
+            Shading::calculateVertexLightingGouraud(vertexPos, normal, camPos,
+                                                    lights, lightCount,
+                                                    faceR * m, faceG * m, faceB * m,
+                                                    lr, lg, lb,
+                                                    ProbeConsts::sunMod(s.sunVis));
+            lr = clamp(lr + s.staticR * faceR, 0.0f, 1.0f);
+            lg = clamp(lg + s.staticG * faceG, 0.0f, 1.0f);
+            lb = clamp(lb + s.staticB * faceB, 0.0f, 1.0f);
+        }
+    }
 
     PIP3D_HOT IRAM_ATTR static int collectActiveLightsForBounds(
         const Vector3 &center, float radius,
@@ -100,10 +182,13 @@ namespace pip3D
 
         if (shadowsEnabled)
         {
-            if (instance->getBlobShadow())
-                blobShadowQueue_.push_back(instance);
-            else if (mesh->getCastShadows())
-                shadowQueue_.push_back(instance);
+            if (!instance->hasActiveLightmap(bakedLightMode_))
+            {
+                if (instance->getBlobShadow())
+                    blobShadowQueue_.push_back(instance);
+                else if (mesh->getCastShadows())
+                    shadowQueue_.push_back(instance);
+            }
         }
 
         if (instance->isEmissive())
@@ -156,48 +241,40 @@ namespace pip3D
         }
     }
 
-    bool Renderer::clipAndDrawNearTextured(const DrawTelemetryClipVert inVerts[3],
-                                           float nearD,
-                                           const Camera &camera,
-                                           const Viewport &viewport,
-                                           const Matrix4x4 &viewProjMatrix,
-                                           FrameBuffer &framebuffer,
-                                           ZBuffer *zBuffer,
-                                           const Texture &tex)
+    template <typename EmitTri>
+    PIP3D_HOT static bool clipAndDrawNear(const MeshRenderer::ClipVertLM inVerts[3],
+                                          float nearD,
+                                          const Viewport &viewport,
+                                          const Matrix4x4 &viewProjMatrix,
+                                          FrameBuffer &framebuffer,
+                                          EmitTri &&emitTriangle)
     {
-        DrawTelemetryClipVert clipped[4];
+        MeshRenderer::ClipVertLM clipped[4];
         int outCount = 0;
 
-#define PIP3D_CLIP_EDGE_T(IDX_A, IDX_B)                               \
-    {                                                                 \
-        const DrawTelemetryClipVert &P0 = inVerts[IDX_A];             \
-        const DrawTelemetryClipVert &P1 = inVerts[IDX_B];             \
-        const float d0 = P0.d;                                        \
-        const float d1 = P1.d;                                        \
-        const bool in0 = d0 >= nearD;                                 \
-        const bool in1 = d1 >= nearD;                                 \
-        if (in0 && in1)                                               \
-            clipped[outCount++] = P1;                                 \
-        else if (in0 != in1)                                          \
-        {                                                             \
-            const float denom = d1 - d0;                              \
-            float t = (fabsf(denom) < 1e-6f) ? 0.0f                   \
-                                             : (nearD - d0) / denom;  \
-            t = clamp(t, 0.0f, 1.0f);                                 \
-            const DrawTelemetryClipVert ip = lerpClipVert(P0, P1, t); \
-            if (in0)                                                  \
-                clipped[outCount++] = ip;                             \
-            else                                                      \
-            {                                                         \
-                clipped[outCount++] = ip;                             \
-                clipped[outCount++] = P1;                             \
-            }                                                         \
-        }                                                             \
-    }
-        PIP3D_CLIP_EDGE_T(0, 1);
-        PIP3D_CLIP_EDGE_T(1, 2);
-        PIP3D_CLIP_EDGE_T(2, 0);
-#undef PIP3D_CLIP_EDGE_T
+        for (int edge = 0; edge < 3; ++edge)
+        {
+            const MeshRenderer::ClipVertLM &P0 = inVerts[edge];
+            const MeshRenderer::ClipVertLM &P1 = inVerts[(edge + 1) % 3];
+            const float d0 = P0.d;
+            const float d1 = P1.d;
+            const bool in0 = d0 >= nearD;
+            const bool in1 = d1 >= nearD;
+            if (in0 && in1)
+            {
+                clipped[outCount++] = P1;
+            }
+            else if (in0 != in1)
+            {
+                const float denom = d1 - d0;
+                float t = (fabsf(denom) < 1e-6f) ? 0.0f : (nearD - d0) / denom;
+                t = clamp(t, 0.0f, 1.0f);
+                const MeshRenderer::ClipVertLM ip = lerpClipVertLM(P0, P1, t);
+                clipped[outCount++] = ip;
+                if (!in0)
+                    clipped[outCount++] = P1;
+            }
+        }
 
         if (outCount < 3)
             return false;
@@ -206,50 +283,32 @@ namespace pip3D
         const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
         const int16_t bandTop = g_bandOffsetY;
         const int16_t bandBottom = static_cast<int16_t>(bandTop + g_bandHeight);
-        const DisplayConfig &framebufferConfig = framebuffer.getConfig();
         const float viewportWidth = static_cast<float>(viewport.width);
-        const float bandTopF = static_cast<float>(bandTop);
-        uint16_t *const frameBuffer = framebuffer.getBuffer();
 
         Vector3 proj[4];
         for (int i = 0; i < outCount; ++i)
             proj[i] = CameraController::project(clipped[i].pos, viewProjMatrix,
                                                 viewportHalfWidth, viewportHalfHeight, 0, 0);
 
-        auto drawTri = [&](int a, int b, int c) -> bool
+        const auto passesBand = [&](int a, int b, int c) -> bool
         {
             const Vector3 &p0 = proj[a];
             const Vector3 &p1 = proj[b];
             const Vector3 &p2 = proj[c];
-
             const float minY = (p0.y < p1.y) ? ((p0.y < p2.y) ? p0.y : p2.y) : ((p1.y < p2.y) ? p1.y : p2.y);
             const float maxY = (p0.y > p1.y) ? ((p0.y > p2.y) ? p0.y : p2.y) : ((p1.y > p2.y) ? p1.y : p2.y);
             if (maxY < bandTop || minY >= bandBottom)
                 return false;
-
             const float minX = (p0.x < p1.x) ? ((p0.x < p2.x) ? p0.x : p2.x) : ((p1.x < p2.x) ? p1.x : p2.x);
             const float maxX = (p0.x > p1.x) ? ((p0.x > p2.x) ? p0.x : p2.x) : ((p1.x > p2.x) ? p1.x : p2.x);
-            if (maxX < 0.0f || minX >= viewportWidth)
-                return false;
-
-            Rasterizer::fillTriangleTextured(
-                p0.x, p0.y - bandTopF, p0.z,
-                p1.x, p1.y - bandTopF, p1.z,
-                p2.x, p2.y - bandTopF, p2.z,
-                clipped[a].u, clipped[a].v,
-                clipped[b].u, clipped[b].v,
-                clipped[c].u, clipped[c].v,
-                clipped[a].d, clipped[b].d, clipped[c].d,
-                clipped[a].lr, clipped[a].lg, clipped[a].lb,
-                clipped[b].lr, clipped[b].lg, clipped[b].lb,
-                clipped[c].lr, clipped[c].lg, clipped[c].lb,
-                tex, frameBuffer, zBuffer, framebufferConfig);
-            return true;
+            return !(maxX < 0.0f || minX >= viewportWidth);
         };
 
-        bool drew = drawTri(0, 1, 2);
-        if (outCount == 4)
-            drew |= drawTri(0, 2, 3);
+        bool drew = false;
+        if (passesBand(0, 1, 2))
+            drew = emitTriangle(proj, clipped, 0, 1, 2);
+        if (outCount == 4 && passesBand(0, 2, 3))
+            drew |= emitTriangle(proj, clipped, 0, 2, 3);
         return drew;
     }
 
@@ -295,7 +354,7 @@ namespace pip3D
         drawMeshInstanceBanded(instance, zEye, radiusPixels);
     }
 
-    PIP3D_HOT IRAM_ATTR static void buildChunkBandCache(
+    PIP3D_HOT IRAM_ATTR static bool buildChunkBandCache(
         Renderer &r,
         MeshInstance *instance,
         ChunkBandCache &cache,
@@ -327,13 +386,23 @@ namespace pip3D
         const int32_t bandHeightInt = static_cast<int32_t>(SCREEN_BAND_HEIGHT);
 
         cache.reset(frameStamp);
-        cache.totalChunkCount = chunkCount;
+
+        if (chunkCount == 0)
+        {
+            if (mesh->numFaces() > 0xFFFFu || mesh->numVertices() > 0xFFFFu)
+                return false;
+            if (!cache.ensure(1))
+                return false;
+            cache.records[0] = {0, 0, static_cast<uint8_t>(SCREEN_BAND_COUNT - 1)};
+            cache.visibleCount = 1;
+            return true;
+        }
+
+        if (!cache.ensure(static_cast<uint16_t>(chunkCount)))
+            return false;
 
         for (uint32_t i = 0; i < chunkCount; ++i)
         {
-            if (cache.visibleCount >= ChunkBandCache::MAX_RECORDS)
-                break;
-
             const MeshChunk &chunk = chunks[i];
 
             const Vector3 localMin(static_cast<float>(chunk.minX) * qs,
@@ -354,10 +423,7 @@ namespace pip3D
             const Vector3 worldMax = worldCenter + Vector3(rX, rY, rZ);
 
             if (!frustum.testAABB(worldMin, worldMax))
-            {
-                ++cache.frustumCulledCount;
                 continue;
-            }
 
             const float chunkEyeZ = (worldCenter.x - camPos.x) * camFwd.x +
                                     (worldCenter.y - camPos.y) * camFwd.y +
@@ -376,10 +442,7 @@ namespace pip3D
                 const float chunkMinX = scrCenter.x - chunkRadiusPx;
                 const float chunkMaxX = scrCenter.x + chunkRadiusPx;
                 if (chunkMaxX < 0.0f || chunkMinX >= viewportWidthF)
-                {
-                    ++cache.bandCulledCount;
                     continue;
-                }
 
                 const float chunkMinY = scrCenter.y - chunkRadiusPx;
                 const float chunkMaxY = scrCenter.y + chunkRadiusPx;
@@ -388,10 +451,7 @@ namespace pip3D
                 const int32_t maxBand32 = static_cast<int32_t>(chunkMaxY) / bandHeightInt;
 
                 if (maxBand32 < 0 || minBand32 >= bandCountInt)
-                {
-                    ++cache.bandCulledCount;
                     continue;
-                }
 
                 minBand = static_cast<uint8_t>(clamp(minBand32, 0, bandCountInt - 1));
                 maxBand = static_cast<uint8_t>(clamp(maxBand32, 0, bandCountInt - 1));
@@ -403,35 +463,548 @@ namespace pip3D
                 maxBand};
         }
 
-        const uint8_t nb = static_cast<uint8_t>(
-            (SCREEN_BAND_COUNT <= ChunkBandCache::MAX_BUCKETS) ? SCREEN_BAND_COUNT
-                                                               : ChunkBandCache::MAX_BUCKETS);
+        return true;
+    }
 
-        uint16_t bucketSize[ChunkBandCache::MAX_BUCKETS] = {};
-        for (uint16_t i = 0; i < cache.visibleCount; ++i)
+    namespace
+    {
+
+        constexpr uint16_t kProbeCacheMaxVerts = 512;
+        struct ProbeCache
         {
-            const uint8_t mb = cache.records[i].minBand;
-            if (mb < nb)
-                ++bucketSize[mb];
-        }
 
-        uint16_t acc = 0;
-        for (uint8_t b = 0; b < nb; ++b)
+            uint8_t *PIP3D_RESTRICT data = nullptr;
+            const float *tintR = nullptr;
+            const float *tintG = nullptr;
+            const float *tintB = nullptr;
+
+            PIP3D_FORCE_INLINE void sample(uint32_t i, ProbeLightSample &out) const noexcept
+            {
+                const uint8_t *p = data + i * 4;
+                out.sunVis = static_cast<float>(p[0]) * (1.0f / 255.0f);
+                out.skyAO = static_cast<float>(p[1]) * (1.0f / 255.0f);
+                const float l = static_cast<float>(p[2]) * (1.0f / 255.0f);
+                const uint8_t ti = p[3] & 3;
+                out.staticR = tintR[ti] * l;
+                out.staticG = tintG[ti] * l;
+                out.staticB = tintB[ti] * l;
+            }
+        };
+
+        struct FaceDrawCtx
         {
-            cache.bucketStart[b] = acc;
-            cache.bucketCount[b] = bucketSize[b];
-            acc += bucketSize[b];
-        }
+            MeshInstance *instance;
+            Mesh *mesh;
+            const Matrix4x4 &worldTransform;
+            Vector3 *worldVerts;
+            Vector3 *screenVerts;
+            Vector3 *worldNormals;
+            const Face16 *fbase16;
+            const Face32 *fbase32;
+            bool is32;
+            uint32_t subMeshCount;
+            bool hasSubMeshes;
 
-        uint16_t cursor[ChunkBandCache::MAX_BUCKETS];
-        for (uint8_t b = 0; b < nb; ++b)
-            cursor[b] = cache.bucketStart[b];
+            ShadingMode effectiveMode;
+            bool effectiveTextured;
+            const Texture *meshTexture;
+            const LMPaletteAtlas *lmAtlas;
+            bool lmActive;
+            bool useProbes;
+            bool useUniformColor;
+            uint16_t uniformColor;
+            float instR, instG, instB;
+            const Light *localLights;
+            int localLightCount;
 
-        for (uint16_t i = 0; i < cache.visibleCount; ++i)
+            const Matrix4x4 &viewProjMatrix;
+            const Viewport &viewport;
+            const DisplayConfig &fbConfig;
+            FrameBuffer &framebuffer;
+            uint16_t *frameBuffer;
+            ZBuffer *zBuffer;
+            Vector3 camPos;
+            Vector3 camFwd;
+            float nearClip;
+            bool doBackfaceCull;
+            int16_t bandTop, bandBottom;
+            float bandTopF;
+            float viewportWidth, viewportHalfWidth, viewportHalfHeight;
+
+            uint32_t &currentSubMesh;
+            uint32_t &statsTotal;
+            uint32_t &statsCulled;
+        };
+
+        PIP3D_HOT PIP3D_FORCE_INLINE static void drawMeshFace(FaceDrawCtx &ctx,
+                                                              const Vertex *__restrict__ chunkVBase,
+                                                              const ProbeCache *__restrict__ probes,
+                                                              const uint32_t faceIdx) noexcept
         {
-            const uint8_t mb = cache.records[i].minBand;
-            if (mb < nb)
-                cache.sortedIndices[cursor[mb]++] = i;
+            uint32_t vIdx0, vIdx1, vIdx2;
+            if (likely(!ctx.is32))
+            {
+                vIdx0 = ctx.fbase16[faceIdx].v0;
+                vIdx1 = ctx.fbase16[faceIdx].v1;
+                vIdx2 = ctx.fbase16[faceIdx].v2;
+            }
+            else
+            {
+                vIdx0 = ctx.fbase32[faceIdx].v0;
+                vIdx1 = ctx.fbase32[faceIdx].v1;
+                vIdx2 = ctx.fbase32[faceIdx].v2;
+            }
+
+            const Vector3 &camPos = ctx.camPos;
+            const Vector3 &camFwd = ctx.camFwd;
+            Vector3 v0, v1, v2;
+            if (likely(ctx.worldVerts))
+            {
+                v0 = ctx.worldVerts[vIdx0];
+                v1 = ctx.worldVerts[vIdx1];
+                v2 = ctx.worldVerts[vIdx2];
+            }
+            else
+            {
+                v0 = ctx.worldTransform.transformNoDiv(ctx.mesh->decodePosition(chunkVBase[vIdx0]));
+                v1 = ctx.worldTransform.transformNoDiv(ctx.mesh->decodePosition(chunkVBase[vIdx1]));
+                v2 = ctx.worldTransform.transformNoDiv(ctx.mesh->decodePosition(chunkVBase[vIdx2]));
+            }
+
+            const float d0 = (v0.x - camPos.x) * camFwd.x + (v0.y - camPos.y) * camFwd.y + (v0.z - camPos.z) * camFwd.z;
+            const float d1 = (v1.x - camPos.x) * camFwd.x + (v1.y - camPos.y) * camFwd.y + (v1.z - camPos.z) * camFwd.z;
+            const float d2 = (v2.x - camPos.x) * camFwd.x + (v2.y - camPos.y) * camFwd.y + (v2.z - camPos.z) * camFwd.z;
+
+            if (unlikely(d0 < ctx.nearClip && d1 < ctx.nearClip && d2 < ctx.nearClip))
+            {
+                ++ctx.statsCulled;
+                return;
+            }
+
+            const bool partiallyClipped = unlikely(d0 < ctx.nearClip || d1 < ctx.nearClip || d2 < ctx.nearClip);
+
+            if (ctx.doBackfaceCull)
+            {
+                const float e1x = v1.x - v0.x, e1y = v1.y - v0.y, e1z = v1.z - v0.z;
+                const float e2x = v2.x - v0.x, e2y = v2.y - v0.y, e2z = v2.z - v0.z;
+                const float nx = e1y * e2z - e1z * e2y;
+                const float ny = e1z * e2x - e1x * e2z;
+                const float nz = e1x * e2y - e1y * e2x;
+                const float vx = v0.x - camPos.x;
+                const float vy = v0.y - camPos.y;
+                const float vz = v0.z - camPos.z;
+                if (nx * vx + ny * vy + nz * vz >= 0.0f)
+                {
+                    ++ctx.statsCulled;
+                    return;
+                }
+            }
+
+            Vector3 p0, p1, p2;
+            if (likely(ctx.screenVerts))
+            {
+                p0 = ctx.screenVerts[vIdx0];
+                p1 = ctx.screenVerts[vIdx1];
+                p2 = ctx.screenVerts[vIdx2];
+            }
+            else
+            {
+                p0 = CameraController::project(v0, ctx.viewProjMatrix, ctx.viewportHalfWidth, ctx.viewportHalfHeight, 0, 0);
+                p1 = CameraController::project(v1, ctx.viewProjMatrix, ctx.viewportHalfWidth, ctx.viewportHalfHeight, 0, 0);
+                p2 = CameraController::project(v2, ctx.viewProjMatrix, ctx.viewportHalfWidth, ctx.viewportHalfHeight, 0, 0);
+            }
+
+            if (!partiallyClipped)
+            {
+                const float minY = (p0.y < p1.y) ? ((p0.y < p2.y) ? p0.y : p2.y) : ((p1.y < p2.y) ? p1.y : p2.y);
+                const float maxY = (p0.y > p1.y) ? ((p0.y > p2.y) ? p0.y : p2.y) : ((p1.y > p2.y) ? p1.y : p2.y);
+                if (maxY < ctx.bandTop || minY >= ctx.bandBottom)
+                    return;
+                const float minX = (p0.x < p1.x) ? ((p0.x < p2.x) ? p0.x : p2.x) : ((p1.x < p2.x) ? p1.x : p2.x);
+                const float maxX = (p0.x > p1.x) ? ((p0.x > p2.x) ? p0.x : p2.x) : ((p1.x > p2.x) ? p1.x : p2.x);
+                if (maxX < 0.0f || minX >= ctx.viewportWidth)
+                    return;
+            }
+
+            ++ctx.statsTotal;
+
+            float faceR = ctx.instR, faceG = ctx.instG, faceB = ctx.instB;
+            if (ctx.hasSubMeshes)
+            {
+                while (ctx.currentSubMesh < ctx.subMeshCount &&
+                       faceIdx >= ctx.mesh->subMeshFaceEnd(ctx.currentSubMesh))
+                    ++ctx.currentSubMesh;
+                if (ctx.currentSubMesh < ctx.subMeshCount)
+                {
+                    float sr, sg, sb;
+                    ctx.mesh->subMeshColor(ctx.currentSubMesh).toFloat(sr, sg, sb);
+                    faceR = ctx.instR * sr;
+                    faceG = ctx.instG * sg;
+                    faceB = ctx.instB * sb;
+                }
+            }
+
+            if (ctx.effectiveTextured)
+            {
+                const Vertex &vert0 = chunkVBase[vIdx0];
+                const Vertex &vert1 = chunkVBase[vIdx1];
+                const Vertex &vert2 = chunkVBase[vIdx2];
+
+                if (ctx.lmActive)
+                {
+                    float mu0, mv0, mu1, mv1, mu2, mv2;
+                    ctx.instance->lightmapCornerUV(faceIdx, 0, mu0, mv0);
+                    ctx.instance->lightmapCornerUV(faceIdx, 1, mu1, mv1);
+                    ctx.instance->lightmapCornerUV(faceIdx, 2, mu2, mv2);
+                    bool drew = false;
+                    if (!partiallyClipped)
+                    {
+                        drew = Rasterizer::fillTriangleTexturedLM(
+                            p0.x, p0.y - ctx.bandTopF, p0.z,
+                            p1.x, p1.y - ctx.bandTopF, p1.z,
+                            p2.x, p2.y - ctx.bandTopF, p2.z,
+                            vert0.tu, vert0.tv,
+                            vert1.tu, vert1.tv,
+                            vert2.tu, vert2.tv,
+                            mu0, mv0, mu1, mv1, mu2, mv2,
+                            d0, d1, d2,
+                            *ctx.meshTexture, *ctx.lmAtlas,
+                            ctx.frameBuffer, ctx.zBuffer, ctx.fbConfig);
+                    }
+                    else
+                    {
+                        const MeshRenderer::ClipVertLM cv[3] = {
+                            {v0, vert0.tu, vert0.tv, d0, 0, 0, 0, mu0, mv0},
+                            {v1, vert1.tu, vert1.tv, d1, 0, 0, 0, mu1, mv1},
+                            {v2, vert2.tu, vert2.tv, d2, 0, 0, 0, mu2, mv2}};
+                        drew = clipAndDrawNear(cv, ctx.nearClip, ctx.viewport, ctx.viewProjMatrix, ctx.framebuffer,
+                                               [&](const Vector3 *proj, const MeshRenderer::ClipVertLM *cvp, int a, int b, int c) -> bool
+                                               {
+                                                   return Rasterizer::fillTriangleTexturedLM(
+                                                       proj[a].x, proj[a].y - ctx.bandTopF, proj[a].z,
+                                                       proj[b].x, proj[b].y - ctx.bandTopF, proj[b].z,
+                                                       proj[c].x, proj[c].y - ctx.bandTopF, proj[c].z,
+                                                       cvp[a].u, cvp[a].v,
+                                                       cvp[b].u, cvp[b].v,
+                                                       cvp[c].u, cvp[c].v,
+                                                       cvp[a].mu, cvp[a].mv,
+                                                       cvp[b].mu, cvp[b].mv,
+                                                       cvp[c].mu, cvp[c].mv,
+                                                       cvp[a].d, cvp[b].d, cvp[c].d,
+                                                       *ctx.meshTexture, *ctx.lmAtlas,
+                                                       ctx.frameBuffer, ctx.zBuffer, ctx.fbConfig);
+                                               });
+                    }
+                    if (unlikely(!drew))
+                        ++ctx.statsCulled;
+                    return;
+                }
+
+                float lr0 = 0.0f, lg0 = 0.0f, lb0 = 0.0f;
+                float lr1 = 0.0f, lg1 = 0.0f, lb1 = 0.0f;
+                float lr2 = 0.0f, lg2 = 0.0f, lb2 = 0.0f;
+
+                if (ctx.effectiveMode == SHADING_GOURAUD)
+                {
+                    Vector3 n0 = ctx.worldNormals ? ctx.worldNormals[vIdx0] : vert0.normal.get();
+                    Vector3 n1 = ctx.worldNormals ? ctx.worldNormals[vIdx1] : vert1.normal.get();
+                    Vector3 n2 = ctx.worldNormals ? ctx.worldNormals[vIdx2] : vert2.normal.get();
+
+                    if (ctx.useProbes)
+                    {
+                        ProbeLightSample p0, p1, p2;
+                        if (probes)
+                        {
+                            probes->sample(vIdx0, p0);
+                            probes->sample(vIdx1, p1);
+                            probes->sample(vIdx2, p2);
+                        }
+                        else
+                        {
+                            sampleProbe(ctx.instance, v0, p0);
+                            sampleProbe(ctx.instance, v1, p1);
+                            sampleProbe(ctx.instance, v2, p2);
+                        }
+                        probeShadeVertex(v0, n0, camPos, ctx.localLights, ctx.localLightCount,
+                                         faceR, faceG, faceB, p0, lr0, lg0, lb0);
+                        probeShadeVertex(v1, n1, camPos, ctx.localLights, ctx.localLightCount,
+                                         faceR, faceG, faceB, p1, lr1, lg1, lb1);
+                        probeShadeVertex(v2, n2, camPos, ctx.localLights, ctx.localLightCount,
+                                         faceR, faceG, faceB, p2, lr2, lg2, lb2);
+                    }
+                    else
+                    {
+                        Shading::calculateVertexLightingGouraud(v0, n0, camPos,
+                                                                ctx.localLights, ctx.localLightCount, faceR, faceG, faceB, lr0, lg0, lb0);
+                        Shading::calculateVertexLightingGouraud(v1, n1, camPos,
+                                                                ctx.localLights, ctx.localLightCount, faceR, faceG, faceB, lr1, lg1, lb1);
+                        Shading::calculateVertexLightingGouraud(v2, n2, camPos,
+                                                                ctx.localLights, ctx.localLightCount, faceR, faceG, faceB, lr2, lg2, lb2);
+                    }
+                }
+                else
+                {
+
+                    float prFaceR = faceR, prFaceG = faceG, prFaceB = faceB;
+                    const Light *prLights = ctx.localLights;
+                    Light prMod[4];
+                    if (ctx.useProbes)
+                    {
+                        Vector3 cen = (v0 + v1 + v2) * (1.0f / 3.0f);
+                        ProbeLightSample ps;
+                        sampleProbe(ctx.instance, cen, ps);
+                        probeScaleLights(prMod, ctx.localLights, ctx.localLightCount, ps);
+                        prLights = prMod;
+                        probeShadeFace(prFaceR, prFaceG, prFaceB, faceR, faceG, faceB, ps);
+                    }
+                    Shading::calculateFaceLighting(
+                        v0, v1, v2, camPos,
+                        prLights, ctx.localLightCount,
+                        prFaceR, prFaceG, prFaceB,
+                        lr0, lg0, lb0);
+                    lr1 = lr0;
+                    lg1 = lg0;
+                    lb1 = lb0;
+                    lr2 = lr0;
+                    lg2 = lg0;
+                    lb2 = lb0;
+                }
+
+                bool drew = false;
+                if (!partiallyClipped)
+                {
+                    drew = Rasterizer::fillTriangleTextured(
+                        p0.x, p0.y - ctx.bandTopF, p0.z,
+                        p1.x, p1.y - ctx.bandTopF, p1.z,
+                        p2.x, p2.y - ctx.bandTopF, p2.z,
+                        vert0.tu, vert0.tv,
+                        vert1.tu, vert1.tv,
+                        vert2.tu, vert2.tv,
+                        d0, d1, d2,
+                        lr0, lg0, lb0,
+                        lr1, lg1, lb1,
+                        lr2, lg2, lb2,
+                        *ctx.meshTexture,
+                        ctx.frameBuffer,
+                        ctx.zBuffer,
+                        ctx.fbConfig);
+                }
+                else
+                {
+                    const MeshRenderer::ClipVertLM cv[3] = {
+                        {v0, vert0.tu, vert0.tv, d0, lr0, lg0, lb0},
+                        {v1, vert1.tu, vert1.tv, d1, lr1, lg1, lb1},
+                        {v2, vert2.tu, vert2.tv, d2, lr2, lg2, lb2}};
+                    drew = clipAndDrawNear(cv, ctx.nearClip, ctx.viewport, ctx.viewProjMatrix, ctx.framebuffer,
+                                           [&](const Vector3 *proj, const MeshRenderer::ClipVertLM *cvp, int a, int b, int c) -> bool
+                                           {
+                                               return Rasterizer::fillTriangleTextured(
+                                                   proj[a].x, proj[a].y - ctx.bandTopF, proj[a].z,
+                                                   proj[b].x, proj[b].y - ctx.bandTopF, proj[b].z,
+                                                   proj[c].x, proj[c].y - ctx.bandTopF, proj[c].z,
+                                                   cvp[a].u, cvp[a].v,
+                                                   cvp[b].u, cvp[b].v,
+                                                   cvp[c].u, cvp[c].v,
+                                                   cvp[a].d, cvp[b].d, cvp[c].d,
+                                                   cvp[a].lr, cvp[a].lg, cvp[a].lb,
+                                                   cvp[b].lr, cvp[b].lg, cvp[b].lb,
+                                                   cvp[c].lr, cvp[c].lg, cvp[c].lb,
+                                                   *ctx.meshTexture, ctx.frameBuffer, ctx.zBuffer, ctx.fbConfig);
+                                           });
+                }
+                if (unlikely(!drew))
+                    ++ctx.statsCulled;
+                return;
+            }
+
+            if (ctx.lmActive)
+            {
+                float mu0, mv0, mu1, mv1, mu2, mv2;
+                ctx.instance->lightmapCornerUV(faceIdx, 0, mu0, mv0);
+                ctx.instance->lightmapCornerUV(faceIdx, 1, mu1, mv1);
+                ctx.instance->lightmapCornerUV(faceIdx, 2, mu2, mv2);
+                const uint16_t solid565 = Color::fromFloat(faceR, faceG, faceB).rgb565;
+                bool drew = false;
+                if (!partiallyClipped)
+                {
+                    drew = Rasterizer::fillTriangleSolidLM(
+                        p0.x, p0.y - ctx.bandTopF, p0.z,
+                        p1.x, p1.y - ctx.bandTopF, p1.z,
+                        p2.x, p2.y - ctx.bandTopF, p2.z,
+                        mu0, mv0, mu1, mv1, mu2, mv2,
+                        d0, d1, d2,
+                        solid565, *ctx.lmAtlas,
+                        ctx.frameBuffer, ctx.zBuffer, ctx.fbConfig);
+                }
+                else
+                {
+                    const MeshRenderer::ClipVertLM cv[3] = {
+                        {v0, 0, 0, d0, 0, 0, 0, mu0, mv0},
+                        {v1, 0, 0, d1, 0, 0, 0, mu1, mv1},
+                        {v2, 0, 0, d2, 0, 0, 0, mu2, mv2}};
+                    drew = clipAndDrawNear(cv, ctx.nearClip, ctx.viewport, ctx.viewProjMatrix, ctx.framebuffer,
+                                           [&](const Vector3 *proj, const MeshRenderer::ClipVertLM *cvp, int a, int b, int c) -> bool
+                                           {
+                                               return Rasterizer::fillTriangleSolidLM(
+                                                   proj[a].x, proj[a].y - ctx.bandTopF, proj[a].z,
+                                                   proj[b].x, proj[b].y - ctx.bandTopF, proj[b].z,
+                                                   proj[c].x, proj[c].y - ctx.bandTopF, proj[c].z,
+                                                   cvp[a].mu, cvp[a].mv,
+                                                   cvp[b].mu, cvp[b].mv,
+                                                   cvp[c].mu, cvp[c].mv,
+                                                   cvp[a].d, cvp[b].d, cvp[c].d,
+                                                   solid565, *ctx.lmAtlas, ctx.frameBuffer, ctx.zBuffer, ctx.fbConfig);
+                                           });
+                }
+                if (unlikely(!drew))
+                    ++ctx.statsCulled;
+                return;
+            }
+
+            switch (ctx.effectiveMode)
+            {
+            case SHADING_FLAT:
+            {
+                float prFaceR = faceR, prFaceG = faceG, prFaceB = faceB;
+                const Light *prLights = ctx.localLights;
+                int prCount = ctx.localLightCount;
+                Light prMod[4];
+                if (ctx.useProbes)
+                {
+                    Vector3 cen = (v0 + v1 + v2) * (1.0f / 3.0f);
+                    ProbeLightSample ps;
+                    sampleProbe(ctx.instance, cen, ps);
+                    probeScaleLights(prMod, ctx.localLights, ctx.localLightCount, ps);
+                    prLights = prMod;
+                    probeShadeFace(prFaceR, prFaceG, prFaceB, faceR, faceG, faceB, ps);
+                }
+                if (unlikely(!MeshRenderer::drawTriangle3D_Preprojected(
+                        v0, v1, v2, p0, p1, p2,
+                        d0, d1, d2,
+                        partiallyClipped, ctx.nearClip, camPos,
+                        Color::fromFloat(prFaceR, prFaceG, prFaceB).rgb565,
+                        ctx.viewProjMatrix, ctx.viewport,
+                        ctx.viewportHalfWidth, ctx.viewportHalfHeight, ctx.viewportWidth,
+                        ctx.bandTop, ctx.bandBottom, ctx.bandTopF,
+                        ctx.framebuffer, ctx.zBuffer,
+                        prLights, prCount,
+                        ctx.useUniformColor, ctx.uniformColor)))
+                    ++ctx.statsCulled;
+                break;
+            }
+
+            case SHADING_GOURAUD:
+            {
+                Vector3 n0 = ctx.worldNormals ? ctx.worldNormals[vIdx0] : chunkVBase[vIdx0].normal.get();
+                Vector3 n1 = ctx.worldNormals ? ctx.worldNormals[vIdx1] : chunkVBase[vIdx1].normal.get();
+                Vector3 n2 = ctx.worldNormals ? ctx.worldNormals[vIdx2] : chunkVBase[vIdx2].normal.get();
+
+                float lr0 = 0.0f, lg0 = 0.0f, lb0 = 0.0f;
+                float lr1 = 0.0f, lg1 = 0.0f, lb1 = 0.0f;
+                float lr2 = 0.0f, lg2 = 0.0f, lb2 = 0.0f;
+                if (ctx.useProbes)
+                {
+                    ProbeLightSample p0, p1, p2;
+                    if (probes)
+                    {
+                        probes->sample(vIdx0, p0);
+                        probes->sample(vIdx1, p1);
+                        probes->sample(vIdx2, p2);
+                    }
+                    else
+                    {
+                        sampleProbe(ctx.instance, v0, p0);
+                        sampleProbe(ctx.instance, v1, p1);
+                        sampleProbe(ctx.instance, v2, p2);
+                    }
+                    probeShadeVertex(v0, n0, camPos, ctx.localLights, ctx.localLightCount,
+                                     faceR, faceG, faceB, p0, lr0, lg0, lb0);
+                    probeShadeVertex(v1, n1, camPos, ctx.localLights, ctx.localLightCount,
+                                     faceR, faceG, faceB, p1, lr1, lg1, lb1);
+                    probeShadeVertex(v2, n2, camPos, ctx.localLights, ctx.localLightCount,
+                                     faceR, faceG, faceB, p2, lr2, lg2, lb2);
+                }
+                else
+                {
+                    Shading::calculateVertexLightingGouraud(v0, n0, camPos,
+                                                            ctx.localLights, ctx.localLightCount, faceR, faceG, faceB, lr0, lg0, lb0);
+                    Shading::calculateVertexLightingGouraud(v1, n1, camPos,
+                                                            ctx.localLights, ctx.localLightCount, faceR, faceG, faceB, lr1, lg1, lb1);
+                    Shading::calculateVertexLightingGouraud(v2, n2, camPos,
+                                                            ctx.localLights, ctx.localLightCount, faceR, faceG, faceB, lr2, lg2, lb2);
+                }
+
+                bool drew = false;
+                if (likely(!partiallyClipped))
+                {
+                    drew = MeshRenderer::drawTriangle3D_Smooth_Preprojected(
+                        p0, p1, p2,
+                        lr0, lg0, lb0, lr1, lg1, lb1, lr2, lg2, lb2,
+                        ctx.viewportWidth, ctx.bandTop, ctx.bandBottom, ctx.bandTopF,
+                        ctx.framebuffer, ctx.zBuffer);
+                }
+                else
+                {
+                    const MeshRenderer::ClipVertSmooth cv[3] = {
+                        {v0, d0, lr0, lg0, lb0},
+                        {v1, d1, lr1, lg1, lb1},
+                        {v2, d2, lr2, lg2, lb2}};
+                    drew = MeshRenderer::clipAndDrawNearSmooth(
+                        cv, ctx.nearClip, ctx.viewport, ctx.viewProjMatrix,
+                        ctx.framebuffer, ctx.zBuffer);
+                }
+                if (unlikely(!drew))
+                    ++ctx.statsCulled;
+                break;
+            }
+
+            case SHADING_PHONG:
+            {
+                Vector3 n0 = ctx.worldNormals ? ctx.worldNormals[vIdx0] : chunkVBase[vIdx0].normal.get();
+                Vector3 n1 = ctx.worldNormals ? ctx.worldNormals[vIdx1] : chunkVBase[vIdx1].normal.get();
+                Vector3 n2 = ctx.worldNormals ? ctx.worldNormals[vIdx2] : chunkVBase[vIdx2].normal.get();
+                float prFaceR = faceR, prFaceG = faceG, prFaceB = faceB;
+                const Light *prLights = ctx.localLights;
+                int prCount = ctx.localLightCount;
+                Light prMod[4];
+                if (ctx.useProbes)
+                {
+                    Vector3 cen = (v0 + v1 + v2) * (1.0f / 3.0f);
+                    ProbeLightSample ps;
+                    sampleProbe(ctx.instance, cen, ps);
+                    probeScaleLights(prMod, ctx.localLights, ctx.localLightCount, ps);
+                    prLights = prMod;
+                    probeShadeFace(prFaceR, prFaceG, prFaceB, faceR, faceG, faceB, ps);
+                }
+
+                bool drew = false;
+                if (likely(!partiallyClipped))
+                {
+                    drew = MeshRenderer::drawTriangle3D_Phong_Preprojected(
+                        v0, v1, v2, p0, p1, p2,
+                        n0, n1, n2, d0, d1, d2,
+                        prFaceR, prFaceG, prFaceB, camPos,
+                        ctx.viewportWidth, ctx.bandTop, ctx.bandBottom, ctx.bandTopF,
+                        ctx.framebuffer, ctx.zBuffer,
+                        prLights, prCount);
+                }
+                else
+                {
+                    const MeshRenderer::ClipVertPhong cv[3] = {
+                        {v0, n0, d0},
+                        {v1, n1, d1},
+                        {v2, n2, d2}};
+                    drew = MeshRenderer::clipAndDrawNearPhong(
+                        cv, ctx.nearClip, prFaceR, prFaceG, prFaceB, camPos,
+                        ctx.viewport, ctx.viewProjMatrix,
+                        ctx.framebuffer, ctx.zBuffer,
+                        prLights, prCount);
+                }
+                if (unlikely(!drew))
+                    ++ctx.statsCulled;
+                break;
+            }
+            }
         }
     }
 
@@ -464,12 +1037,16 @@ namespace pip3D
 
         const bool isEmissiveInst = instance->isEmissive();
 
-        bool useUniformColor = (mesh->getSingleColorLighting() || isEmissiveInst) && effectiveMode == SHADING_FLAT;
+        const bool lmActiveEarly = instance->hasActiveLightmap(bakedLightMode_);
+
+        bool useUniformColor = !lmActiveEarly && (mesh->getSingleColorLighting() || isEmissiveInst) && effectiveMode == SHADING_FLAT;
         uint16_t uniformColor = 0;
 
         Light localLights[4];
-        const int localLightCount = collectActiveLightsForBounds(
-            center, radius, lights.data(), activeLightCount, localLights, 4);
+        const int localLightCount = lmActiveEarly
+                                        ? 0
+                                        : collectActiveLightsForBounds(
+                                              center, radius, lights.data(), activeLightCount, localLights, 4);
 
         const Matrix4x4 &worldTransform = instance->transform();
         const Vertex *PIP3D_RESTRICT vbase = mesh->vertexData();
@@ -503,8 +1080,11 @@ namespace pip3D
             }
         }
 
-        NormalMatrix nmWorld(worldTransform);
         const bool needsWorldNormals = (effectiveMode != SHADING_FLAT);
+
+        alignas(alignof(NormalMatrix)) unsigned char nmStorage[sizeof(NormalMatrix)];
+        NormalMatrix *const nmWorld =
+            needsWorldNormals ? ::new (static_cast<void *>(nmStorage)) NormalMatrix(worldTransform) : nullptr;
 
         const uint32_t vertexCountUsed = mesh->numVertices();
         const uint32_t faceCount = mesh->numFaces();
@@ -525,9 +1105,9 @@ namespace pip3D
         const float viewportHalfWidth = viewportWidth * 0.5f;
         const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
         const Vector3 camPos = cam.position;
-        const float nearPlane = cam.nearPlane;
+        const Vector3 camFwd = cam.forward();
         constexpr float kNearClipEps = 1e-4f;
-        const float nearClip = nearPlane + kNearClipEps;
+        const float nearClip = cam.nearPlane + kNearClipEps;
         const bool isTextured = mesh->isTextured();
         const bool doBackfaceCull = backfaceCullingEnabled;
 
@@ -537,17 +1117,39 @@ namespace pip3D
             meshTexture = &g_missingTexture;
         }
         const bool effectiveTextured = (meshTexture != nullptr);
-        const Vector3 &camFwd = cam.forward();
 
         const uint32_t chunkCount = mesh->numChunks();
         const MeshChunk *PIP3D_RESTRICT chunks = mesh->chunkData();
         const bool hasChunks = (chunkCount > 0 && chunks != nullptr);
 
-        if (!hasChunks)
+        const bool lmActive = lmActiveEarly;
+        const bool useProbes = usesProbes(instance);
+
+        bool directPath = !hasChunks && (faceCount > 0xFFFFu || vertexCountUsed > 0xFFFFu);
+
+        uint32_t currentSubMesh = 0;
+
+        FaceDrawCtx ctx{
+            instance, mesh, worldTransform, nullptr, nullptr, nullptr,
+            mesh->isIndex32() ? nullptr : mesh->faceData16(),
+            mesh->isIndex32() ? mesh->faceData32() : nullptr,
+            mesh->isIndex32(),
+            subMeshCount, hasSubMeshes,
+            effectiveMode, effectiveTextured, meshTexture,
+            lmActive ? instance->lightmapAtlas() : nullptr,
+            lmActive, useProbes, useUniformColor, uniformColor,
+            instR, instG, instB, localLights, localLightCount,
+            viewProjMatrix, viewport, framebufferConfig,
+            framebuffer, framebuffer.getBuffer(), &zBuffer,
+            camPos, camFwd, nearClip, doBackfaceCull,
+            bandTop, bandBottom, bandTopF,
+            viewportWidth, viewportHalfWidth, viewportHalfHeight,
+            currentSubMesh, statsTrianglesTotal, statsTrianglesBackfaceCulled};
+
+        if (directPath)
         {
-            if (likely(cache->ensureCapacity(static_cast<uint16_t>(
-                                                 vertexCountUsed > 65535 ? 65535 : vertexCountUsed),
-                                             needsWorldNormals)))
+            const uint16_t cacheVerts = static_cast<uint16_t>(vertexCountUsed > 0xFFFFu ? 0xFFFFu : vertexCountUsed);
+            if (likely(cache->ensureCapacity(cacheVerts, needsWorldNormals)))
             {
                 worldVerts = cache->worldVerts();
                 worldNormals = cache->worldNormals();
@@ -560,7 +1162,7 @@ namespace pip3D
 
                 if (projState == DrawCache::ProjState::NeedsTransformAndProject)
                 {
-                    for (uint32_t i = 0; i < vertexCountUsed; ++i)
+                    for (uint32_t i = 0; i < cacheVerts; ++i)
                     {
                         const Vector3 local = mesh->decodePosition(vbase[i]);
                         const Vector3 world = worldTransform.transformNoDiv(local);
@@ -568,293 +1170,25 @@ namespace pip3D
                         screenVerts[i] = CameraController::project(world, viewProjMatrix,
                                                                    viewportHalfWidth, viewportHalfHeight, 0, 0);
                         if (needsWorldNormals)
-                            worldNormals[i] = nmWorld.transform(vbase[i].normal.get());
+                            worldNormals[i] = nmWorld->transform(vbase[i].normal.get());
                     }
                     cache->commitProjection(frameStamp, instanceVersion);
                 }
                 else if (projState == DrawCache::ProjState::NeedsReproject)
                 {
-                    for (uint32_t i = 0; i < vertexCountUsed; ++i)
+                    for (uint32_t i = 0; i < cacheVerts; ++i)
                         screenVerts[i] = CameraController::project(worldVerts[i], viewProjMatrix,
                                                                    viewportHalfWidth, viewportHalfHeight, 0, 0);
                     cache->commitProjection(frameStamp, instanceVersion);
                 }
             }
 
-            const bool is32 = mesh->isIndex32();
-            const Face16 *PIP3D_RESTRICT fbase16 = is32 ? nullptr : mesh->faceData16();
-            const Face32 *PIP3D_RESTRICT fbase32 = is32 ? mesh->faceData32() : nullptr;
-
-            uint32_t currentSubMesh = 0;
+            ctx.worldVerts = worldVerts;
+            ctx.screenVerts = screenVerts;
+            ctx.worldNormals = worldNormals;
 
             for (uint32_t i = 0; i < faceCount; ++i)
-            {
-                uint32_t vIdx0, vIdx1, vIdx2;
-                if (likely(!is32))
-                {
-                    vIdx0 = fbase16[i].v0;
-                    vIdx1 = fbase16[i].v1;
-                    vIdx2 = fbase16[i].v2;
-                }
-                else
-                {
-                    vIdx0 = fbase32[i].v0;
-                    vIdx1 = fbase32[i].v1;
-                    vIdx2 = fbase32[i].v2;
-                }
-
-                Vector3 v0, v1, v2;
-                if (likely(worldVerts))
-                {
-                    v0 = worldVerts[vIdx0];
-                    v1 = worldVerts[vIdx1];
-                    v2 = worldVerts[vIdx2];
-                }
-                else
-                {
-                    v0 = worldTransform.transformNoDiv(mesh->decodePosition(vbase[vIdx0]));
-                    v1 = worldTransform.transformNoDiv(mesh->decodePosition(vbase[vIdx1]));
-                    v2 = worldTransform.transformNoDiv(mesh->decodePosition(vbase[vIdx2]));
-                }
-
-                const float d0 = (v0.x - camPos.x) * camFwd.x + (v0.y - camPos.y) * camFwd.y + (v0.z - camPos.z) * camFwd.z;
-                const float d1 = (v1.x - camPos.x) * camFwd.x + (v1.y - camPos.y) * camFwd.y + (v1.z - camPos.z) * camFwd.z;
-                const float d2 = (v2.x - camPos.x) * camFwd.x + (v2.y - camPos.y) * camFwd.y + (v2.z - camPos.z) * camFwd.z;
-
-                if (unlikely(d0 < nearClip && d1 < nearClip && d2 < nearClip))
-                {
-                    statsTrianglesBackfaceCulled++;
-                    continue;
-                }
-
-                const bool partiallyClipped = unlikely(d0 < nearClip || d1 < nearClip || d2 < nearClip);
-
-                if (doBackfaceCull)
-                {
-                    const float e1x = v1.x - v0.x, e1y = v1.y - v0.y, e1z = v1.z - v0.z;
-                    const float e2x = v2.x - v0.x, e2y = v2.y - v0.y, e2z = v2.z - v0.z;
-                    const float nx = e1y * e2z - e1z * e2y;
-                    const float ny = e1z * e2x - e1x * e2z;
-                    const float nz = e1x * e2y - e1y * e2x;
-                    const float vx = v0.x - camPos.x;
-                    const float vy = v0.y - camPos.y;
-                    const float vz = v0.z - camPos.z;
-                    if (nx * vx + ny * vy + nz * vz >= 0.0f)
-                    {
-                        statsTrianglesBackfaceCulled++;
-                        continue;
-                    }
-                }
-
-                Vector3 p0, p1, p2;
-                if (likely(screenVerts))
-                {
-                    p0 = screenVerts[vIdx0];
-                    p1 = screenVerts[vIdx1];
-                    p2 = screenVerts[vIdx2];
-                }
-                else
-                {
-                    p0 = CameraController::project(v0, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, 0, 0);
-                    p1 = CameraController::project(v1, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, 0, 0);
-                    p2 = CameraController::project(v2, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, 0, 0);
-                }
-
-                if (!partiallyClipped)
-                {
-                    const float minY = (p0.y < p1.y) ? ((p0.y < p2.y) ? p0.y : p2.y) : ((p1.y < p2.y) ? p1.y : p2.y);
-                    const float maxY = (p0.y > p1.y) ? ((p0.y > p2.y) ? p0.y : p2.y) : ((p1.y > p2.y) ? p1.y : p2.y);
-                    if (maxY < bandTop || minY >= bandBottom)
-                        continue;
-                    const float minX = (p0.x < p1.x) ? ((p0.x < p2.x) ? p0.x : p2.x) : ((p1.x < p2.x) ? p1.x : p2.x);
-                    const float maxX = (p0.x > p1.x) ? ((p0.x > p2.x) ? p0.x : p2.x) : ((p1.x > p2.x) ? p1.x : p2.x);
-                    if (maxX < 0.0f || minX >= viewportWidth)
-                        continue;
-                }
-
-                statsTrianglesTotal++;
-
-                if (!partiallyClipped)
-                {
-                    const float area = (p1.x - p0.x) * (p2.y - p0.y) - (p2.x - p0.x) * (p1.y - p0.y);
-                    if (fabsf(area) <= 1.0f)
-                    {
-                        statsTrianglesBackfaceCulled++;
-                        continue;
-                    }
-                }
-
-                float faceR = instR, faceG = instG, faceB = instB;
-                if (hasSubMeshes)
-                {
-                    while (currentSubMesh < subMeshCount &&
-                           i >= mesh->subMeshFaceEnd(currentSubMesh))
-                        ++currentSubMesh;
-                    if (currentSubMesh < subMeshCount)
-                    {
-                        float sr, sg, sb;
-                        mesh->subMeshColor(currentSubMesh).toFloat(sr, sg, sb);
-                        faceR = instR * sr;
-                        faceG = instG * sg;
-                        faceB = instB * sb;
-                    }
-                }
-
-                if (effectiveTextured)
-                {
-                    const Vertex &vert0 = vbase[vIdx0];
-                    const Vertex &vert1 = vbase[vIdx1];
-                    const Vertex &vert2 = vbase[vIdx2];
-
-                    float lr0, lg0, lb0, lr1, lg1, lb1, lr2, lg2, lb2;
-
-                    if (effectiveMode == SHADING_GOURAUD)
-                    {
-                        Vector3 n0 = worldNormals ? worldNormals[vIdx0] : vbase[vIdx0].normal.get();
-                        Vector3 n1 = worldNormals ? worldNormals[vIdx1] : vbase[vIdx1].normal.get();
-                        Vector3 n2 = worldNormals ? worldNormals[vIdx2] : vbase[vIdx2].normal.get();
-                        Shading::calculateVertexLightingGouraud(v0, n0, camPos,
-                                                                localLights, localLightCount, faceR, faceG, faceB, lr0, lg0, lb0);
-                        Shading::calculateVertexLightingGouraud(v1, n1, camPos,
-                                                                localLights, localLightCount, faceR, faceG, faceB, lr1, lg1, lb1);
-                        Shading::calculateVertexLightingGouraud(v2, n2, camPos,
-                                                                localLights, localLightCount, faceR, faceG, faceB, lr2, lg2, lb2);
-                    }
-                    else
-                    {
-                        Shading::calculateFaceLighting(
-                            v0, v1, v2, camPos,
-                            localLights, localLightCount,
-                            faceR, faceG, faceB,
-                            lr0, lg0, lb0);
-                        lr1 = lr0;
-                        lg1 = lg0;
-                        lb1 = lb0;
-                        lr2 = lr0;
-                        lg2 = lg0;
-                        lb2 = lb0;
-                    }
-
-                    if (!partiallyClipped)
-                    {
-                        Rasterizer::fillTriangleTextured(
-                            p0.x, p0.y - bandTopF, p0.z,
-                            p1.x, p1.y - bandTopF, p1.z,
-                            p2.x, p2.y - bandTopF, p2.z,
-                            vert0.tu, vert0.tv,
-                            vert1.tu, vert1.tv,
-                            vert2.tu, vert2.tv,
-                            d0, d1, d2,
-                            lr0, lg0, lb0,
-                            lr1, lg1, lb1,
-                            lr2, lg2, lb2,
-                            *meshTexture,
-                            framebuffer.getBuffer(),
-                            &zBuffer,
-                            framebufferConfig);
-                    }
-                    else
-                    {
-                        const DrawTelemetryClipVert cv[3] = {
-                            {v0, vert0.tu, vert0.tv, d0, lr0, lg0, lb0},
-                            {v1, vert1.tu, vert1.tv, d1, lr1, lg1, lb1},
-                            {v2, vert2.tu, vert2.tv, d2, lr2, lg2, lb2}};
-                        clipAndDrawNearTextured(
-                            cv, nearClip,
-                            cam, viewport, viewProjMatrix,
-                            framebuffer, &zBuffer,
-                            *meshTexture);
-                    }
-                    continue;
-                }
-
-                switch (effectiveMode)
-                {
-                case SHADING_FLAT:
-                    MeshRenderer::drawTriangle3D_Preprojected(
-                        v0, v1, v2, p0, p1, p2,
-                        d0, d1, d2,
-                        partiallyClipped,
-                        nearClip,
-                        camPos,
-                        Color::fromFloat(faceR, faceG, faceB).rgb565,
-                        viewProjMatrix,
-                        viewport,
-                        viewportHalfWidth, viewportHalfHeight, viewportWidth,
-                        bandTop, bandBottom, bandTopF,
-                        framebuffer, &zBuffer,
-                        localLights, localLightCount,
-                        useUniformColor, uniformColor);
-                    break;
-
-                case SHADING_GOURAUD:
-                {
-                    Vector3 n0 = worldNormals ? worldNormals[vIdx0] : vbase[vIdx0].normal.get();
-                    Vector3 n1 = worldNormals ? worldNormals[vIdx1] : vbase[vIdx1].normal.get();
-                    Vector3 n2 = worldNormals ? worldNormals[vIdx2] : vbase[vIdx2].normal.get();
-
-                    float lr0, lg0, lb0, lr1, lg1, lb1, lr2, lg2, lb2;
-                    Shading::calculateVertexLightingGouraud(v0, n0, camPos,
-                                                            localLights, localLightCount, faceR, faceG, faceB, lr0, lg0, lb0);
-                    Shading::calculateVertexLightingGouraud(v1, n1, camPos,
-                                                            localLights, localLightCount, faceR, faceG, faceB, lr1, lg1, lb1);
-                    Shading::calculateVertexLightingGouraud(v2, n2, camPos,
-                                                            localLights, localLightCount, faceR, faceG, faceB, lr2, lg2, lb2);
-
-                    if (likely(!partiallyClipped))
-                    {
-                        MeshRenderer::drawTriangle3D_Smooth_Preprojected(
-                            p0, p1, p2,
-                            lr0, lg0, lb0, lr1, lg1, lb1, lr2, lg2, lb2,
-                            viewportWidth, bandTop, bandBottom, bandTopF,
-                            framebuffer, &zBuffer);
-                    }
-                    else
-                    {
-                        const MeshRenderer::ClipVertSmooth cv[3] = {
-                            {v0, d0, lr0, lg0, lb0},
-                            {v1, d1, lr1, lg1, lb1},
-                            {v2, d2, lr2, lg2, lb2}};
-                        MeshRenderer::clipAndDrawNearSmooth(
-                            cv, nearClip, viewport, viewProjMatrix,
-                            framebuffer, &zBuffer);
-                    }
-                    break;
-                }
-
-                case SHADING_PHONG:
-                {
-                    Vector3 n0 = worldNormals ? worldNormals[vIdx0] : vbase[vIdx0].normal.get();
-                    Vector3 n1 = worldNormals ? worldNormals[vIdx1] : vbase[vIdx1].normal.get();
-                    Vector3 n2 = worldNormals ? worldNormals[vIdx2] : vbase[vIdx2].normal.get();
-
-                    if (likely(!partiallyClipped))
-                    {
-                        MeshRenderer::drawTriangle3D_Phong_Preprojected(
-                            v0, v1, v2, p0, p1, p2,
-                            n0, n1, n2, d0, d1, d2,
-                            faceR, faceG, faceB, camPos,
-                            viewportWidth, bandTop, bandBottom, bandTopF,
-                            framebuffer, &zBuffer,
-                            localLights, localLightCount);
-                    }
-                    else
-                    {
-                        const MeshRenderer::ClipVertPhong cv[3] = {
-                            {v0, n0, d0},
-                            {v1, n1, d1},
-                            {v2, n2, d2}};
-                        MeshRenderer::clipAndDrawNearPhong(
-                            cv, nearClip,
-                            faceR, faceG, faceB, camPos,
-                            viewport, viewProjMatrix,
-                            framebuffer, &zBuffer,
-                            localLights, localLightCount);
-                    }
-                    break;
-                }
-                }
-            }
+                drawMeshFace(ctx, vbase, nullptr, i);
             return;
         }
 
@@ -866,10 +1200,6 @@ namespace pip3D
             screenVerts = cache->screenVerts();
         }
 
-        const bool is32 = mesh->isIndex32();
-        const Face16 *PIP3D_RESTRICT fbase16 = is32 ? nullptr : mesh->faceData16();
-        const Face32 *PIP3D_RESTRICT fbase32 = is32 ? mesh->faceData32() : nullptr;
-
         const int32_t bandIndex32 = static_cast<int32_t>(g_bandOffsetY) / static_cast<int32_t>(SCREEN_BAND_HEIGHT);
         const uint8_t bandIndex = static_cast<uint8_t>(
             (bandIndex32 < 0) ? 0
@@ -880,42 +1210,61 @@ namespace pip3D
         ChunkBandCache &chunkCache = instance->chunkBandCache();
         if (chunkCache.frameStamp != frameStamp || chunkCache.instanceVersion != instanceVersion)
         {
-            buildChunkBandCache(*this, instance, chunkCache, frameStamp);
-            chunkCache.instanceVersion = instanceVersion;
+            if (buildChunkBandCache(*this, instance, chunkCache, frameStamp))
+                chunkCache.instanceVersion = instanceVersion;
+            else
+            {
+
+                chunkCache.visibleCount = 0;
+                chunkCache.instanceVersion = instanceVersion;
+            }
         }
 
-        const uint8_t nb = static_cast<uint8_t>(
-            (SCREEN_BAND_COUNT <= ChunkBandCache::MAX_BUCKETS) ? SCREEN_BAND_COUNT
-                                                               : ChunkBandCache::MAX_BUCKETS);
-
-        uint32_t currentSubMesh = 0;
-
-        for (uint8_t b = 0; b <= bandIndex && b < nb; ++b)
+        MeshChunk virtualChunk{};
+        if (!hasChunks)
         {
-            const uint16_t bStart = chunkCache.bucketStart[b];
-            const uint16_t bCount = chunkCache.bucketCount[b];
-            if (bCount == 0)
-                continue;
+            virtualChunk.vCount = static_cast<uint16_t>(vertexCountUsed);
+            virtualChunk.faceCount = static_cast<uint16_t>(faceCount);
+        }
 
-            for (uint16_t k = 0; k < bCount; ++k)
+        bool useProbeCache = useProbes && (effectiveMode == SHADING_GOURAUD) && worldVerts && chunkCacheVerts > 0 && chunkCacheVerts <= kProbeCacheMaxVerts;
+        ProbeCache probeCache;
+        if (useProbeCache)
+        {
+            if (uint8_t *PIP3D_RESTRICT pd = cache->ensureProbePlanes(chunkCacheVerts))
             {
-                const uint16_t recIdx = chunkCache.sortedIndices[bStart + k];
-                const ChunkBandRecord &rec = chunkCache.records[recIdx];
+                probeCache.data = pd;
+                if (const BakedProbeGrid *grid = Rasterizer::g_bakedState.probes)
+                {
+                    probeCache.tintR = grid->tintR;
+                    probeCache.tintG = grid->tintG;
+                    probeCache.tintB = grid->tintB;
+                }
+            }
+            else
+                useProbeCache = false;
+        }
 
-                if (bandIndex > rec.maxBand)
+        for (uint16_t k = 0; k < chunkCache.visibleCount; ++k)
+        {
+            {
+                const ChunkBandRecord rec = chunkCache.records[k];
+
+                if (bandIndex < rec.minBand || bandIndex > rec.maxBand)
                     continue;
 
-                const MeshChunk &chunk = chunks[rec.chunkIdx];
+                const MeshChunk &chunk = hasChunks ? chunks[rec.chunkIdx] : virtualChunk;
                 const uint16_t chunkVCount = chunk.vCount;
                 const uint32_t chunkVOffset = chunk.vOffset;
                 const uint32_t chunkFOffset = chunk.faceOffset;
                 const uint16_t chunkFCount = chunk.faceCount;
 
+                const Vertex *PIP3D_RESTRICT chunkVBase = vbase + chunkVOffset;
+
                 if (likely(worldVerts && screenVerts))
                 {
                     if (chunkCache.currentChunkIdx != rec.chunkIdx)
                     {
-                        const Vertex *PIP3D_RESTRICT chunkVBase = vbase + chunkVOffset;
                         for (uint16_t i = 0; i < chunkVCount; ++i)
                         {
                             const Vector3 local = mesh->decodePosition(chunkVBase[i]);
@@ -924,274 +1273,46 @@ namespace pip3D
                             screenVerts[i] = CameraController::project(world, viewProjMatrix,
                                                                        viewportHalfWidth, viewportHalfHeight, 0, 0);
                             if (needsWorldNormals)
-                                worldNormals[i] = nmWorld.transform(chunkVBase[i].normal.get());
+                                worldNormals[i] = nmWorld->transform(chunkVBase[i].normal.get());
                         }
                         chunkCache.currentChunkIdx = rec.chunkIdx;
                         currentSubMesh = 0;
+
+                        if (useProbeCache)
+                        {
+                            const BakedProbeGrid *grid = Rasterizer::g_bakedState.probes;
+                            const bool gridOk = grid && grid->valid() && !instance->getIgnoreBakedProbes();
+                            uint8_t *PIP3D_RESTRICT pd = probeCache.data;
+                            for (uint16_t vi = 0; vi < chunkVCount; ++vi)
+                            {
+                                float ps, pa, luma;
+                                uint8_t ti = 0;
+                                if (gridOk)
+                                    grid->sample(worldVerts[vi], ps, pa, luma, ti);
+                                else
+                                {
+                                    ps = 1.0f;
+                                    pa = 1.0f;
+                                    luma = 0.0f;
+                                }
+                                const uint32_t o = static_cast<uint32_t>(vi) * 4;
+                                pd[o + 0] = static_cast<uint8_t>(ps * 255.0f + 0.5f);
+                                pd[o + 1] = static_cast<uint8_t>(pa * 255.0f + 0.5f);
+                                pd[o + 2] = static_cast<uint8_t>(luma * 255.0f + 0.5f);
+                                pd[o + 3] = ti;
+                            }
+                        }
                     }
                 }
+
+                ctx.worldVerts = worldVerts;
+                ctx.screenVerts = screenVerts;
+                ctx.worldNormals = worldNormals;
+
+                const ProbeCache *probes = (useProbeCache && worldVerts) ? &probeCache : nullptr;
 
                 for (uint16_t fi = 0; fi < chunkFCount; ++fi)
-                {
-                    const uint32_t faceIdx = chunkFOffset + fi;
-                    uint32_t vIdx0, vIdx1, vIdx2;
-                    if (likely(!is32))
-                    {
-                        vIdx0 = fbase16[faceIdx].v0;
-                        vIdx1 = fbase16[faceIdx].v1;
-                        vIdx2 = fbase16[faceIdx].v2;
-                    }
-                    else
-                    {
-                        vIdx0 = fbase32[faceIdx].v0;
-                        vIdx1 = fbase32[faceIdx].v1;
-                        vIdx2 = fbase32[faceIdx].v2;
-                    }
-
-                    Vector3 v0, v1, v2;
-                    if (likely(worldVerts))
-                    {
-                        v0 = worldVerts[vIdx0];
-                        v1 = worldVerts[vIdx1];
-                        v2 = worldVerts[vIdx2];
-                    }
-                    else
-                    {
-                        const Vertex *chunkVBase = vbase + chunkVOffset;
-                        v0 = worldTransform.transformNoDiv(mesh->decodePosition(chunkVBase[vIdx0]));
-                        v1 = worldTransform.transformNoDiv(mesh->decodePosition(chunkVBase[vIdx1]));
-                        v2 = worldTransform.transformNoDiv(mesh->decodePosition(chunkVBase[vIdx2]));
-                    }
-
-                    const float d0 = (v0.x - camPos.x) * camFwd.x + (v0.y - camPos.y) * camFwd.y + (v0.z - camPos.z) * camFwd.z;
-                    const float d1 = (v1.x - camPos.x) * camFwd.x + (v1.y - camPos.y) * camFwd.y + (v1.z - camPos.z) * camFwd.z;
-                    const float d2 = (v2.x - camPos.x) * camFwd.x + (v2.y - camPos.y) * camFwd.y + (v2.z - camPos.z) * camFwd.z;
-
-                    if (unlikely(d0 < nearClip && d1 < nearClip && d2 < nearClip))
-                    {
-                        statsTrianglesBackfaceCulled++;
-                        continue;
-                    }
-
-                    const bool partiallyClipped = unlikely(d0 < nearClip || d1 < nearClip || d2 < nearClip);
-
-                    if (doBackfaceCull)
-                    {
-                        const float e1x = v1.x - v0.x, e1y = v1.y - v0.y, e1z = v1.z - v0.z;
-                        const float e2x = v2.x - v0.x, e2y = v2.y - v0.y, e2z = v2.z - v0.z;
-                        const float nx = e1y * e2z - e1z * e2y;
-                        const float ny = e1z * e2x - e1x * e2z;
-                        const float nz = e1x * e2y - e1y * e2x;
-                        const float vx = v0.x - camPos.x;
-                        const float vy = v0.y - camPos.y;
-                        const float vz = v0.z - camPos.z;
-                        if (nx * vx + ny * vy + nz * vz >= 0.0f)
-                        {
-                            statsTrianglesBackfaceCulled++;
-                            continue;
-                        }
-                    }
-
-                    Vector3 p0, p1, p2;
-                    if (likely(screenVerts))
-                    {
-                        p0 = screenVerts[vIdx0];
-                        p1 = screenVerts[vIdx1];
-                        p2 = screenVerts[vIdx2];
-                    }
-                    else
-                    {
-                        p0 = CameraController::project(v0, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, 0, 0);
-                        p1 = CameraController::project(v1, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, 0, 0);
-                        p2 = CameraController::project(v2, viewProjMatrix, viewportHalfWidth, viewportHalfHeight, 0, 0);
-                    }
-
-                    if (!partiallyClipped)
-                    {
-                        const float minY = (p0.y < p1.y) ? ((p0.y < p2.y) ? p0.y : p2.y) : ((p1.y < p2.y) ? p1.y : p2.y);
-                        const float maxY = (p0.y > p1.y) ? ((p0.y > p2.y) ? p0.y : p2.y) : ((p1.y > p2.y) ? p1.y : p2.y);
-                        if (maxY < bandTop || minY >= bandBottom)
-                            continue;
-                        const float minX = (p0.x < p1.x) ? ((p0.x < p2.x) ? p0.x : p2.x) : ((p1.x < p2.x) ? p1.x : p2.x);
-                        const float maxX = (p0.x > p1.x) ? ((p0.x > p2.x) ? p0.x : p2.x) : ((p1.x > p2.x) ? p1.x : p2.x);
-                        if (maxX < 0.0f || minX >= viewportWidth)
-                            continue;
-                    }
-
-                    statsTrianglesTotal++;
-
-                    if (!partiallyClipped)
-                    {
-                        const float area = (p1.x - p0.x) * (p2.y - p0.y) - (p2.x - p0.x) * (p1.y - p0.y);
-                        if (fabsf(area) <= 1.0f)
-                        {
-                            statsTrianglesBackfaceCulled++;
-                            continue;
-                        }
-                    }
-
-                    float faceR = instR, faceG = instG, faceB = instB;
-                    if (hasSubMeshes)
-                    {
-                        while (currentSubMesh < subMeshCount &&
-                               faceIdx >= mesh->subMeshFaceEnd(currentSubMesh))
-                            ++currentSubMesh;
-                        if (currentSubMesh < subMeshCount)
-                        {
-                            float sr, sg, sb;
-                            mesh->subMeshColor(currentSubMesh).toFloat(sr, sg, sb);
-                            faceR = instR * sr;
-                            faceG = instG * sg;
-                            faceB = instB * sb;
-                        }
-                    }
-
-                    if (effectiveTextured)
-                    {
-                        const Vertex *chunkVBase = vbase + chunkVOffset;
-                        const Vertex &vert0 = chunkVBase[vIdx0];
-                        const Vertex &vert1 = chunkVBase[vIdx1];
-                        const Vertex &vert2 = chunkVBase[vIdx2];
-
-                        float lr0, lg0, lb0, lr1, lg1, lb1, lr2, lg2, lb2;
-
-                        if (effectiveMode == SHADING_GOURAUD)
-                        {
-                            Vector3 n0 = worldNormals ? worldNormals[vIdx0] : chunkVBase[vIdx0].normal.get();
-                            Vector3 n1 = worldNormals ? worldNormals[vIdx1] : chunkVBase[vIdx1].normal.get();
-                            Vector3 n2 = worldNormals ? worldNormals[vIdx2] : chunkVBase[vIdx2].normal.get();
-                            Shading::calculateVertexLightingGouraud(v0, n0, camPos,
-                                                                    localLights, localLightCount, faceR, faceG, faceB, lr0, lg0, lb0);
-                            Shading::calculateVertexLightingGouraud(v1, n1, camPos,
-                                                                    localLights, localLightCount, faceR, faceG, faceB, lr1, lg1, lb1);
-                            Shading::calculateVertexLightingGouraud(v2, n2, camPos,
-                                                                    localLights, localLightCount, faceR, faceG, faceB, lr2, lg2, lb2);
-                        }
-                        else
-                        {
-                            Shading::calculateFaceLighting(v0, v1, v2, camPos,
-                                                           localLights, localLightCount, faceR, faceG, faceB,
-                                                           lr0, lg0, lb0);
-                            lr1 = lr0;
-                            lg1 = lg0;
-                            lb1 = lb0;
-                            lr2 = lr0;
-                            lg2 = lg0;
-                            lb2 = lb0;
-                        }
-
-                        if (!partiallyClipped)
-                        {
-                            Rasterizer::fillTriangleTextured(
-                                p0.x, p0.y - bandTopF, p0.z,
-                                p1.x, p1.y - bandTopF, p1.z,
-                                p2.x, p2.y - bandTopF, p2.z,
-                                vert0.tu, vert0.tv,
-                                vert1.tu, vert1.tv,
-                                vert2.tu, vert2.tv,
-                                d0, d1, d2,
-                                lr0, lg0, lb0, lr1, lg1, lb1, lr2, lg2, lb2,
-                                *meshTexture,
-                                framebuffer.getBuffer(), &zBuffer, framebufferConfig);
-                        }
-                        else
-                        {
-                            const DrawTelemetryClipVert cv[3] = {
-                                {v0, vert0.tu, vert0.tv, d0, lr0, lg0, lb0},
-                                {v1, vert1.tu, vert1.tv, d1, lr1, lg1, lb1},
-                                {v2, vert2.tu, vert2.tv, d2, lr2, lg2, lb2}};
-                            clipAndDrawNearTextured(
-                                cv, nearClip, cam, viewport, viewProjMatrix,
-                                framebuffer, &zBuffer, *meshTexture);
-                        }
-                        continue;
-                    }
-
-                    switch (effectiveMode)
-                    {
-                    case SHADING_FLAT:
-                        MeshRenderer::drawTriangle3D_Preprojected(
-                            v0, v1, v2, p0, p1, p2,
-                            d0, d1, d2,
-                            partiallyClipped, nearClip, camPos,
-                            Color::fromFloat(faceR, faceG, faceB).rgb565,
-                            viewProjMatrix, viewport,
-                            viewportHalfWidth, viewportHalfHeight, viewportWidth,
-                            bandTop, bandBottom, bandTopF,
-                            framebuffer, &zBuffer,
-                            localLights, localLightCount,
-                            useUniformColor, uniformColor);
-                        break;
-
-                    case SHADING_GOURAUD:
-                    {
-                        const Vertex *chunkVBase = vbase + chunkVOffset;
-                        Vector3 n0 = worldNormals ? worldNormals[vIdx0] : chunkVBase[vIdx0].normal.get();
-                        Vector3 n1 = worldNormals ? worldNormals[vIdx1] : chunkVBase[vIdx1].normal.get();
-                        Vector3 n2 = worldNormals ? worldNormals[vIdx2] : chunkVBase[vIdx2].normal.get();
-
-                        float lr0, lg0, lb0, lr1, lg1, lb1, lr2, lg2, lb2;
-                        Shading::calculateVertexLightingGouraud(v0, n0, camPos,
-                                                                localLights, localLightCount, faceR, faceG, faceB, lr0, lg0, lb0);
-                        Shading::calculateVertexLightingGouraud(v1, n1, camPos,
-                                                                localLights, localLightCount, faceR, faceG, faceB, lr1, lg1, lb1);
-                        Shading::calculateVertexLightingGouraud(v2, n2, camPos,
-                                                                localLights, localLightCount, faceR, faceG, faceB, lr2, lg2, lb2);
-
-                        if (likely(!partiallyClipped))
-                        {
-                            MeshRenderer::drawTriangle3D_Smooth_Preprojected(
-                                p0, p1, p2,
-                                lr0, lg0, lb0, lr1, lg1, lb1, lr2, lg2, lb2,
-                                viewportWidth, bandTop, bandBottom, bandTopF,
-                                framebuffer, &zBuffer);
-                        }
-                        else
-                        {
-                            const MeshRenderer::ClipVertSmooth cv[3] = {
-                                {v0, d0, lr0, lg0, lb0},
-                                {v1, d1, lr1, lg1, lb1},
-                                {v2, d2, lr2, lg2, lb2}};
-                            MeshRenderer::clipAndDrawNearSmooth(
-                                cv, nearClip, viewport, viewProjMatrix,
-                                framebuffer, &zBuffer);
-                        }
-                        break;
-                    }
-
-                    case SHADING_PHONG:
-                    {
-                        const Vertex *chunkVBase = vbase + chunkVOffset;
-                        Vector3 n0 = worldNormals ? worldNormals[vIdx0] : chunkVBase[vIdx0].normal.get();
-                        Vector3 n1 = worldNormals ? worldNormals[vIdx1] : chunkVBase[vIdx1].normal.get();
-                        Vector3 n2 = worldNormals ? worldNormals[vIdx2] : chunkVBase[vIdx2].normal.get();
-
-                        if (likely(!partiallyClipped))
-                        {
-                            MeshRenderer::drawTriangle3D_Phong_Preprojected(
-                                v0, v1, v2, p0, p1, p2,
-                                n0, n1, n2, d0, d1, d2,
-                                faceR, faceG, faceB, camPos,
-                                viewportWidth, bandTop, bandBottom, bandTopF,
-                                framebuffer, &zBuffer,
-                                localLights, localLightCount);
-                        }
-                        else
-                        {
-                            const MeshRenderer::ClipVertPhong cv[3] = {
-                                {v0, n0, d0},
-                                {v1, n1, d1},
-                                {v2, n2, d2}};
-                            MeshRenderer::clipAndDrawNearPhong(
-                                cv, nearClip, faceR, faceG, faceB, camPos,
-                                viewport, viewProjMatrix,
-                                framebuffer, &zBuffer,
-                                localLights, localLightCount);
-                        }
-                        break;
-                    }
-                    }
-                }
+                    drawMeshFace(ctx, chunkVBase, probes, chunkFOffset + fi);
             }
         }
     }

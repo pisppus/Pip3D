@@ -3,6 +3,7 @@
 #include "Core/Color.hpp"
 #include "Math/Algebra.hpp"
 #include "Geometry/Mesh.hpp"
+#include "Rendering/Lighting/Baked.hpp"
 #include "Rendering/Pipeline/DrawCache.hpp"
 #include "Rendering/Pipeline/Shading.hpp"
 
@@ -18,39 +19,39 @@ namespace pip3D
 
     struct ChunkBandCache
     {
-
-        static constexpr uint16_t MAX_RECORDS = 2048;
-
         uint32_t frameStamp = 0;
         uint32_t instanceVersion = 0;
-
-        uint16_t visibleCount = 0;
         uint16_t currentChunkIdx = 0xFFFF;
+        uint16_t capacity = 0;
+        uint16_t visibleCount = 0;
+        ChunkBandRecord *records = nullptr;
 
-        uint32_t totalChunkCount = 0;
-        uint32_t frustumCulledCount = 0;
-        uint32_t bandCulledCount = 0;
-
-        ChunkBandRecord records[MAX_RECORDS];
-        uint16_t sortedIndices[MAX_RECORDS];
-
-        static constexpr uint8_t MAX_BUCKETS = 16;
-        uint16_t bucketStart[MAX_BUCKETS];
-        uint16_t bucketCount[MAX_BUCKETS];
+        ~ChunkBandCache()
+        {
+            if (records)
+                MemUtils::freeData(records);
+        }
 
         PIP3D_FORCE_INLINE void reset(uint32_t newFrameStamp) noexcept
         {
-            visibleCount = 0;
-            currentChunkIdx = 0xFFFF;
             frameStamp = newFrameStamp;
-            totalChunkCount = 0;
-            frustumCulledCount = 0;
-            bandCulledCount = 0;
-            for (uint8_t i = 0; i < MAX_BUCKETS; ++i)
-            {
-                bucketStart[i] = 0;
-                bucketCount[i] = 0;
-            }
+            currentChunkIdx = 0xFFFF;
+            visibleCount = 0;
+        }
+
+        PIP3D_FORCE_INLINE bool ensure(uint16_t n) noexcept
+        {
+            if (records && capacity >= n)
+                return true;
+            ChunkBandRecord *grown = static_cast<ChunkBandRecord *>(
+                MemUtils::allocData(static_cast<size_t>(n) * sizeof(ChunkBandRecord), 4));
+            if (unlikely(!grown))
+                return false;
+            if (records)
+                MemUtils::freeData(records);
+            records = grown;
+            capacity = n;
+            return true;
         }
     };
 
@@ -69,7 +70,6 @@ namespace pip3D
               cachedWorldCenter(0.0f, 0.0f, 0.0f),
               scale(1.0f, 1.0f, 1.0f),
               rotation(0.0f, 0.0f, 0.0f, 1.0f),
-              rotationValid(true),
               shadingOverride_(-1),
               emissiveColor_(Color::WHITE),
               emissiveIntensity_(1.0f),
@@ -167,7 +167,6 @@ namespace pip3D
         void setRotation(const Quaternion &rot)
         {
             rotation = rot;
-            rotationValid = true;
             invalidateTransform();
         }
         void setEuler(float pitchDeg, float yawDeg, float rollDeg)
@@ -175,7 +174,6 @@ namespace pip3D
             rotation = Quaternion::fromEuler(pitchDeg * kDegToRad,
                                              yawDeg * kDegToRad,
                                              rollDeg * kDegToRad);
-            rotationValid = true;
             invalidateTransform();
         }
         void setScale(const Vector3 &scl)
@@ -190,22 +188,6 @@ namespace pip3D
         {
             position = pos;
             rotation = rot;
-            rotationValid = true;
-            scale = scl;
-            cachedMaxAbsScale = computeMaxAbsScale(scl);
-            invalidateTransform();
-        }
-        PIP3D_FORCE_INLINE void setTransformPRS(const Vector3 &pos,
-                                                float pitchDeg,
-                                                float yawDeg,
-                                                float rollDeg,
-                                                const Vector3 &scl)
-        {
-            position = pos;
-            rotation = Quaternion::fromEuler(pitchDeg * kDegToRad,
-                                             yawDeg * kDegToRad,
-                                             rollDeg * kDegToRad);
-            rotationValid = true;
             scale = scl;
             cachedMaxAbsScale = computeMaxAbsScale(scl);
             invalidateTransform();
@@ -222,7 +204,6 @@ namespace pip3D
             scale = Vector3(sx, sy, sz);
             cachedMaxAbsScale = fmaxf(fmaxf(sx, sy), sz);
 
-            rotationValid = false;
             cacheFlags = (cacheFlags & ~kFlagTransformDirty) | kFlagBoundsDirty;
             ++transformVersion;
         }
@@ -230,14 +211,6 @@ namespace pip3D
         PIP3D_FORCE_INLINE void setShadingOverride(ShadingMode mode)
         {
             shadingOverride_ = static_cast<int8_t>(mode);
-        }
-        PIP3D_FORCE_INLINE void clearShadingOverride()
-        {
-            shadingOverride_ = -1;
-        }
-        PIP3D_FORCE_INLINE bool hasShadingOverride() const
-        {
-            return shadingOverride_ >= 0;
         }
         PIP3D_FORCE_INLINE ShadingMode getEffectiveShadingMode(ShadingMode globalMode) const
         {
@@ -249,7 +222,6 @@ namespace pip3D
         PIP3D_FORCE_INLINE const Vector3 &pos() const { return position; }
         PIP3D_FORCE_INLINE const Vector3 &getScale() const { return scale; }
         PIP3D_FORCE_INLINE const Quaternion &getRotation() const { return rotation; }
-        PIP3D_FORCE_INLINE bool isRotationValid() const { return rotationValid; }
         PIP3D_FORCE_INLINE uint32_t version() const { return transformVersion; }
 
         PIP3D_FORCE_INLINE DrawCache &drawCache() noexcept { return drawCache_; }
@@ -277,12 +249,68 @@ namespace pip3D
             return cachedWorldRadius;
         }
 
+        PIP3D_FORCE_INLINE void setLightmap(const LMPaletteAtlas *atlas,
+                                            const LMUVQuant *meshUV,
+                                            uint16_t rectX, uint16_t rectY,
+                                            uint16_t rectW, uint16_t rectH) noexcept
+        {
+            lmAtlas_ = atlas;
+            lmUV_ = meshUV;
+            if (atlas && meshUV && rectW > 1 && rectH > 1)
+            {
+                stateFlags |= kFlagLightmapped;
+                const float invW = 1.0f / (65535.0f * static_cast<float>(atlas->width));
+                const float invH = 1.0f / (65535.0f * static_cast<float>(atlas->height));
+                lmUScale_ = static_cast<float>(rectW - 1) * invW;
+                lmUOff_ = (static_cast<float>(rectX) + 0.5f) / static_cast<float>(atlas->width);
+                lmVScale_ = static_cast<float>(rectH - 1) * invH;
+                lmVOff_ = (static_cast<float>(rectY) + 0.5f) / static_cast<float>(atlas->height);
+            }
+            else
+            {
+                stateFlags &= ~kFlagLightmapped;
+            }
+        }
+        PIP3D_FORCE_INLINE bool hasLightmap() const noexcept
+        {
+            return (stateFlags & kFlagLightmapped) != 0 && lmUV_ != nullptr && lmAtlas_ != nullptr;
+        }
+
+        PIP3D_FORCE_INLINE bool hasActiveLightmap(BakedLightMode mode) const noexcept
+        {
+            return (stateFlags & kFlagLightmapped) != 0 && mode == BakedLightMode::FINAL &&
+                   lmAtlas_ != nullptr && lmUV_ != nullptr && lmAtlas_->valid();
+        }
+        PIP3D_FORCE_INLINE const LMPaletteAtlas *lightmapAtlas() const noexcept { return lmAtlas_; }
+
+        PIP3D_FORCE_INLINE void lightmapCornerUV(uint32_t faceIdx, int k,
+                                                 float &outU, float &outV) const noexcept
+        {
+            const LMUVQuant &q = lmUV_[faceIdx * 3 + static_cast<uint32_t>(k)];
+            outU = static_cast<float>(q.u) * lmUScale_ + lmUOff_;
+            outV = static_cast<float>(q.v) * lmVScale_ + lmVOff_;
+        }
+
+        PIP3D_FORCE_INLINE void setIgnoreBakedProbes(bool e) noexcept
+        {
+            if (e)
+                stateFlags |= kFlagIgnoreProbes;
+            else
+                stateFlags &= ~kFlagIgnoreProbes;
+        }
+        PIP3D_FORCE_INLINE bool getIgnoreBakedProbes() const noexcept
+        {
+            return (stateFlags & kFlagIgnoreProbes) != 0;
+        }
+
     private:
         static constexpr uint8_t kFlagTransformDirty = 0x01;
         static constexpr uint8_t kFlagBoundsDirty = 0x02;
         static constexpr uint8_t kFlagVisible = 0x10;
         static constexpr uint8_t kFlagBlobShadow = 0x20;
         static constexpr uint8_t kFlagEmissive = 0x40;
+        static constexpr uint8_t kFlagLightmapped = 0x80;
+        static constexpr uint8_t kFlagIgnoreProbes = 0x04;
 
         Mesh *sourceMesh;
         Color instanceColor;
@@ -295,7 +323,6 @@ namespace pip3D
         mutable Vector3 cachedWorldCenter;
         Vector3 scale;
         Quaternion rotation;
-        bool rotationValid;
         mutable Matrix4x4 localTransform;
         DrawCache drawCache_;
         ChunkBandCache chunkBandCache_;
@@ -305,6 +332,11 @@ namespace pip3D
         float emissiveIntensity_;
         uint8_t emissiveShape_;
         Vector3 emissiveBoxSize_;
+
+        const LMPaletteAtlas *lmAtlas_ = nullptr;
+        const LMUVQuant *lmUV_ = nullptr;
+        float lmUScale_ = 1.0f, lmUOff_ = 0.0f;
+        float lmVScale_ = 1.0f, lmVOff_ = 0.0f;
 
         PIP3D_FORCE_INLINE void invalidateTransform()
         {

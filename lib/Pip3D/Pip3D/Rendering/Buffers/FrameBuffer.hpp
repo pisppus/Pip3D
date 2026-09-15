@@ -17,7 +17,7 @@
 
 namespace pip3D
 {
-    class alignas(16) FrameBuffer
+    class FrameBuffer
     {
     public:
         static constexpr uint16_t kWidth = SCREEN_WIDTH;
@@ -48,9 +48,9 @@ namespace pip3D
 
         DisplayConfig config;
 #if defined(PIP3D_PC)
-        bool displayReady;
+        bool displayReady = false;
 #else
-        pipcore::Display *display;
+        pipcore::Display *display = nullptr;
 #endif
 
         Skybox skybox;
@@ -90,12 +90,12 @@ namespace pip3D
             return v;
         }
 
-        __attribute__((always_inline)) inline void updateBaseClear32() noexcept
+        PIP3D_ALWAYS_INLINE inline void updateBaseClear32() noexcept
         {
             baseClear32 = (static_cast<uint32_t>(clearColor.rgb565) << 16) | static_cast<uint32_t>(clearColor.rgb565);
         }
 
-        __attribute__((always_inline)) inline void ensureSkyboxCache() noexcept
+        PIP3D_ALWAYS_INLINE inline void ensureSkyboxCache() noexcept
         {
             if (cacheValid || !useSkybox || !skybox.enabled)
                 return;
@@ -108,7 +108,7 @@ namespace pip3D
             cacheValid = true;
         }
 
-        __attribute__((always_inline)) inline bool readyForFlush() const noexcept
+        PIP3D_ALWAYS_INLINE inline bool readyForFlush() const noexcept
         {
 #if defined(PIP3D_PC)
             return displayReady;
@@ -117,8 +117,40 @@ namespace pip3D
 #endif
         }
 
+#if defined(PIP3D_PC)
+
+        PIP3D_ALWAYS_INLINE inline void
+        flushRegion(int16_t x, int16_t y, int16_t w, int16_t h,
+                    const uint16_t *region) noexcept
+        {
+            uint16_t *pixels = const_cast<uint16_t *>(region);
+            const size_t stride = static_cast<size_t>(config.width);
+
+            for (int16_t row = 0; row < h; ++row)
+            {
+                uint16_t *line = pixels + static_cast<size_t>(row) * stride;
+                for (int16_t col = 0; col < w; ++col)
+                    line[col] = __builtin_bswap16(line[col]);
+            }
+            pipcore::desktop::Runtime::instance().writeRect565(x, y, w, h, region, config.width);
+            for (int16_t row = 0; row < h; ++row)
+            {
+                uint16_t *line = pixels + static_cast<size_t>(row) * stride;
+                for (int16_t col = 0; col < w; ++col)
+                    line[col] = __builtin_bswap16(line[col]);
+            }
+        }
+#else
+        PIP3D_ALWAYS_INLINE inline void
+        flushRegion(int16_t x, int16_t y, int16_t w, int16_t h,
+                    const uint16_t *region) noexcept
+        {
+            display->writeRect565(x, y, w, h, region, config.width);
+        }
+#endif
+
         template <uint16_t WIDTH, uint16_t HEIGHT>
-        __attribute__((always_inline, hot)) PIP3D_FLATTEN inline void IRAM_ATTR
+        PIP3D_ALWAYS_INLINE_HOT PIP3D_FLATTEN inline void IRAM_ATTR
         fillBackgroundSky(float pitchShiftRows) noexcept
         {
             uint16_t *__restrict__ buf = storage[activeSlot];
@@ -172,7 +204,7 @@ namespace pip3D
         }
 
         template <uint16_t WIDTH, uint16_t HEIGHT>
-        __attribute__((always_inline, hot)) PIP3D_FLATTEN inline void IRAM_ATTR
+        PIP3D_ALWAYS_INLINE_HOT PIP3D_FLATTEN inline void IRAM_ATTR
         fillBackgroundSolid() noexcept
         {
             uint16_t *__restrict__ buf = storage[activeSlot];
@@ -212,12 +244,7 @@ namespace pip3D
               activeSlot(0),
               useSkybox(true),
               cacheValid(false),
-              config(),
-#if defined(PIP3D_PC)
-              displayReady(false)
-#else
-              display(nullptr)
-#endif
+              config()
         {
             skybox.setPreset(DAY);
         }
@@ -226,15 +253,8 @@ namespace pip3D
         FrameBuffer(const FrameBuffer &) = delete;
         FrameBuffer &operator=(const FrameBuffer &) = delete;
 
-        bool init(const DisplayConfig &cfg
 #if defined(PIP3D_PC)
-                  ,
-                  bool pcReady
-#else
-                  ,
-                  pipcore::Display *disp
-#endif
-                  ) noexcept
+        bool init(const DisplayConfig &cfg, bool pcReady) noexcept
         {
             if (cfg.width != kWidth || cfg.height != kHeight)
             {
@@ -244,57 +264,69 @@ namespace pip3D
                      (unsigned)kWidth, (unsigned)kHeight);
                 return false;
             }
-
             config = cfg;
-#if defined(PIP3D_PC)
             displayReady = pcReady;
-#else
-            display = disp;
-#endif
-
             updateBaseClear32();
             ensureSkyboxCache();
             return true;
         }
+#else
+        bool init(const DisplayConfig &cfg, pipcore::Display *disp) noexcept
+        {
+            if (cfg.width != kWidth || cfg.height != kHeight)
+            {
+                LOGE(::pip3D::Debug::LOG_MODULE_RENDER,
+                     "FB init: cfg %ux%u != static %ux%u",
+                     (unsigned)cfg.width, (unsigned)cfg.height,
+                     (unsigned)kWidth, (unsigned)kHeight);
+                return false;
+            }
+            config = cfg;
+            display = disp;
+            updateBaseClear32();
+            ensureSkyboxCache();
+            return true;
+        }
+#endif
 
-        __attribute__((always_inline)) inline uint16_t *getBuffer() noexcept
+        PIP3D_ALWAYS_INLINE inline uint16_t *getBuffer() noexcept
         {
             return storage[activeSlot];
         }
 
-        __attribute__((always_inline)) inline const uint16_t *getBuffer() const noexcept
+        PIP3D_ALWAYS_INLINE inline const uint16_t *getBuffer() const noexcept
         {
             return storage[activeSlot];
         }
 
-        __attribute__((always_inline)) inline uint16_t *getStagingBufferForFlush() noexcept
+        PIP3D_ALWAYS_INLINE inline uint16_t *getStagingBufferForFlush() noexcept
         {
             return storage[activeSlot];
         }
 
-        __attribute__((always_inline)) inline void swapStagingSlot() noexcept
+        PIP3D_ALWAYS_INLINE inline void swapStagingSlot() noexcept
         {
             activeSlot ^= 1u;
         }
 
-        __attribute__((always_inline)) inline uint8_t getActiveSlot() const noexcept
+        PIP3D_ALWAYS_INLINE inline uint8_t getActiveSlot() const noexcept
         {
             return activeSlot;
         }
 
-        __attribute__((always_inline)) inline const DisplayConfig &getConfig() const noexcept
+        PIP3D_ALWAYS_INLINE inline const DisplayConfig &getConfig() const noexcept
         {
             return config;
         }
 
-        __attribute__((always_inline)) inline Skybox &getSkybox() noexcept { return skybox; }
+        PIP3D_ALWAYS_INLINE inline Skybox &getSkybox() noexcept { return skybox; }
 
-        __attribute__((always_inline)) inline bool isSkyboxEnabled() const noexcept
+        PIP3D_ALWAYS_INLINE inline bool isSkyboxEnabled() const noexcept
         {
             return useSkybox;
         }
 
-        __attribute__((always_inline)) inline void setSkyboxEnabled(bool enabled) noexcept
+        PIP3D_ALWAYS_INLINE inline void setSkyboxEnabled(bool enabled) noexcept
         {
             if (useSkybox != enabled)
             {
@@ -303,34 +335,34 @@ namespace pip3D
             }
         }
 
-        __attribute__((always_inline)) inline void setSkyboxType(SkyboxType type) noexcept
+        PIP3D_ALWAYS_INLINE inline void setSkyboxType(SkyboxType type) noexcept
         {
             skybox.setPreset(type);
             cacheValid = false;
         }
 
-        __attribute__((always_inline)) inline void invalidateSkyboxCache() noexcept
+        PIP3D_ALWAYS_INLINE inline void invalidateSkyboxCache() noexcept
         {
             cacheValid = false;
         }
 
-        __attribute__((always_inline)) inline void setClearColor(Color color) noexcept
+        PIP3D_ALWAYS_INLINE inline void setClearColor(Color color) noexcept
         {
             clearColor = color;
             updateBaseClear32();
         }
 
-        __attribute__((always_inline)) inline CloudLayer &getClouds() noexcept { return clouds; }
-        __attribute__((always_inline)) inline bool areCloudsEnabled() const noexcept { return clouds.isReady(); }
-        __attribute__((always_inline)) inline void setCloudsEnabled(bool e) noexcept { clouds.setEnabled(e); }
-        __attribute__((always_inline)) inline void setCloudColor(Color c) noexcept { clouds.setCloudColor(c); }
-        __attribute__((always_inline)) inline void setCloudAlpha(float a) noexcept { clouds.setCloudAlpha(a); }
-        __attribute__((always_inline)) inline void setCloudHeight(float m) noexcept { clouds.setCloudHeight(m); }
-        __attribute__((always_inline)) inline void setCloudScale(float m) noexcept { clouds.setCloudScale(m); }
-        __attribute__((always_inline)) inline void setCloudDriftAngle(float angleDeg, float speedMps) noexcept { clouds.setDriftAngle(angleDeg, speedMps); }
-        __attribute__((always_inline)) inline void updateClouds(float dt) noexcept { clouds.update(dt); }
+        PIP3D_ALWAYS_INLINE inline CloudLayer &getClouds() noexcept { return clouds; }
+        PIP3D_ALWAYS_INLINE inline bool areCloudsEnabled() const noexcept { return clouds.isReady(); }
+        PIP3D_ALWAYS_INLINE inline void setCloudsEnabled(bool e) noexcept { clouds.setEnabled(e); }
+        PIP3D_ALWAYS_INLINE inline void setCloudColor(Color c) noexcept { clouds.setCloudColor(c); }
+        PIP3D_ALWAYS_INLINE inline void setCloudAlpha(float a) noexcept { clouds.setCloudAlpha(a); }
+        PIP3D_ALWAYS_INLINE inline void setCloudHeight(float m) noexcept { clouds.setCloudHeight(m); }
+        PIP3D_ALWAYS_INLINE inline void setCloudScale(float m) noexcept { clouds.setCloudScale(m); }
+        PIP3D_ALWAYS_INLINE inline void setCloudDriftAngle(float angleDeg, float speedMps) noexcept { clouds.setDriftAngle(angleDeg, speedMps); }
+        PIP3D_ALWAYS_INLINE inline void updateClouds(float dt) noexcept { clouds.update(dt); }
 
-        __attribute__((always_inline)) inline void
+        PIP3D_ALWAYS_INLINE inline void
         generateClouds(uint32_t seed, float coverage) noexcept
         {
             (void)seed;
@@ -339,7 +371,7 @@ namespace pip3D
         }
 
         template <uint16_t WIDTH, uint16_t HEIGHT>
-        __attribute__((always_inline, hot)) inline void
+        PIP3D_ALWAYS_INLINE_HOT inline void
         drawClouds(const Vector3 &camPos,
                    const Vector3 &fwd, const Vector3 &right, const Vector3 &up,
                    float vfovRad, float hfovRad) noexcept
@@ -349,7 +381,7 @@ namespace pip3D
         }
 
         template <uint16_t WIDTH, uint16_t HEIGHT>
-        __attribute__((always_inline, hot)) inline void
+        PIP3D_ALWAYS_INLINE_HOT inline void
         drawCloudsZTested(const Vector3 &camPos,
                           const Vector3 &fwd, const Vector3 &right, const Vector3 &up,
                           float vfovRad, float hfovRad,
@@ -361,7 +393,7 @@ namespace pip3D
                                                     vfovRad, hfovRad);
         }
 
-        __attribute__((always_inline)) inline void
+        PIP3D_ALWAYS_INLINE inline void
         endFrameRegion(int16_t x, int16_t y, int16_t w, int16_t h) noexcept
         {
             if (unlikely(!readyForFlush()))
@@ -398,28 +430,11 @@ namespace pip3D
             const int16_t clippedH = static_cast<int16_t>(y1 - y0);
             const uint16_t *region = getBuffer() + static_cast<size_t>(localY) * config.width + static_cast<size_t>(x0);
 
-#if defined(PIP3D_PC)
-            for (int16_t row = 0; row < clippedH; ++row)
-            {
-                uint16_t *line = const_cast<uint16_t *>(region) + static_cast<size_t>(row) * config.width;
-                for (int16_t col = 0; col < clippedW; ++col)
-                    line[col] = __builtin_bswap16(line[col]);
-            }
-            pipcore::desktop::Runtime::instance().writeRect565(
-                x0, y0, clippedW, clippedH, region, config.width);
-            for (int16_t row = 0; row < clippedH; ++row)
-            {
-                uint16_t *line = const_cast<uint16_t *>(region) + static_cast<size_t>(row) * config.width;
-                for (int16_t col = 0; col < clippedW; ++col)
-                    line[col] = __builtin_bswap16(line[col]);
-            }
-#else
-            display->writeRect565(x0, y0, clippedW, clippedH, region, config.width);
-#endif
+            flushRegion(x0, y0, clippedW, clippedH, region);
         }
 
         template <uint16_t WIDTH, uint16_t HEIGHT>
-        __attribute__((always_inline, hot)) PIP3D_FLATTEN inline void IRAM_ATTR
+        PIP3D_ALWAYS_INLINE_HOT PIP3D_FLATTEN inline void IRAM_ATTR
         fillBackground(float pitchShiftRows) noexcept
         {
             if (useSkybox && skybox.enabled)

@@ -32,7 +32,7 @@ namespace pip3D
             uint8_t baseAlpha;
         };
 
-        __attribute__((hot)) inline void fillBlobHalf(
+        PIP3D_HOT inline void fillBlobHalf(
             float xa0, float ya0,
             float xa1, float ya1,
             float xb0, float yb0,
@@ -173,7 +173,7 @@ namespace pip3D
             }
         }
 
-        __attribute__((hot)) inline bool fillTriangleBlob(
+        PIP3D_HOT inline bool fillTriangleBlob(
             int16_t x0, int16_t y0, float z0,
             int16_t x1, int16_t y1, float z1,
             int16_t x2, int16_t y2, float z2,

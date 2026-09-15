@@ -286,6 +286,10 @@ namespace pip3D
         }
 
         Rasterizer::g_fogState.enabled = fogEnabled;
+        Rasterizer::BakedLightState &bs = Rasterizer::g_bakedState;
+        bs.mode = static_cast<uint8_t>(bakedLightMode_);
+        bs.lmSampling = static_cast<uint8_t>(lmSampling_);
+        bs.probes = bakedProbes_.valid() ? &bakedProbes_ : nullptr;
 
         {
             const Camera &cam = cameras[activeCameraIndex];
@@ -354,7 +358,6 @@ namespace pip3D
         int16_t bandTop = static_cast<int16_t>(bandIndex * BAND_HEIGHT);
         g_bandOffsetY = bandTop;
         g_bandHeight = BAND_HEIGHT;
-
         zBuffer.clear();
 
 #if PIP3D_ENABLE_GIZMOS
@@ -421,7 +424,11 @@ namespace pip3D
             job.w = fbCfg.width;
             job.h = fbCfg.height;
             job.stridePixels = fbCfg.width;
+#if !defined(PIP3D_PC)
             job.doneSem = flushSlotSem[slot];
+#else
+            job.doneSem = nullptr;
+#endif
 
             if (JobSystem::submit(&Renderer::flushJobFunc, &job))
             {
@@ -430,8 +437,10 @@ namespace pip3D
             else
             {
                 framebuffer.endFrameRegion(0, bandY, fbCfg.width, fbCfg.height);
+#if !defined(PIP3D_PC)
                 if (flushSlotSem[slot])
                     xSemaphoreGive(flushSlotSem[slot]);
+#endif
             }
         }
         else
@@ -657,6 +666,8 @@ namespace pip3D
             if (!mesh)
                 continue;
 
+            if (inst->hasActiveLightmap(bakedLightMode_))
+                continue;
             if (inst->getBlobShadow())
             {
                 drawBlobShadow(inst->pos(), inst->radius(), blobOpacity);

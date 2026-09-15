@@ -8,13 +8,9 @@
 #include "Rendering/Lighting/Lighting.hpp"
 #include <algorithm>
 
-#ifndef IRAM_ATTR
-#define IRAM_ATTR
-#endif
-
 namespace pip3D
 {
-    __attribute__((always_inline)) inline void IRAM_ATTR applyDeferred3DLighting(
+    PIP3D_ALWAYS_INLINE inline void IRAM_ATTR applyDeferred3DLighting(
         uint16_t *frameBuffer,
         ZBuffer *zBuffer,
         const Light *pointLights,

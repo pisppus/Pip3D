@@ -43,7 +43,7 @@ namespace pip3D
             int16_t offsetY;
         };
 
-        __attribute__((always_inline)) static inline uint16_t blendScalar(uint16_t dst, const PlanarBlend &bl)
+        PIP3D_ALWAYS_INLINE static inline uint16_t blendScalar(uint16_t dst, const PlanarBlend &bl)
         {
             const uint32_t rb = dst & 0xF81F;
             const uint32_t g = dst & 0x07E0;
@@ -52,7 +52,7 @@ namespace pip3D
             return static_cast<uint16_t>(blended_rb | blended_g);
         }
 
-        __attribute__((always_inline)) static inline void shadeScalar(
+        PIP3D_ALWAYS_INLINE static inline void shadeScalar(
             uint16_t &stored, int32_t depth_fixed,
             uint16_t &fbPix, const PlanarBlend &bl)
         {
@@ -65,7 +65,7 @@ namespace pip3D
             }
         }
 
-        __attribute__((hot)) inline void fillPlanarHalf(
+        PIP3D_HOT inline void fillPlanarHalf(
             float xa0, float ya0,
             float xa1, float ya1,
             float xb0, float yb0,
@@ -252,16 +252,16 @@ namespace pip3D
             }
         }
 
-        __attribute__((hot)) inline bool fillPlanarShadowTriangle(float x0, float y0, float z0,
-                                                                  float x1, float y1, float z1,
-                                                                  float x2, float y2, float z2,
-                                                                  uint16_t shadowColor,
-                                                                  uint8_t alpha,
-                                                                  uint16_t *frameBuffer,
-                                                                  ZBuffer *zBuffer,
-                                                                  const DisplayConfig &config,
-                                                                  bool softEdges = true,
-                                                                  int16_t offsetY = 0)
+        PIP3D_HOT inline bool fillPlanarShadowTriangle(float x0, float y0, float z0,
+                                                       float x1, float y1, float z1,
+                                                       float x2, float y2, float z2,
+                                                       uint16_t shadowColor,
+                                                       uint8_t alpha,
+                                                       uint16_t *frameBuffer,
+                                                       ZBuffer *zBuffer,
+                                                       const DisplayConfig &config,
+                                                       bool softEdges = true,
+                                                       int16_t offsetY = 0)
         {
             const int16_t width = config.width;
             const int16_t height = config.height;

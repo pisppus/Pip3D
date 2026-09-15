@@ -45,25 +45,98 @@ namespace pip3D
 
             void encodeProbes(ProbeBake &out)
             {
-                Vector3 sumCol(0.0f, 0.0f, 0.0f);
-                float sumLuma = 0.0f, maxLuma = 0.0f;
+                float maxLuma = 0.0f;
+                for (size_t i = 0; i < out.lumaBuf.size(); ++i)
+                    maxLuma = std::fmax(maxLuma, out.lumaBuf[i]);
+                const float kStatic = std::fmax(0.05f, maxLuma);
+                struct Chroma
+                {
+                    float r, g, b;
+                };
+                std::vector<Chroma> pts;
+                pts.reserve(out.lumaBuf.size());
                 for (size_t i = 0; i < out.lumaBuf.size(); ++i)
                 {
                     const float l = out.lumaBuf[i];
-                    if (l > 1e-6f)
+                    if (l > 1e-5f)
                     {
-                        sumCol = sumCol + Vector3(out.colBuf[i * 3 + 0],
-                                                  out.colBuf[i * 3 + 1],
-                                                  out.colBuf[i * 3 + 2]);
-                        sumLuma += l;
+                        const float inv = 1.0f / l;
+                        pts.push_back({out.colBuf[i * 3 + 0] * inv,
+                                       out.colBuf[i * 3 + 1] * inv,
+                                       out.colBuf[i * 3 + 2] * inv});
                     }
-                    if (l > maxLuma)
-                        maxLuma = l;
                 }
-                const float kStatic = std::fmax(0.05f, maxLuma);
-                out.staticScale = kStatic;
-                if (sumLuma > 1e-5f)
-                    out.staticTint = sumCol * (1.0f / sumLuma);
+
+                Vector3 cent[4];
+                uint32_t centCount = 0;
+                if (pts.empty())
+                {
+                    cent[0] = Vector3(1.0f, 1.0f, 1.0f);
+                    centCount = 1;
+                }
+                else
+                {
+                    cent[0] = Vector3(0.0f, 0.0f, 0.0f);
+                    for (const Chroma &c : pts)
+                        cent[0] = cent[0] + Vector3(c.r, c.g, c.b);
+                    cent[0] = cent[0] * (1.0f / static_cast<float>(pts.size()));
+                    centCount = 1;
+                    for (uint32_t m = 1; m < 4 && pts.size() > m; ++m)
+                    {
+                        float bestD = -1.0f;
+                        size_t bestI = 0;
+                        for (size_t i = 0; i < pts.size(); ++i)
+                        {
+                            float dmin = 1e30f;
+                            for (uint32_t k = 0; k < m; ++k)
+                            {
+                                const float dx = pts[i].r - cent[k].x;
+                                const float dy = pts[i].g - cent[k].y;
+                                const float dz = pts[i].b - cent[k].z;
+                                const float d = dx * dx + dy * dy + dz * dz;
+                                if (d < dmin)
+                                    dmin = d;
+                            }
+                            if (dmin > bestD)
+                            {
+                                bestD = dmin;
+                                bestI = i;
+                            }
+                        }
+                        cent[m] = Vector3(pts[bestI].r, pts[bestI].g, pts[bestI].b);
+                        ++centCount;
+                    }
+                    for (uint32_t it = 0; it < 6; ++it)
+                    {
+                        Vector3 sum[4];
+                        float cnt[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+                        for (size_t i = 0; i < pts.size(); ++i)
+                        {
+                            uint32_t bk = 0;
+                            float bd = 1e30f;
+                            for (uint32_t k = 0; k < centCount; ++k)
+                            {
+                                const float dx = pts[i].r - cent[k].x;
+                                const float dy = pts[i].g - cent[k].y;
+                                const float dz = pts[i].b - cent[k].z;
+                                const float d = dx * dx + dy * dy + dz * dz;
+                                if (d < bd)
+                                {
+                                    bd = d;
+                                    bk = k;
+                                }
+                            }
+                            sum[bk] = sum[bk] + Vector3(pts[i].r, pts[i].g, pts[i].b);
+                            cnt[bk] += 1.0f;
+                        }
+                        for (uint32_t k = 0; k < centCount; ++k)
+                            if (cnt[k] > 0.0f)
+                                cent[k] = sum[k] * (1.0f / cnt[k]);
+                    }
+                }
+
+                for (uint32_t k = 0; k < 4; ++k)
+                    out.tint[k] = cent[k % centCount] * kStatic;
 
                 const Noise::BlueNoise &bn = Noise::blueNoise();
                 const uint32_t dx = out.dx, dy = out.dy;
@@ -75,9 +148,33 @@ namespace pip3D
                     const uint32_t z = static_cast<uint32_t>(i / dxy);
                     const int32_t bx = static_cast<int32_t>(x & 63);
                     const int32_t by = static_cast<int32_t>((y ^ (z * 17u)) & 63);
-                    const float v = std::fmax(0.0f, std::fmin(1.0f, out.lumaBuf[i] / kStatic));
-                    const uint32_t b5 = Noise::quantDither(v, 32.0f, bn.at(bx, by));
-                    out.probes[i] = static_cast<uint16_t>(out.probes[i] | b5);
+
+                    uint32_t ti = 0;
+                    const float l = out.lumaBuf[i];
+                    if (!pts.empty())
+                    {
+                        const float il = 1.0f / std::fmax(l, 1e-5f);
+                        const float cr = out.colBuf[i * 3 + 0] * il;
+                        const float cg = out.colBuf[i * 3 + 1] * il;
+                        const float cb = out.colBuf[i * 3 + 2] * il;
+                        float bd = 1e30f;
+                        for (uint32_t k = 0; k < centCount; ++k)
+                        {
+                            const float dx = cr - cent[k].x;
+                            const float dy = cg - cent[k].y;
+                            const float dz = cb - cent[k].z;
+                            const float d = dx * dx + dy * dy + dz * dz;
+                            if (d < bd)
+                            {
+                                bd = d;
+                                ti = k;
+                            }
+                        }
+                    }
+
+                    const float lv = std::fmax(0.0f, std::fmin(1.0f, l / kStatic));
+                    const uint32_t l4 = Noise::quantDither(lv, 16.0f, bn.at(bx, by));
+                    out.probes[i] = static_cast<uint16_t>(out.probes[i] | (l4 << 2) | ti);
                 }
             }
         }
@@ -170,6 +267,7 @@ namespace pip3D
             parallelFor(dz, threads, [&](uint32_t z0, uint32_t z1)
                         {
                 uint32_t rng = Noise::pcg3d(z0, 0xBEEFu, 12345u);
+                const Noise::BlueNoise &bn = Noise::blueNoise();
                 uint64_t localAdv = 0;
                 for (uint32_t z = z0; z < z1; ++z)
                 {
@@ -296,10 +394,13 @@ namespace pip3D
                             const float luma = Noise::lum709(staticCol.x, staticCol.y, staticCol.z);
                             const float rTotal = std::fmin(1.0f, sunVis + giSun * pc.giGain);
                             const float gTotal = std::fmin(1.0f, skyAO + giSky * pc.giGain);
-                            const uint32_t r5 = static_cast<uint32_t>(rTotal * 31.0f + 0.5f);
-                            const uint32_t g6 = static_cast<uint32_t>(gTotal * 63.0f + 0.5f);
+                            const int32_t nbx = static_cast<int32_t>(x & 63);
+                            const int32_t nby = static_cast<int32_t>((y ^ (z * 17u)) & 63);
+                            const uint32_t r5 = Noise::quantDither(rTotal, 32.0f, bn.at(nbx, nby));
+                            const uint32_t g5 = Noise::quantDither(gTotal, 32.0f, bn.at(nbx, nby));
                             const size_t idx = (static_cast<size_t>(z) * out.dy + y) * out.dx + x;
-                            out.probes[idx] = static_cast<uint16_t>((r5 << 11) | (g6 << 5));
+                            
+                            out.probes[idx] = static_cast<uint16_t>((r5 << 11) | (g5 << 6));
                             out.lumaBuf[idx] = luma;
                             out.colBuf[idx * 3 + 0] = staticCol.x;
                             out.colBuf[idx * 3 + 1] = staticCol.y;
@@ -338,7 +439,7 @@ namespace pip3D
                                 continue;
                             }
                             const uint16_t c = out.probes[idx];
-                            const float sky = static_cast<float>((c >> 5) & 0x3F) * (1.0f / 63.0f);
+                            const float sky = static_cast<float>((c >> 6) & 0x1F) * (1.0f / 31.0f);
                             const float sun = static_cast<float>((c >> 11) & 0x1F) * (1.0f / 31.0f);
                             if (sky > ProbeTrace::kSkyOpenThreshold || sun > ProbeTrace::kSunOpenThreshold)
                                 continue;

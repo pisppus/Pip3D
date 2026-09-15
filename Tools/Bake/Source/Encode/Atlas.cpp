@@ -51,6 +51,46 @@ namespace pip3D
             }
 
         }
+
+        struct ScaledPaletteBytes
+        {
+            std::vector<uint8_t> pal16R, pal16G, pal16B;
+            std::vector<uint8_t> pal8R, pal8G, pal8B;
+            std::vector<uint8_t> rampC;
+            std::vector<uint8_t> pal32R, pal32G, pal32B;
+        };
+
+        void buildScaledPalettes(const BakeAtlas &atlas, ScaledPaletteBytes &out)
+        {
+            auto pushPal = [](std::vector<uint8_t> &r, std::vector<uint8_t> &g,
+                              std::vector<uint8_t> &b, const std::vector<uint16_t> &pal)
+            {
+                r.clear();
+                g.clear();
+                b.clear();
+                r.reserve(pal.size());
+                g.reserve(pal.size());
+                b.reserve(pal.size());
+                for (uint16_t c : pal)
+                {
+                    r.push_back(static_cast<uint8_t>(lmScale5((c >> 11) & 0x1Fu)));
+                    g.push_back(static_cast<uint8_t>(lmScale6((c >> 5) & 0x3Fu)));
+                    b.push_back(static_cast<uint8_t>(lmScale5(c & 0x1Fu)));
+                }
+            };
+            pushPal(out.pal16R, out.pal16G, out.pal16B, atlas.palettes);
+            pushPal(out.pal8R, out.pal8G, out.pal8B, atlas.palettes8);
+            pushPal(out.pal32R, out.pal32G, out.pal32B, atlas.palettes32);
+            out.rampC.clear();
+            out.rampC.reserve(atlas.ramp.size() * 3);
+            for (uint16_t c : atlas.ramp)
+            {
+                out.rampC.push_back(static_cast<uint8_t>((c >> 11) & 0x1F));
+                out.rampC.push_back(static_cast<uint8_t>((c >> 5) & 0x3F));
+                out.rampC.push_back(static_cast<uint8_t>(c & 0x1F));
+            }
+        }
+
         uint16_t decodeAtlasTexel(const BakeAtlas &atlas, uint32_t x, uint32_t y)
         {
             const uint32_t block = (y >> 3) * atlas.wBlocks + (x >> 3);
@@ -529,11 +569,11 @@ namespace pip3D
 
             const bool sparse = !atlas.dir.empty();
             const size_t atlasBytes =
-                atlas.palettes.size() * 2 + atlas.indices.size() +
-                atlas.palettes8.size() * 2 + atlas.indices8.size() +
-                atlas.ramp.size() * 2 + atlas.rampIdx.size() +
-                atlas.palettes32.size() * 2 + atlas.indices32.size() +
-                (sparse ? (atlas.uniformCol.size() * 2 + atlas.dir.size() * 2) : 0);
+                atlas.palettes.size() * 3 + atlas.indices.size() +
+                atlas.palettes8.size() * 3 + atlas.indices8.size() +
+                atlas.ramp.size() * 3 + atlas.rampIdx.size() +
+                atlas.palettes32.size() * 3 + atlas.indices32.size() +
+                (sparse ? atlas.dir.size() * 4 : 0);
             size_t uv2Bytes = 0;
             for (const auto &kv : meshCache)
                 uv2Bytes += kv.second.uv2Mesh.size() * sizeof(LMUVQuant);
@@ -559,7 +599,7 @@ namespace pip3D
                << " * Generated automatically by Tools/Bake. Do not edit.\n"
                << " *\n"
                << " * Source          : " << sceneName << "\n"
-               << " * Mode            : " << (mode == BakedLightMode::FINAL ? "FINAL" : "FACTORED") << "\n"
+               << " * Mode            : FINAL\n"
                << " * Atlas           : " << atlas.w << "x" << atlas.h << " (" << (atlasBytes / 1024.0) << " KB, "
                << (sparse ? "sparse" : "dense") << ", " << f6(fillPercent) << "% fill)\n"
                << " * Blocks          : uni/ramp/p8/p16/p32 " << atlas.uniformTiles << "/" << atlas.rampTiles << "/"
@@ -575,15 +615,36 @@ namespace pip3D
                << "    namespace Baked" << sceneName << "\n    {\n"
                << "        namespace detail\n        {\n";
 
-            os << "        alignas(16) static constexpr uint16_t lm_pal[] = {\n";
-            for (size_t i = 0; i < atlas.palettes.size(); i += 10)
+            ScaledPaletteBytes scaled;
+            buildScaledPalettes(atlas, scaled);
+            auto emitBytes = [&os](const char *name, const std::vector<uint8_t> &data)
             {
-                os << "            ";
-                for (size_t k = i; k < i + 10 && k < atlas.palettes.size(); ++k)
-                    os << hex4(atlas.palettes[k]) << ", ";
-                os << "\n";
-            }
-            os << "        };\n\n";
+                os << "        alignas(16) static constexpr uint8_t " << name << "[] = {\n";
+                for (size_t i = 0; i < data.size(); i += 16)
+                {
+                    os << "            ";
+                    for (size_t k = i; k < i + 16 && k < data.size(); ++k)
+                        os << hex2(data[k]) << ", ";
+                    os << "\n";
+                }
+                os << "        };\n\n";
+            };
+
+            auto emitInterleaved = [&os](const char *name, const std::vector<uint8_t> &r,
+                                         const std::vector<uint8_t> &g, const std::vector<uint8_t> &b)
+            {
+                os << "        alignas(16) static constexpr uint8_t " << name << "[] = {\n";
+                for (size_t i = 0; i < r.size(); i += 12)
+                {
+                    os << "            ";
+                    for (size_t k = i; k < i + 12 && k < r.size(); ++k)
+                        os << hex2(r[k]) << ", " << hex2(g[k]) << ", " << hex2(b[k]) << ", ";
+                    os << "\n";
+                }
+                os << "        };\n\n";
+            };
+
+            emitInterleaved("lm_pal16", scaled.pal16R, scaled.pal16G, scaled.pal16B);
 
             os << "        alignas(16) static constexpr uint8_t lm_idx[] = {\n";
             for (size_t i = 0; i < atlas.indices.size(); i += 16)
@@ -597,27 +658,41 @@ namespace pip3D
 
             if (sparse)
             {
-                os << "        alignas(16) static constexpr uint16_t lm_uni[] = {\n";
-                for (size_t i = 0; i < atlas.uniformCol.size(); i += 12)
+
+                os << "        alignas(16) static constexpr uint32_t lm_meta[] = {\n";
+                for (size_t i = 0; i < atlas.dir.size(); i += 8)
                 {
                     os << "            ";
-                    for (size_t k = i; k < i + 12 && k < atlas.uniformCol.size(); ++k)
-                        os << hex4(atlas.uniformCol[k]) << ", ";
+                    for (size_t k = i; k < i + 8 && k < atlas.dir.size(); ++k)
+                    {
+                        const uint16_t d = atlas.dir[k];
+
+                        uint32_t flags = 0u, payload = d & 0x3FFFu;
+                        if ((d & 0xC000u) == 0x8000u)
+                        {
+                            flags = 0x8000u;
+                            payload = atlas.uniformCol[d & 0x3FFFu];
+                        }
+                        else if ((d & 0xC000u) == 0xC000u)
+                            flags = 0xC000u;
+                        else if (d & 0x4000u)
+                            flags = 0x4000u;
+                        else if (d & 0x2000u)
+                        {
+
+                            flags = 0x2000u;
+                            payload = d & 0x1FFFu;
+                        }
+                        os << "0x" << std::hex << ((flags << 16) | payload)
+                           << std::dec << "u, ";
+                    }
                     os << "\n";
                 }
                 os << "        };\n\n";
 
                 if (!atlas.palettes8.empty())
                 {
-                    os << "        alignas(16) static constexpr uint16_t lm_pal8[] = {\n";
-                    for (size_t i = 0; i < atlas.palettes8.size(); i += 8)
-                    {
-                        os << "            ";
-                        for (size_t k = i; k < i + 8 && k < atlas.palettes8.size(); ++k)
-                            os << hex4(atlas.palettes8[k]) << ", ";
-                        os << "\n";
-                    }
-                    os << "        };\n\n";
+                    emitInterleaved("lm_pal8", scaled.pal8R, scaled.pal8G, scaled.pal8B);
 
                     os << "        alignas(16) static constexpr uint8_t lm_idx8[] = {\n";
                     for (size_t i = 0; i < atlas.indices8.size(); i += 24)
@@ -632,15 +707,7 @@ namespace pip3D
 
                 if (!atlas.ramp.empty())
                 {
-                    os << "        alignas(16) static constexpr uint16_t lm_ramp[] = {\n";
-                    for (size_t i = 0; i < atlas.ramp.size(); i += 10)
-                    {
-                        os << "            ";
-                        for (size_t k = i; k < i + 10 && k < atlas.ramp.size(); ++k)
-                            os << hex4(atlas.ramp[k]) << ", ";
-                        os << "\n";
-                    }
-                    os << "        };\n\n";
+                    emitBytes("lm_rampC", scaled.rampC);
 
                     os << "        alignas(16) static constexpr uint8_t lm_ridx[] = {\n";
                     for (size_t i = 0; i < atlas.rampIdx.size(); i += 16)
@@ -655,15 +722,7 @@ namespace pip3D
 
                 if (!atlas.palettes32.empty())
                 {
-                    os << "        alignas(16) static constexpr uint16_t lm_pal32[] = {\n";
-                    for (size_t i = 0; i < atlas.palettes32.size(); i += 10)
-                    {
-                        os << "            ";
-                        for (size_t k = i; k < i + 10 && k < atlas.palettes32.size(); ++k)
-                            os << hex4(atlas.palettes32[k]) << ", ";
-                        os << "\n";
-                    }
-                    os << "        };\n\n";
+                    emitInterleaved("lm_pal32", scaled.pal32R, scaled.pal32G, scaled.pal32B);
 
                     os << "        alignas(16) static constexpr uint8_t lm_idx32[] = {\n";
                     for (size_t i = 0; i < atlas.indices32.size(); i += 20)
@@ -724,35 +783,29 @@ namespace pip3D
 
             if (sparse)
             {
-                const char *pal8Init = atlas.palettes8.empty() ? "nullptr, nullptr"
-                                                               : "detail::lm_pal8, detail::lm_idx8";
-                const char *rampInit = atlas.ramp.empty() ? "nullptr, nullptr"
-                                                          : "detail::lm_ramp, detail::lm_ridx";
-                const char *pal32Init = atlas.palettes32.empty() ? "nullptr, nullptr"
-                                                                 : "detail::lm_pal32, detail::lm_idx32";
                 os << "        static constexpr LMPaletteAtlas lm_atlas = {\n"
-                   << "            detail::lm_pal, detail::lm_idx,\n"
+                   << "            detail::lm_pal16, detail::lm_idx,\n"
                    << "            " << atlas.w << ", " << atlas.h << ",\n"
-                   << "            " << atlas.wBlocks << ", " << atlas.hBlocks << ",\n"
-                   << "            detail::lm_uni, detail::lm_dir,\n"
-                   << "            " << pal8Init << ",\n"
-                   << "            " << rampInit << ",\n"
-                   << "            " << pal32Init << "\n"
+                   << "            " << atlas.wBlocks << ",\n"
+                   << "            detail::lm_meta,\n"
+                   << "            " << (atlas.palettes8.empty() ? "nullptr, nullptr" : "detail::lm_pal8, detail::lm_idx8") << ",\n"
+                   << "            " << (atlas.ramp.empty() ? "nullptr, nullptr" : "detail::lm_rampC, detail::lm_ridx") << ",\n"
+                   << "            " << (atlas.palettes32.empty() ? "nullptr, nullptr" : "detail::lm_pal32, detail::lm_idx32") << "\n"
                    << "        };\n\n";
             }
             else
             {
                 os << "        static constexpr LMPaletteAtlas lm_atlas = {\n"
-                   << "            detail::lm_pal, detail::lm_idx,\n"
+                   << "            detail::lm_pal16, detail::lm_idx,\n"
                    << "            " << atlas.w << ", " << atlas.h << ",\n"
-                   << "            " << atlas.wBlocks << ", " << atlas.hBlocks << "\n"
+                   << "            " << atlas.wBlocks << ",\n"
+                   << "            nullptr\n"
                    << "        };\n\n";
             }
 
             os << "        inline void apply(Renderer &r, std::vector<MeshInstance *> &insts)\n"
                << "        {\n"
-               << "            r.setBakedLightMode(BakedLightMode::"
-               << (mode == BakedLightMode::FINAL ? "FINAL" : "FACTORED") << ");\n";
+               << "            r.setBakedLightMode(BakedLightMode::FINAL);\n";
 
             for (size_t i = 0; i < bakes.size(); ++i)
             {
@@ -777,8 +830,10 @@ namespace pip3D
                    << "            s_probes.dimY = " << probes.dy << ";\n"
                    << "            s_probes.dimZ = " << probes.dz << ";\n"
                    << "            s_probes.probes = detail::probe_data;\n"
-                   << "            s_probes.staticTint = Vector3(" << f6(probes.staticTint.x) << "f, " << f6(probes.staticTint.y) << "f, " << f6(probes.staticTint.z) << "f);\n"
-                   << "            s_probes.staticScale = " << f6(probes.staticScale) << "f;\n"
+                   << "            s_probes.tint[0] = Vector3(" << f6(probes.tint[0].x) << "f, " << f6(probes.tint[0].y) << "f, " << f6(probes.tint[0].z) << "f);\n"
+                   << "            s_probes.tint[1] = Vector3(" << f6(probes.tint[1].x) << "f, " << f6(probes.tint[1].y) << "f, " << f6(probes.tint[1].z) << "f);\n"
+                   << "            s_probes.tint[2] = Vector3(" << f6(probes.tint[2].x) << "f, " << f6(probes.tint[2].y) << "f, " << f6(probes.tint[2].z) << "f);\n"
+                   << "            s_probes.tint[3] = Vector3(" << f6(probes.tint[3].x) << "f, " << f6(probes.tint[3].y) << "f, " << f6(probes.tint[3].z) << "f);\n"
                    << "            r.setBakedProbeGrid(s_probes);\n";
             }
 
@@ -802,19 +857,57 @@ namespace pip3D
             r.setBakedLightMode(mode);
 
             static LMPaletteAtlas atlasPal;
-            atlasPal.palettes = atlas.palettes.data();
-            atlasPal.indices = atlas.indices.data();
+            static ScaledPaletteBytes scaled;
+            static std::vector<uint8_t> pal16I, pal8I, pal32I;
+            static std::vector<uint32_t> metaV;
+            buildScaledPalettes(atlas, scaled);
+            auto interleave = [](const std::vector<uint8_t> &r, const std::vector<uint8_t> &g,
+                                 const std::vector<uint8_t> &b, std::vector<uint8_t> &out)
+            {
+                out.clear();
+                out.reserve(r.size() * 3);
+                for (size_t i = 0; i < r.size(); ++i)
+                {
+                    out.push_back(r[i]);
+                    out.push_back(g[i]);
+                    out.push_back(b[i]);
+                }
+            };
+            interleave(scaled.pal16R, scaled.pal16G, scaled.pal16B, pal16I);
+            interleave(scaled.pal8R, scaled.pal8G, scaled.pal8B, pal8I);
+            interleave(scaled.pal32R, scaled.pal32G, scaled.pal32B, pal32I);
+            metaV.clear();
+            metaV.reserve(atlas.dir.size());
+            for (uint16_t d : atlas.dir)
+            {
+                uint32_t flags = 0u, payload = d & 0x3FFFu;
+                if ((d & 0xC000u) == 0x8000u)
+                {
+                    flags = 0x8000u;
+                    payload = atlas.uniformCol[d & 0x3FFFu];
+                }
+                else if ((d & 0xC000u) == 0xC000u)
+                    flags = 0xC000u;
+                else if (d & 0x4000u)
+                    flags = 0x4000u;
+                else if (d & 0x2000u)
+                {
+                    flags = 0x2000u;
+                    payload = d & 0x1FFFu;
+                }
+                metaV.push_back((flags << 16) | payload);
+            }
+            atlasPal.pal16 = pal16I.empty() ? nullptr : pal16I.data();
+            atlasPal.indices = atlas.indices.empty() ? nullptr : atlas.indices.data();
             atlasPal.width = static_cast<uint16_t>(atlas.w);
             atlasPal.height = static_cast<uint16_t>(atlas.h);
             atlasPal.wBlocks = static_cast<uint16_t>(atlas.wBlocks);
-            atlasPal.hBlocks = static_cast<uint16_t>(atlas.hBlocks);
-            atlasPal.uniformCol = atlas.uniformCol.empty() ? nullptr : atlas.uniformCol.data();
-            atlasPal.dir = atlas.dir.empty() ? nullptr : atlas.dir.data();
-            atlasPal.palettes8 = atlas.palettes8.empty() ? nullptr : atlas.palettes8.data();
+            atlasPal.meta = metaV.empty() ? nullptr : metaV.data();
+            atlasPal.pal8 = pal8I.empty() ? nullptr : pal8I.data();
             atlasPal.indices8 = atlas.indices8.empty() ? nullptr : atlas.indices8.data();
-            atlasPal.ramp = atlas.ramp.empty() ? nullptr : atlas.ramp.data();
+            atlasPal.rampC = scaled.rampC.empty() ? nullptr : scaled.rampC.data();
             atlasPal.rampIdx = atlas.rampIdx.empty() ? nullptr : atlas.rampIdx.data();
-            atlasPal.palettes32 = atlas.palettes32.empty() ? nullptr : atlas.palettes32.data();
+            atlasPal.pal32 = pal32I.empty() ? nullptr : pal32I.data();
             atlasPal.indices32 = atlas.indices32.empty() ? nullptr : atlas.indices32.data();
 
             for (size_t i = 0; i < bakes.size(); ++i)
@@ -838,8 +931,8 @@ namespace pip3D
                 g.dimY = static_cast<uint16_t>(probes.dy);
                 g.dimZ = static_cast<uint16_t>(probes.dz);
                 g.probes = probes.probes.data();
-                g.staticTint = probes.staticTint;
-                g.staticScale = probes.staticScale;
+                for (int k = 0; k < 4; ++k)
+                    g.tint[k] = probes.tint[k];
                 r.setBakedProbeGrid(g);
             }
         }
@@ -873,7 +966,7 @@ namespace pip3D
             std::snprintf(meta, sizeof(meta),
                           "scene=%s;mode=%s;w=%u;h=%u;fill=%.2f;avg=%.3f;max=%.0f;"
                           "uniform=%u;ramp=%u;pal8=%u;pal16=%u;pal32=%u",
-                          sceneName, mode == BakedLightMode::FINAL ? "FINAL" : "FACTORED",
+                          sceneName, "FINAL",
                           atlas.w, atlas.h, fillPct, atlas.avgLSB, atlas.maxLSB,
                           atlas.uniformTiles, atlas.rampTiles, atlas.pal8Tiles,
                           atlas.pal16Tiles, atlas.pal32Tiles);

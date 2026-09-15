@@ -22,7 +22,7 @@ namespace pip3D
                 else if (!std::strcmp(v, "off") || !std::strcmp(v, "OFF"))
                     cfg.mode = BakedLightMode::OFF;
                 else
-                    cfg.mode = BakedLightMode::FACTORED;
+                    cfg.mode = BakedLightMode::FINAL; // FACTORED is not wired yet
             }
 
             auto parseFloat = [](const char *s, float &out) -> bool

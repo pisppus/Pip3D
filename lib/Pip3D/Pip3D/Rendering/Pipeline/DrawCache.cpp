@@ -1,5 +1,4 @@
 #include "Rendering/Pipeline/DrawCache.hpp"
-
 #include "Math/Algebra.hpp"
 
 namespace pip3D
@@ -8,8 +7,8 @@ namespace pip3D
     {
         safeFree(storage_);
 
-        worldNormals_ = nullptr;
-        screenVerts_ = nullptr;
+        if (probeData_)
+            MemUtils::freeData(probeData_);
     }
 
     bool DrawCache::ensureCapacity(uint16_t required, bool withNormals) noexcept
@@ -88,5 +87,26 @@ namespace pip3D
 
         needsCompute = true;
         return screenVerts_;
+    }
+
+    uint8_t *DrawCache::ensureProbePlanes(uint16_t verts) noexcept
+    {
+        if (probeData_ && probeVerts_ >= verts)
+            return probeData_;
+        if (probeAllocCooldown_ && --probeAllocCooldown_)
+            return nullptr;
+
+        uint8_t *grown = static_cast<uint8_t *>(
+            MemUtils::allocData(static_cast<size_t>(verts) * 4, 4));
+        if (unlikely(!grown))
+        {
+            probeAllocCooldown_ = 256;
+            return nullptr;
+        }
+        if (probeData_)
+            MemUtils::freeData(probeData_);
+        probeData_ = grown;
+        probeVerts_ = verts;
+        return probeData_;
     }
 }

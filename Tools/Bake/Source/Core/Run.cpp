@@ -87,14 +87,18 @@ namespace pip3D
             }
 
             std::printf("\033[36m[Pip3D]\033[0m Baking scene '\033[1m%s\033[0m' (mode: \033[32m%s\033[0m, threads: %u, out: %s)\n",
-                        cfg.sceneName, finalMode ? "FINAL" : "FACTORED", hwThreads, cfg.outDir);
+                        cfg.sceneName, "FINAL", hwThreads, cfg.outDir);
 
             if (std::getenv("PIP3D_BAKE_NORAY") == nullptr && !Gpu::globalGpuBaker().init())
                 return 1;
 
             SceneLighting light = collectLighting(r, cfg);
             if (!light.hasSun)
+            {
                 std::printf("\033[33m[!] Scene has no directional light - baking sun-free.\033[0m\n");
+                std::printf("\033[33m[!] The result will look like flat overcast shading - check that the\033[0m\n");
+                std::printf("\033[33m[!] demo sets its directional light BEFORE the bake runs.\033[0m\n");
+            }
 
             std::map<Mesh *, MeshCacheEntry> meshCache;
             std::vector<InstanceBakeData> bakes;

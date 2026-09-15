@@ -23,7 +23,7 @@ namespace pip3D
         virtual void solve(float deltaTime) = 0;
     };
 
-    __attribute__((always_inline)) inline void
+    PIP3D_ALWAYS_INLINE inline void
     computeSoftConstraint(float frequencyHz, float dampingRatio, float dt,
                           float &outBeta, float &outSoft) noexcept
     {

@@ -20,75 +20,30 @@ namespace pip3D
         {
 
             void encodeLightmap(InstanceBakeData &ib, uint32_t w, uint32_t h,
-                                bool finalMode, const ToneParams &tp, bool dither)
+                                const ToneParams &tp, bool dither)
             {
                 const size_t n = static_cast<size_t>(w) * h;
                 ib.lm.resize(n);
                 ib.enc.resize(n * 3);
 
-                if (finalMode)
+                for (uint32_t y = 0; y < h; ++y)
                 {
-                    for (uint32_t y = 0; y < h; ++y)
+                    for (uint32_t x = 0; x < w; ++x)
                     {
-                        for (uint32_t x = 0; x < w; ++x)
-                        {
-                            const size_t i = static_cast<size_t>(y) * w + x;
-                            float r = ib.den[i * 3 + 0];
-                            float g = ib.den[i * 3 + 1];
-                            float b = ib.den[i * 3 + 2];
-                            toneMapRT(r, g, b, tp);
-                            r = std::fmax(0.0f, std::fmin(1.0f, r));
-                            g = std::fmax(0.0f, std::fmin(1.0f, g));
-                            b = std::fmax(0.0f, std::fmin(1.0f, b));
-                            float *e = &ib.enc[i * 3];
-                            e[0] = r;
-                            e[1] = g;
-                            e[2] = b;
-                            ib.lm[i] = pack565Q(r, g, b, static_cast<int32_t>(x),
-                                                static_cast<int32_t>(y), dither);
-                        }
-                    }
-                }
-                else
-                {
-
-                    const float kStatic = std::fmax(0.05f, ib.staticMaxLuma);
-                    ib.staticScale = kStatic;
-                    if (ib.staticSumLuma > 1e-5f)
-                        ib.staticSumCol = ib.staticSumCol * (1.0f / ib.staticSumLuma);
-
-                    const Noise::BlueNoise &bn = Noise::blueNoise();
-                    for (uint32_t y = 0; y < h; ++y)
-                    {
-                        for (uint32_t x = 0; x < w; ++x)
-                        {
-                            const size_t i = static_cast<size_t>(y) * w + x;
-                            const float sunVis = ib.den[i * 3 + 0];
-                            const float skyAO = ib.den[i * 3 + 1];
-                            const float luma = ib.den[i * 3 + 2];
-
-                            auto q = [&](float v, float levels, uint32_t ch) -> uint32_t
-                            {
-                                v = std::fmax(0.0f, std::fmin(1.0f, v));
-                                const float bn01 = dither ? bn.atCh(static_cast<int32_t>(x),
-                                                                    static_cast<int32_t>(y), ch)
-                                                          : 0.5f;
-                                return Noise::quantDither(v, levels, bn01);
-                            };
-
-                            const float rv = std::fmax(0.0f, std::fmin(1.0f, sunVis));
-                            const float gv = std::fmax(0.0f, std::fmin(1.0f, skyAO));
-                            const float bv = std::fmax(0.0f, std::fmin(1.0f, luma / kStatic));
-                            float *e = &ib.enc[i * 3];
-                            e[0] = rv;
-                            e[1] = gv;
-                            e[2] = bv;
-
-                            const uint32_t r5 = q(rv, 32.0f, 0);
-                            const uint32_t g6 = q(gv, 64.0f, 1);
-                            const uint32_t b5 = q(bv, 32.0f, 2);
-                            ib.lm[i] = static_cast<uint16_t>((r5 << 11) | (g6 << 5) | b5);
-                        }
+                        const size_t i = static_cast<size_t>(y) * w + x;
+                        float r = ib.den[i * 3 + 0];
+                        float g = ib.den[i * 3 + 1];
+                        float b = ib.den[i * 3 + 2];
+                        toneMapRT(r, g, b, tp);
+                        r = std::fmax(0.0f, std::fmin(1.0f, r));
+                        g = std::fmax(0.0f, std::fmin(1.0f, g));
+                        b = std::fmax(0.0f, std::fmin(1.0f, b));
+                        float *e = &ib.enc[i * 3];
+                        e[0] = r;
+                        e[1] = g;
+                        e[2] = b;
+                        ib.lm[i] = pack565Q(r, g, b, static_cast<int32_t>(x),
+                                            static_cast<int32_t>(y), dither);
                     }
                 }
             }
@@ -107,13 +62,10 @@ namespace pip3D
             const float texelMeters = std::fmax(
                 1e-4f, std::sqrt(uw.metersPerTexelU * uw.metersPerTexelV));
 
-            ib.lm.assign(texelCount, 0);
             ib.den.assign(texelCount * 3, 0.0f);
             ib.varLuma.assign(texelCount, 0.0f);
             ib.texelPos.assign(texelCount, Vector3(0.0f, 0.0f, 0.0f));
             ib.texelNrm.assign(texelCount, Vector3(0.0f, 1.0f, 0.0f));
-            ib.staticLuma.assign(texelCount, 0.0f);
-            ib.staticCol.assign(texelCount, Vector3(0.0f, 0.0f, 0.0f));
 
             char currentStatus[48];
             std::snprintf(currentStatus, sizeof(currentStatus), "(%zu/%zu) LM %ux%u",
@@ -187,16 +139,6 @@ namespace pip3D
                 ++ib.validTexels;
                 if (ib.varLuma[i] > 0.008f)
                     ++highVar;
-                const float luma = ib.den[i * 3 + 2];
-                if (finalMode)
-                    continue;
-                if (luma > 1e-6f)
-                {
-                    ib.staticSumCol = ib.staticSumCol + ib.staticCol[i];
-                    ib.staticSumLuma += luma;
-                    if (luma > ib.staticMaxLuma)
-                        ib.staticMaxLuma = luma;
-                }
             }
             uint32_t denoisePasses = std::clamp(cfg.denoisePasses, 1u, 4u);
             if (highVar * 8 > ib.validTexels)
@@ -211,7 +153,7 @@ namespace pip3D
                              std::clamp(cfg.lightmapBlurPasses, 1u, 3u),
                              cfg.lightmapBlurSigma, texelMeters);
             dilateChannelsRect(ib.den, uw.texels, rw, rh, 32);
-            encodeLightmap(ib, rw, rh, finalMode, light.tone, cfg.dither);
+            encodeLightmap(ib, rw, rh, light.tone, cfg.dither);
         }
     }
 }

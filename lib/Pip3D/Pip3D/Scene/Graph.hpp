@@ -8,7 +8,7 @@
 
 namespace pip3D
 {
-    __attribute__((always_inline, hot)) inline void MeshNode::render(Renderer *renderer)
+    PIP3D_ALWAYS_INLINE_HOT inline void MeshNode::render(Renderer *renderer)
     {
         if (!visible || !enabled || !mesh || !instance)
             return;
@@ -83,7 +83,7 @@ namespace pip3D
             root->update(deltaTime);
         }
 
-        __attribute__((hot)) inline void render()
+        PIP3D_HOT inline void render()
         {
             if (!renderer)
                 return;

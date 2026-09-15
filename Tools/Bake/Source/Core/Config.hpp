@@ -11,7 +11,7 @@ namespace pip3D
     {
         struct BakeConfig
         {
-            BakedLightMode mode = BakedLightMode::FACTORED;
+            BakedLightMode mode = BakedLightMode::FINAL;
             bool modeAuto = true;
 
             uint32_t lmMin = 32;
@@ -29,7 +29,8 @@ namespace pip3D
 
             float giMaxAlbedo = 0.50f;
             float giDesat = 0.35f;
-            float sunAngularRadius = 0.025f;
+
+            float sunAngularRadius = 0.04f;
             float aoMaxDist = 16.0f;
             float bias = 0.04f;
 
