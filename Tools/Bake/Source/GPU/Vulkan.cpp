@@ -622,10 +622,6 @@ namespace pip3D
                     std::memset(impl->oDen.mapped, 0, (size_t)n * 12);
                 if (impl->oVar.mapped)
                     std::memset(impl->oVar.mapped, 0, (size_t)n * 4);
-                if (impl->oStl.mapped)
-                    std::memset(impl->oStl.mapped, 0, (size_t)n * 4);
-                if (impl->oStc.mapped)
-                    std::memset(impl->oStc.mapped, 0, (size_t)n * 12);
                 {
                     VkMappedMemoryRange rngs[4]{};
                     uint32_t rc = 0;
@@ -641,8 +637,6 @@ namespace pip3D
                     };
                     pushFlush(impl->oDen);
                     pushFlush(impl->oVar);
-                    pushFlush(impl->oStl);
-                    pushFlush(impl->oStc);
                     if (rc)
                         impl->vkFlushMappedMemoryRanges(impl->device, rc, rngs);
                 }
@@ -1139,16 +1133,12 @@ namespace pip3D
                         };
                         pushInv(impl->oDen);
                         pushInv(impl->oVar);
-                        pushInv(impl->oStl);
-                        pushInv(impl->oStc);
                         if (rc)
                             impl->vkInvalidateMappedMemoryRanges(impl->device, rc, rngs);
                     }
                     InstanceBakeData &ib = *job.ib;
                     std::memcpy(ib.den.data(), impl->oDen.mapped, (size_t)n * 12);
                     std::memcpy(ib.varLuma.data(), impl->oVar.mapped, (size_t)n * 4);
-                    std::memcpy(ib.staticLuma.data(), impl->oStl.mapped, (size_t)n * 4);
-                    std::memcpy(ib.staticCol.data(), impl->oStc.mapped, (size_t)n * 12);
                     auto tEnd = std::chrono::steady_clock::now();
                     if (stats)
                     {

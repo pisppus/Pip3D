@@ -51,7 +51,7 @@ namespace pip3D
             return static_cast<float>(timeQ16_) * (24.0f / 65536.0f);
         }
 
-        __attribute__((hot)) void update(float deltaSeconds)
+        PIP3D_HOT void update(float deltaSeconds)
         {
             if (__builtin_expect(!renderer_, 0))
                 return;
@@ -88,17 +88,119 @@ namespace pip3D
             float exposureScale;
         };
 
-        static constexpr TimeKey kTimeKeys[9] = {
-            // hour/256,        skyTop,                skyHorizon,                skyGround,                  sunColor,              cloudColor,             sunInt, cloudA, amb,   exp
-            {   0,      Color::rgb(8,12,28),    Color::rgb(20,30,55),   Color::rgb(4,6,14),     Color::rgb(120,140,190), Color::rgb(55,60,85),    0.10f, 0.45f, 0.28f, 0.58f }, // deep night
-            {  53,      Color::rgb(18,22,48),   Color::rgb(55,40,70),   Color::rgb(6,6,14),     Color::rgb(255,110,60),  Color::rgb(120,90,110),  0.25f, 0.55f, 0.42f, 0.68f }, // pre-dawn  (5h)
-            {  69,      Color::rgb(60,80,130),  Color::rgb(255,150,90), Color::rgb(50,40,45),   Color::rgb(255,170,110), Color::rgb(255,210,180), 0.60f, 0.75f, 0.70f, 0.84f }, // sunrise  (6.5h)
-            {  85,      Color::rgb(70,130,220), Color::rgb(180,205,235),Color::rgb(95,90,80),   Color::rgb(255,240,220), Color::rgb(250,250,252), 0.92f, 0.95f, 0.93f, 0.97f }, // morning  (8h)
-            { 128,      Color::rgb(70,135,225), Color::rgb(190,210,240),Color::rgb(100,95,85),  Color::rgb(255,250,240), Color::rgb(250,250,252), 1.00f, 1.00f, 1.00f, 1.00f }, // noon     (12h)
-            { 181,      Color::rgb(80,120,200), Color::rgb(200,200,215),Color::rgb(95,85,75),   Color::rgb(255,235,200), Color::rgb(252,245,235), 0.95f, 0.95f, 0.95f, 0.98f }, // afternoon(17h)
-            { 203,      Color::rgb(90,70,130),  Color::rgb(255,130,60), Color::rgb(55,35,40),   Color::rgb(255,150,80),  Color::rgb(255,190,140), 0.55f, 0.70f, 0.68f, 0.82f }, // sunset   (19h)
-            { 224,      Color::rgb(12,16,38),   Color::rgb(30,35,65),   Color::rgb(5,6,15),     Color::rgb(130,145,195), Color::rgb(60,65,90),    0.14f, 0.50f, 0.36f, 0.66f }, // night    (21h)
-            { 256,      Color::rgb(8,12,28),    Color::rgb(20,30,55),   Color::rgb(4,6,14),     Color::rgb(120,140,190), Color::rgb(55,60,85),    0.10f, 0.45f, 0.28f, 0.58f }, // sentinel (== [0])
+        static constexpr TimeKey kDeepNight{
+            .hourQ8 = 0,
+            .skyTop = Color::rgb(8, 12, 28),
+            .skyHorizon = Color::rgb(20, 30, 55),
+            .skyGround = Color::rgb(4, 6, 14),
+            .sunColor = Color::rgb(120, 140, 190),
+            .cloudColor = Color::rgb(55, 60, 85),
+            .sunIntensity = 0.10f,
+            .cloudAlpha = 0.45f,
+            .ambientScale = 0.28f,
+            .exposureScale = 0.58f};
+
+        static constexpr TimeKey kPreDawn{
+            .hourQ8 = 53,
+            .skyTop = Color::rgb(18, 22, 48),
+            .skyHorizon = Color::rgb(55, 40, 70),
+            .skyGround = Color::rgb(6, 6, 14),
+            .sunColor = Color::rgb(255, 110, 60),
+            .cloudColor = Color::rgb(120, 90, 110),
+            .sunIntensity = 0.25f,
+            .cloudAlpha = 0.55f,
+            .ambientScale = 0.42f,
+            .exposureScale = 0.68f};
+
+        static constexpr TimeKey kSunrise{
+            .hourQ8 = 69,
+            .skyTop = Color::rgb(60, 80, 130),
+            .skyHorizon = Color::rgb(255, 150, 90),
+            .skyGround = Color::rgb(50, 40, 45),
+            .sunColor = Color::rgb(255, 170, 110),
+            .cloudColor = Color::rgb(255, 210, 180),
+            .sunIntensity = 0.60f,
+            .cloudAlpha = 0.75f,
+            .ambientScale = 0.70f,
+            .exposureScale = 0.84f};
+
+        static constexpr TimeKey kMorning{
+            .hourQ8 = 85,
+            .skyTop = Color::rgb(70, 130, 220),
+            .skyHorizon = Color::rgb(180, 205, 235),
+            .skyGround = Color::rgb(95, 90, 80),
+            .sunColor = Color::rgb(255, 240, 220),
+            .cloudColor = Color::rgb(250, 250, 252),
+            .sunIntensity = 0.92f,
+            .cloudAlpha = 0.95f,
+            .ambientScale = 0.93f,
+            .exposureScale = 0.97f};
+
+        static constexpr TimeKey kNoon{
+            .hourQ8 = 128,
+            .skyTop = Color::rgb(70, 135, 225),
+            .skyHorizon = Color::rgb(190, 210, 240),
+            .skyGround = Color::rgb(100, 95, 85),
+            .sunColor = Color::rgb(255, 250, 240),
+            .cloudColor = Color::rgb(250, 250, 252),
+            .sunIntensity = 1.00f,
+            .cloudAlpha = 1.00f,
+            .ambientScale = 1.00f,
+            .exposureScale = 1.00f};
+
+        static constexpr TimeKey kAfternoon{
+            .hourQ8 = 181,
+            .skyTop = Color::rgb(80, 120, 200),
+            .skyHorizon = Color::rgb(200, 200, 215),
+            .skyGround = Color::rgb(95, 85, 75),
+            .sunColor = Color::rgb(255, 235, 200),
+            .cloudColor = Color::rgb(252, 245, 235),
+            .sunIntensity = 0.95f,
+            .cloudAlpha = 0.95f,
+            .ambientScale = 0.95f,
+            .exposureScale = 0.98f};
+
+        static constexpr TimeKey kSunset{
+            .hourQ8 = 203,
+            .skyTop = Color::rgb(90, 70, 130),
+            .skyHorizon = Color::rgb(255, 130, 60),
+            .skyGround = Color::rgb(55, 35, 40),
+            .sunColor = Color::rgb(255, 150, 80),
+            .cloudColor = Color::rgb(255, 190, 140),
+            .sunIntensity = 0.55f,
+            .cloudAlpha = 0.70f,
+            .ambientScale = 0.68f,
+            .exposureScale = 0.82f};
+
+        static constexpr TimeKey kNight{
+            .hourQ8 = 224,
+            .skyTop = Color::rgb(12, 16, 38),
+            .skyHorizon = Color::rgb(30, 35, 65),
+            .skyGround = Color::rgb(5, 6, 15),
+            .sunColor = Color::rgb(130, 145, 195),
+            .cloudColor = Color::rgb(60, 65, 90),
+            .sunIntensity = 0.14f,
+            .cloudAlpha = 0.50f,
+            .ambientScale = 0.36f,
+            .exposureScale = 0.66f};
+
+        static constexpr TimeKey kMidnightWrap = []()
+        {
+            TimeKey k = kDeepNight;
+            k.hourQ8 = 256;
+            return k;
+        }();
+
+        static constexpr TimeKey kTimeKeys[] = {
+            kDeepNight,
+            kPreDawn,
+            kSunrise,
+            kMorning,
+            kNoon,
+            kAfternoon,
+            kSunset,
+            kNight,
+            kMidnightWrap,
         };
         static constexpr int kTimeKeyCount = 8;
 
@@ -111,9 +213,9 @@ namespace pip3D
         bool autoAdvance_ = true;
         bool dirty_ = true;
 
-        __attribute__((always_inline)) static inline void computeSunDir(uint16_t phaseQ8,
-                                                                        Vector3 &outDir,
-                                                                        float &outDayFactor)
+        PIP3D_ALWAYS_INLINE static inline void computeSunDir(uint16_t phaseQ8,
+                                                             Vector3 &outDir,
+                                                             float &outDayFactor)
         {
 
             const float azimuth = static_cast<float>(phaseQ8) * (kTwoPi / 65536.0f);
@@ -143,7 +245,7 @@ namespace pip3D
             outDayFactor = dayF;
         }
 
-        __attribute__((hot)) void applyToRenderer()
+        PIP3D_HOT void applyToRenderer()
         {
             dirty_ = false;
             if (!renderer_)

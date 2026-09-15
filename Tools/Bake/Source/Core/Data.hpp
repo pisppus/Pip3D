@@ -53,15 +53,9 @@ namespace pip3D
             std::vector<float> den;
             std::vector<float> varLuma;
             std::vector<float> enc;
-            std::vector<float> staticLuma;
-            std::vector<Vector3> staticCol;
             std::vector<uint16_t> lm;
             uint32_t ax = 0, ay = 0;
             std::vector<LMUVQuant> uv2Instance;
-            float staticMaxLuma = 0.0f;
-            Vector3 staticSumCol = Vector3(0, 0, 0);
-            float staticSumLuma = 0.0f;
-            float staticScale = 1.0f;
             uint32_t validTexels = 0;
         };
 
@@ -104,8 +98,8 @@ namespace pip3D
             std::vector<uint16_t> probes;
             std::vector<float> lumaBuf;
             std::vector<float> colBuf;
-            Vector3 staticTint = Vector3(1, 1, 1);
-            float staticScale = 1.0f;
+            Vector3 tint[4] = {Vector3(1, 1, 1), Vector3(1, 1, 1),
+                               Vector3(1, 1, 1), Vector3(1, 1, 1)};
         };
     }
 }

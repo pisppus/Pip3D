@@ -66,6 +66,8 @@ namespace pip3D
         PIP3D_HOT Vector3 *acquireShadowVerts(uint32_t gen, uint16_t count,
                                               bool &needsCompute) noexcept;
 
+        PIP3D_HOT uint8_t *ensureProbePlanes(uint16_t verts) noexcept;
+
         PIP3D_FORCE_INLINE void commitShadowVerts(uint32_t gen) noexcept
         {
             shadowGen_ = gen;
@@ -85,6 +87,9 @@ namespace pip3D
         Vector3 *storage_ = nullptr;
         Vector3 *worldNormals_ = nullptr;
         Vector3 *screenVerts_ = nullptr;
+        uint8_t *probeData_ = nullptr;
+        uint16_t probeVerts_ = 0;
+        uint16_t probeAllocCooldown_ = 0;
         uint16_t capacity_ = 0;
 
         uint32_t screenVertsFrameStamp_ = 0;

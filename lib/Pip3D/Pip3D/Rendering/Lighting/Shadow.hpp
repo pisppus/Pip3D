@@ -113,15 +113,15 @@ namespace pip3D
         }
 
     private:
-        __attribute__((always_inline)) static inline bool isFiniteProjectedPoint(const Vector3 &p)
+        PIP3D_ALWAYS_INLINE static inline bool isFiniteProjectedPoint(const Vector3 &p)
         {
             return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z);
         }
 
-        __attribute__((always_inline)) static inline bool isShadowProjectionReasonable(const Vector3 &p0,
-                                                                                       const Vector3 &p1,
-                                                                                       const Vector3 &p2,
-                                                                                       const Viewport &viewport)
+        PIP3D_ALWAYS_INLINE static inline bool isShadowProjectionReasonable(const Vector3 &p0,
+                                                                            const Vector3 &p1,
+                                                                            const Vector3 &p2,
+                                                                            const Viewport &viewport)
         {
             if (!isFiniteProjectedPoint(p0) || !isFiniteProjectedPoint(p1) || !isFiniteProjectedPoint(p2))
                 return false;
@@ -145,7 +145,7 @@ namespace pip3D
             return true;
         }
 
-        __attribute__((always_inline)) static inline void computeShadowColorAndAlpha(
+        PIP3D_ALWAYS_INLINE static inline void computeShadowColorAndAlpha(
             const ShadowSettings &shadowSettings,
             uint16_t &shadowColorOut,
             uint8_t &baseAlphaOut)
@@ -295,7 +295,7 @@ namespace pip3D
             }
         }
 
-        __attribute__((always_inline)) static inline Vector3 computeDirNorm(const Light &light, const Vector3 &objectCenter)
+        PIP3D_ALWAYS_INLINE static inline Vector3 computeDirNorm(const Light &light, const Vector3 &objectCenter)
         {
             if (light.type == LIGHT_POINT)
             {
@@ -308,13 +308,13 @@ namespace pip3D
             return dir;
         }
 
-        __attribute__((always_inline)) static inline bool computeBandReject(const Vector3 &dirNorm,
-                                                                            const Vector3 &center, float radius,
-                                                                            float planeY,
-                                                                            const Matrix4x4 &viewProjMatrix,
-                                                                            const Viewport &viewport,
-                                                                            const Camera &camera,
-                                                                            int16_t bandTop, int16_t bandBottom)
+        PIP3D_ALWAYS_INLINE static inline bool computeBandReject(const Vector3 &dirNorm,
+                                                                 const Vector3 &center, float radius,
+                                                                 float planeY,
+                                                                 const Matrix4x4 &viewProjMatrix,
+                                                                 const Viewport &viewport,
+                                                                 const Camera &camera,
+                                                                 int16_t bandTop, int16_t bandBottom)
         {
             if (fabsf(dirNorm.y) <= 0.01f)
                 return false;

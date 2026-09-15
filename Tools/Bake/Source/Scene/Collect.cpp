@@ -1,4 +1,5 @@
-﻿#include <array>
+﻿#include <cstdio>
+#include <array>
 #include <cmath>
 #include <map>
 #include <unordered_set>
@@ -26,8 +27,8 @@ namespace pip3D
 
                 const Light *lights = r.getLights();
                 const int n = r.getActiveLightCount();
-
                 out.hasSun = r.isSunEnabled();
+                bool foundDir = false;
                 for (int i = 0; i < n; ++i)
                 {
                     if (lights[i].type != LIGHT_DIRECTIONAL)
@@ -40,10 +41,27 @@ namespace pip3D
                     lights[i].color.toFloat(cr, cg, cb);
                     const float inten = lights[i].intensity;
                     out.sunCol = Vector3(cr * inten, cg * inten, cb * inten);
+                    foundDir = true;
                     break;
                 }
                 if (out.sunCol.x + out.sunCol.y + out.sunCol.z <= 0.0f)
+                {
                     out.hasSun = false;
+                    float cr = 0.0f, cg = 0.0f, cb = 0.0f;
+                    float inten = 0.0f;
+                    int type = -1;
+                    if (n > 0)
+                    {
+                        lights[0].color.toFloat(cr, cg, cb);
+                        inten = lights[0].intensity;
+                        type = static_cast<int>(lights[0].type);
+                    }
+                    std::printf(
+                        "\033[33m[!] gatherLights state: activeLightCount=%d sunEnabled=%d "
+                        "foundDirectional=%d light[0]{type=%d color=(%.2f,%.2f,%.2f) intensity=%.2f}\033[0m\n",
+                        n, r.isSunEnabled() ? 1 : 0, foundDir ? 1 : 0,
+                        type, cr, cg, cb, inten);
+                }
 
                 const Light *pl = r.getPointLights();
                 const int np = r.getPointLightCount();

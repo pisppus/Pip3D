@@ -135,6 +135,13 @@ namespace pip3D
         float ambientScale = 1.0f;
         float exposureScale = 1.0f;
 
+        BakedLightMode bakedLightMode_ = BakedLightMode::OFF;
+        LMSampling lmSampling_ = LMSampling::Dithered;
+        BakedProbeGrid bakedProbes_;
+#if defined(PIP3D_PC)
+        std::vector<uint16_t> bakedProbesOwned_;
+#endif
+
         bool sunEnabled = true;
         bool sunVisible = false;
         Color sunColor = Color::WHITE;
@@ -151,7 +158,7 @@ namespace pip3D
         void drawMeshInstanceShadow(MeshInstance *instance);
         void prepareFrameState(bool incrementFrameStamp);
 
-        __attribute__((always_inline)) inline float ensureHfovCached()
+        PIP3D_ALWAYS_INLINE inline float ensureHfovCached()
         {
             if (likely(hfovCacheValid_))
                 return cachedHfovRad_;
@@ -251,6 +258,41 @@ namespace pip3D
         bool isOpaqueSortEnabled() const { return opaqueSortEnabled_; }
         void setShadingMode(ShadingMode mode) { shadingMode = mode; }
         ShadingMode getShadingMode() const { return shadingMode; }
+
+        void setBakedLightMode(BakedLightMode mode) { bakedLightMode_ = mode; }
+        BakedLightMode getBakedLightMode() const { return bakedLightMode_; }
+
+        void setLightmapSampling(LMSampling sampling) { lmSampling_ = sampling; }
+        LMSampling getLightmapSampling() const { return lmSampling_; }
+        void setBakedProbeGrid(const BakedProbeGrid &grid)
+        {
+#if defined(PIP3D_PC)
+            if (!grid.valid())
+            {
+                bakedProbesOwned_.clear();
+                bakedProbesOwned_.shrink_to_fit();
+                bakedProbes_ = BakedProbeGrid();
+                return;
+            }
+            const size_t n = static_cast<size_t>(grid.dimX) * grid.dimY * grid.dimZ;
+            bakedProbesOwned_.assign(grid.probes, grid.probes + n);
+            bakedProbes_ = grid;
+            bakedProbes_.probes = bakedProbesOwned_.data();
+            bakedProbes_.rebuildInv();
+#else
+            bakedProbes_ = grid;
+            bakedProbes_.rebuildInv();
+#endif
+        }
+        void clearBakedProbeGrid()
+        {
+#if defined(PIP3D_PC)
+            bakedProbesOwned_.clear();
+            bakedProbesOwned_.shrink_to_fit();
+#endif
+            bakedProbes_ = BakedProbeGrid();
+        }
+        const BakedProbeGrid &getBakedProbeGrid() const { return bakedProbes_; }
 
         void setLightType(LightType type)
         {
@@ -356,15 +398,6 @@ namespace pip3D
         void draw(MeshInstance *instance);
         void flushQueue();
         const std::vector<MeshInstance *> &getEmissiveQueue() const { return emissiveQueue_; }
-
-        bool clipAndDrawNearTextured(const DrawTelemetryClipVert inVerts[3],
-                                     float nearD,
-                                     const Camera &camera,
-                                     const Viewport &viewport,
-                                     const Matrix4x4 &viewProjMatrix,
-                                     FrameBuffer &framebuffer,
-                                     ZBuffer *zBuffer,
-                                     const Texture &tex);
 
         void drawTriangle3D(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2, uint16_t color);
         void drawBlobShadow(const Vector3 &position, float radius, float opacity);

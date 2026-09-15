@@ -13,7 +13,7 @@
 
 namespace pip3D
 {
-    __attribute__((always_inline)) inline void
+    PIP3D_ALWAYS_INLINE inline void
     capsuleEndpoints(const RigidBody *cap, Vector3 &outP0, Vector3 &outP1)
     {
         Vector3 axisY = cap->orientation.rotate(Vector3(0.0f, cap->capsuleHalfHeight, 0.0f));
@@ -21,7 +21,7 @@ namespace pip3D
         outP1 = cap->position + axisY;
     }
 
-    __attribute__((always_inline)) inline void
+    PIP3D_ALWAYS_INLINE inline void
     closestPtSegmentSegment(const Vector3 &p1, const Vector3 &q1,
                             const Vector3 &p2, const Vector3 &q2,
                             float &s, float &t,
@@ -105,7 +105,7 @@ namespace pip3D
         c2 = p2 + d2 * t;
     }
 
-    __attribute__((always_inline)) inline Vector3
+    PIP3D_ALWAYS_INLINE inline Vector3
     closestPtOnSegment(const Vector3 &P, const Vector3 &A, const Vector3 &B, float &t)
     {
         Vector3 ab = B - A;
@@ -123,7 +123,7 @@ namespace pip3D
         return A + ab * t;
     }
 
-    __attribute__((always_inline)) inline Vector3
+    PIP3D_ALWAYS_INLINE inline Vector3
     closestPtOnAABB(const Vector3 &p, const Vector3 &mn, const Vector3 &mx) noexcept
     {
         return Vector3(
@@ -132,7 +132,7 @@ namespace pip3D
             (p.z < mn.z) ? mn.z : (p.z > mx.z ? mx.z : p.z));
     }
 
-    __attribute__((always_inline)) inline Vector3
+    PIP3D_ALWAYS_INLINE inline Vector3
     closestPtOnBox(const Vector3 &p, const RigidBody *box, Vector3 &outLocal) noexcept
     {
         Vector3 boxCenter = box->position;
@@ -147,7 +147,7 @@ namespace pip3D
         return box->orientation.rotate(clampedLocal) + boxCenter;
     }
 
-    __attribute__((always_inline)) inline float
+    PIP3D_ALWAYS_INLINE inline float
     closestSegAABB(const Vector3 &A, const Vector3 &B,
                    const Vector3 &mn, const Vector3 &mx,
                    Vector3 &segPt, Vector3 &boxPt)
@@ -200,7 +200,7 @@ namespace pip3D
         return bestDistSq;
     }
 
-    __attribute__((always_inline)) inline bool
+    PIP3D_ALWAYS_INLINE inline bool
     spherePointContactVsBox(const Vector3 &sphereCenter, float sphereR,
                             RigidBody *box,
                             Vector3 &outNormal, float &outPen,

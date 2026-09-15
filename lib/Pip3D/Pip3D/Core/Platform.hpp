@@ -103,9 +103,15 @@ inline uint32_t ulTaskNotifyTake(BaseType_t, TickType_t) { return 1; }
 #if defined(__GNUC__) || defined(__clang__)
 #define PIP3D_HOT __attribute__((hot))
 #define PIP3D_COLD __attribute__((cold))
+#define PIP3D_ALWAYS_INLINE __attribute__((always_inline))
+#define PIP3D_ALWAYS_INLINE_HOT __attribute__((always_inline, hot))
+#define PIP3D_NOINLINE_HOT __attribute__((noinline, hot))
 #else
 #define PIP3D_HOT
 #define PIP3D_COLD
+#define PIP3D_ALWAYS_INLINE
+#define PIP3D_ALWAYS_INLINE_HOT
+#define PIP3D_NOINLINE_HOT
 #endif
 
 #ifndef IRAM_ATTR

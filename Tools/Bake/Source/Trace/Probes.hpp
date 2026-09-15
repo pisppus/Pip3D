@@ -15,7 +15,7 @@ namespace pip3D
 
         namespace ProbeTrace
         {
-            inline constexpr float kAnisoY = 2.0f;
+            inline constexpr float kAnisoY = 1.0f;
             inline constexpr float kInteriorTestFactor = 1.5f;
             inline constexpr float kSkyOpenThreshold = 0.6f;
             inline constexpr float kSunOpenThreshold = 0.5f;

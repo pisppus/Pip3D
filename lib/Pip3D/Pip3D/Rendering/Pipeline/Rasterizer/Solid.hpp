@@ -1,10 +1,13 @@
 #pragma once
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 
 #include "Core/Platform.hpp"
 #include "Math/Algebra.hpp"
 #include "Rendering/Buffers/ZBuffer.hpp"
+#include "Rendering/Lighting/Baked.hpp"
 #include "Rendering/Lighting/Fog.hpp"
 
 namespace pip3D
@@ -14,7 +17,7 @@ namespace pip3D
         namespace detail
         {
 
-            __attribute__((always_inline, hot)) static inline void IRAM_ATTR
+            PIP3D_ALWAYS_INLINE_HOT static inline void IRAM_ATTR
             fillScanlinePlain(uint16_t *__restrict__ buf,
                               uint16_t *__restrict__ fb,
                               uint32_t count,
@@ -82,7 +85,7 @@ namespace pip3D
                 }
             }
 
-            __attribute__((always_inline, hot)) static inline void IRAM_ATTR
+            PIP3D_ALWAYS_INLINE_HOT static inline void IRAM_ATTR
             fillScanlineFog(uint16_t *__restrict__ buf,
                             uint16_t *__restrict__ fb,
                             uint32_t count,
@@ -90,11 +93,7 @@ namespace pip3D
                             int32_t depthStep,
                             uint16_t color) noexcept
             {
-                const uint8_t *__restrict__ lutAlpha = g_fogLut.alpha;
-
                 const FogState &fog = g_fogState;
-                const uint32_t src_rb = color & 0xF81Fu;
-                const uint32_t src_g = color & 0x07E0u;
                 const uint32_t fog_rb = fog.color_rb;
                 const uint32_t fog_g = fog.color_g;
                 const uint16_t fog_col = fog.color;
@@ -112,44 +111,12 @@ namespace pip3D
                     if (d0 > c0)
                     {
                         buf[0] = d0;
-                        const uint16_t bucket = d0 >> 7;
-                        const uint16_t frac = d0 & 0x7Fu;
-                        const uint8_t a0 = lutAlpha[bucket];
-                        const uint8_t a1 = lutAlpha[bucket + 1];
-                        const uint8_t alpha = a0 + (static_cast<uint8_t>((a1 - a0) * frac >> 7));
-
-                        if (alpha == 0)
-                            fb[0] = color;
-                        else if (alpha == 32)
-                            fb[0] = fog_col;
-                        else
-                        {
-                            const uint32_t inv_a = 32u - alpha;
-                            const uint32_t rb = ((src_rb * inv_a + fog_rb * alpha) >> 5) & 0xF81Fu;
-                            const uint32_t g = ((src_g * inv_a + fog_g * alpha) >> 5) & 0x07E0u;
-                            fb[0] = static_cast<uint16_t>(rb | g);
-                        }
+                        *fb = foggedColor(color, d0, fog_rb, fog_g, fog_col);
                     }
                     if (d1 > c1)
                     {
                         buf[1] = d1;
-                        const uint16_t bucket = d1 >> 7;
-                        const uint16_t frac = d1 & 0x7Fu;
-                        const uint8_t a0 = lutAlpha[bucket];
-                        const uint8_t a1 = lutAlpha[bucket + 1];
-                        const uint8_t alpha = a0 + (static_cast<uint8_t>((a1 - a0) * frac >> 7));
-
-                        if (alpha == 0)
-                            fb[1] = color;
-                        else if (alpha == 32)
-                            fb[1] = fog_col;
-                        else
-                        {
-                            const uint32_t inv_a = 32u - alpha;
-                            const uint32_t rb = ((src_rb * inv_a + fog_rb * alpha) >> 5) & 0xF81Fu;
-                            const uint32_t g = ((src_g * inv_a + fog_g * alpha) >> 5) & 0x07E0u;
-                            fb[1] = static_cast<uint16_t>(rb | g);
-                        }
+                        *(fb + 1) = foggedColor(color, d1, fog_rb, fog_g, fog_col);
                     }
 
                     depth += depthStep * 2;
@@ -165,23 +132,7 @@ namespace pip3D
                     if (d > c)
                     {
                         *buf = d;
-                        const uint16_t bucket = d >> 7;
-                        const uint16_t frac = d & 0x7Fu;
-                        const uint8_t a0 = lutAlpha[bucket];
-                        const uint8_t a1 = lutAlpha[bucket + 1];
-                        const uint8_t alpha = a0 + (static_cast<uint8_t>((a1 - a0) * frac >> 7));
-
-                        if (alpha == 0)
-                            *fb = color;
-                        else if (alpha == 32)
-                            *fb = fog_col;
-                        else
-                        {
-                            const uint32_t inv_a = 32u - alpha;
-                            const uint32_t rb = ((src_rb * inv_a + fog_rb * alpha) >> 5) & 0xF81Fu;
-                            const uint32_t g = ((src_g * inv_a + fog_g * alpha) >> 5) & 0x07E0u;
-                            *fb = static_cast<uint16_t>(rb | g);
-                        }
+                        *fb = foggedColor(color, d, fog_rb, fog_g, fog_col);
                     }
                     depth += depthStep;
                     ++buf;
@@ -191,7 +142,7 @@ namespace pip3D
             }
         }
 
-        struct alignas(4) SolidParams
+        struct SolidParams
         {
             uint16_t *frameBuffer;
             uint16_t *zbBase;
@@ -203,7 +154,7 @@ namespace pip3D
             int16_t height;
         };
 
-        __attribute__((always_inline)) static inline void IRAM_ATTR
+        PIP3D_ALWAYS_INLINE static inline void IRAM_ATTR
         fillSolidHalf(float xa0, float ya0, float xa1, float ya1,
                       float xb0, float yb0, float xb1, float yb1,
                       int clampStartY,
@@ -284,7 +235,7 @@ namespace pip3D
             }
         }
 
-        __attribute__((hot)) inline void IRAM_ATTR
+        PIP3D_HOT inline bool IRAM_ATTR
         fillTriangle(float x0, float y0, float z0,
                      float x1, float y1, float z1,
                      float x2, float y2, float z2,
@@ -294,7 +245,7 @@ namespace pip3D
                      const DisplayConfig &config) noexcept
         {
             if (unlikely(!frameBuffer || !zBuffer))
-                return;
+                return true;
 
             if (y0 > y1)
             {
@@ -336,13 +287,18 @@ namespace pip3D
                 z1 = t;
             }
 
+            if (y0 == y2)
+                return false;
+            if (unlikely(x0 == x1 && x1 == x2))
+                return false;
+
             const float dx02 = x0 - x2;
             const float dy12 = y1 - y2;
             const float dy02 = y0 - y2;
             const float dx12 = x1 - x2;
             const float det = dx02 * dy12 - dy02 * dx12;
             if (unlikely(det > -1e-6f && det < 1e-6f))
-                return;
+                return false;
 
             const float invDet = FastMath::fastReciprocal(det);
 
@@ -375,7 +331,7 @@ namespace pip3D
             const bool runTop = (clampStartY_top < endTopExclusive);
             const bool runBottom = (clampStartY_bottom < endBottomExclusive);
             if (!runTop && !runBottom)
-                return;
+                return true;
 
             SolidParams params;
             params.frameBuffer = frameBuffer;
@@ -414,6 +370,7 @@ namespace pip3D
                               clampStartY_bottom, endBottomExclusive,
                               z_start_fixed_base, params);
             }
+            return true;
         }
     }
 }

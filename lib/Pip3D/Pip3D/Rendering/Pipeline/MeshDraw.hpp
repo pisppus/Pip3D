@@ -45,6 +45,35 @@ namespace pip3D
             return r;
         }
 
+        struct ClipVertLM
+        {
+            Vector3 pos;
+            float u, v;
+            float d;
+            float lr, lg, lb;
+            float mu = 0.0f, mv = 0.0f;
+        };
+
+        PIP3D_FORCE_INLINE static ClipVertLM lerpClipVertLM(const ClipVertLM &a,
+                                                            const ClipVertLM &b,
+                                                            float t) noexcept
+        {
+            const float it = 1.0f - t;
+            ClipVertLM r;
+            r.pos.x = a.pos.x * it + b.pos.x * t;
+            r.pos.y = a.pos.y * it + b.pos.y * t;
+            r.pos.z = a.pos.z * it + b.pos.z * t;
+            r.u = a.u * it + b.u * t;
+            r.v = a.v * it + b.v * t;
+            r.d = a.d * it + b.d * t;
+            r.lr = a.lr * it + b.lr * t;
+            r.lg = a.lg * it + b.lg * t;
+            r.lb = a.lb * it + b.lb * t;
+            r.mu = a.mu * it + b.mu * t;
+            r.mv = a.mv * it + b.mv * t;
+            return r;
+        }
+
         struct ClipVertSmooth
         {
             Vector3 pos;

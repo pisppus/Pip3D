@@ -162,38 +162,10 @@ namespace pip3D
     extern DrawTelemetry g_drawTelemetry;
 
 #else
-
     struct DrawTelemetry
     {
     };
 
     inline DrawTelemetry g_drawTelemetry{};
-
 #endif
-
-    struct DrawTelemetryClipVert
-    {
-        Vector3 pos;
-        float u, v;
-        float d;
-        float lr, lg, lb;
-        float mu = 0.0f, mv = 0.0f;
-    };
-
-    inline DrawTelemetryClipVert lerpClipVert(const DrawTelemetryClipVert &a,
-                                              const DrawTelemetryClipVert &b,
-                                              float t)
-    {
-        DrawTelemetryClipVert r;
-        r.pos = a.pos + (b.pos - a.pos) * t;
-        r.u = a.u + (b.u - a.u) * t;
-        r.v = a.v + (b.v - a.v) * t;
-        r.d = a.d + (b.d - a.d) * t;
-        r.lr = a.lr + (b.lr - a.lr) * t;
-        r.lg = a.lg + (b.lg - a.lg) * t;
-        r.lb = a.lb + (b.lb - a.lb) * t;
-        r.mu = a.mu + (b.mu - a.mu) * t;
-        r.mv = a.mv + (b.mv - a.mv) * t;
-        return r;
-    }
 }

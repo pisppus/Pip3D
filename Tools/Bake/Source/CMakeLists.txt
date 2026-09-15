@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
+set(ENV{VSLANG} "1033")
 project(pip3d_bake CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -114,12 +115,12 @@ set_target_properties(bake PROPERTIES
 )
 
 if(MSVC)
-    target_compile_options(bake PRIVATE 
-        /utf-8 
-        /W3 
-        /permissive- 
-        /Zc:preprocessor 
-        /constexpr:steps2147483647 
+    target_compile_options(bake PRIVATE
+        /utf-8
+        /W3
+        /permissive-
+        /Zc:preprocessor
+        /constexpr:steps2147483647
         /constexpr:depth2048
     )
     target_link_options(bake PRIVATE "LINKER:/STACK:67108864" "LINKER:/MAP")

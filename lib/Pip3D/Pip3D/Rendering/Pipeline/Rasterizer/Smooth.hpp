@@ -35,7 +35,7 @@ namespace pip3D
         };
 
         template <typename Shader, int N_ATTRS>
-        __attribute__((noinline, hot)) IRAM_ATTR static void fillInterpolatedHalfN(
+        PIP3D_NOINLINE_HOT IRAM_ATTR static void fillInterpolatedHalfN(
             float xa0, float ya0,
             float xa1, float ya1,
             float xb0, float yb0,
@@ -221,10 +221,10 @@ namespace pip3D
         }
 
         template <typename Shader, int N_ATTRS>
-        PIP3D_FORCE_INLINE static void fillTriangleInterpolatedN(
-            int16_t x0, int16_t y0, float z0, const float *a0,
-            int16_t x1, int16_t y1, float z1, const float *a1,
-            int16_t x2, int16_t y2, float z2, const float *a2,
+        PIP3D_FORCE_INLINE static bool fillTriangleInterpolatedN(
+            float x0, float y0, float z0, const float *a0,
+            float x1, float y1, float z1, const float *a1,
+            float x2, float y2, float z2, const float *a2,
             const float *scales,
             const Shader &shader,
             uint16_t *PIP3D_RESTRICT frameBuffer,
@@ -235,11 +235,11 @@ namespace pip3D
             const int16_t height = config.height;
 
             if (unlikely(!frameBuffer || !zBuffer))
-                return;
+                return true;
 
             uint16_t *const PIP3D_RESTRICT zBufferData = zBuffer->data();
             if (unlikely(!zBufferData))
-                return;
+                return true;
 
             if (y0 > y1)
             {
@@ -264,17 +264,15 @@ namespace pip3D
             }
 
             if (y0 == y2)
-                return;
-            if (unlikely(x0 == x1 && x1 == x2))
-                return;
+                return false;
 
-            const float dx02 = static_cast<float>(x0 - x2);
-            const float dy12 = static_cast<float>(y1 - y2);
-            const float dy02 = static_cast<float>(y0 - y2);
-            const float dx12 = static_cast<float>(x1 - x2);
+            const float dx02 = x0 - x2;
+            const float dy12 = y1 - y2;
+            const float dy02 = y0 - y2;
+            const float dx12 = x1 - x2;
             const float det = dx02 * dy12 - dy02 * dx12;
             if (unlikely(fabsf(det) < 1e-6f))
-                return;
+                return false;
             const float invDet = FastMath::fastReciprocal(det);
 
             constexpr float depthScale = 16384.0f;
@@ -318,10 +316,10 @@ namespace pip3D
             }
             params.shader = shader;
 
-            const int startTop = fastCeilNonNeg(static_cast<float>(y0) - 0.5f);
-            const int endTopExclusive = fastCeilNonNeg(static_cast<float>(y1) - 0.5f);
-            const int startBottom = fastCeilNonNeg(static_cast<float>(y1) - 0.5f);
-            const int endBottomExclusive = fastCeilNonNeg(static_cast<float>(y2) - 0.5f);
+            const int startTop = fastCeilNonNeg(y0 - 0.5f);
+            const int endTopExclusive = fastCeilNonNeg(y1 - 0.5f);
+            const int startBottom = fastCeilNonNeg(y1 - 0.5f);
+            const int endBottomExclusive = fastCeilNonNeg(y2 - 0.5f);
 
             const int clampStartY_top = (startTop < 0) ? 0 : startTop;
             const int clampStartY_bottom = (startBottom < 0) ? 0 : startBottom;
@@ -329,7 +327,7 @@ namespace pip3D
             const bool runTop = (clampStartY_top < endTopExclusive) && (clampStartY_top < height);
             const bool runBottom = (clampStartY_bottom < endBottomExclusive) && (clampStartY_bottom < height);
             if (!runTop && !runBottom)
-                return;
+                return true;
 
             const float z2_scaled = z2 * depthScale;
             const float dz_dx_scaled = dz_dx * depthScale;
@@ -345,7 +343,7 @@ namespace pip3D
                 da_dy_scaled[i] = da_dy[i] * scales[i];
             }
 
-            const float x2f = static_cast<float>(x2);
+            const float x2f = x2;
             const float halfPixel = 0.5f;
 
             if (runTop)
@@ -362,10 +360,10 @@ namespace pip3D
                 }
 
                 fillInterpolatedHalfN<Shader, N_ATTRS>(
-                    static_cast<float>(x0), static_cast<float>(y0),
-                    static_cast<float>(x1), static_cast<float>(y1),
-                    static_cast<float>(x0), static_cast<float>(y0),
-                    static_cast<float>(x2), static_cast<float>(y2),
+                    x0, y0,
+                    x1, y1,
+                    x0, y0,
+                    x2, y2,
                     endTopExclusive,
                     static_cast<int32_t>(z_base),
                     a_base,
@@ -387,20 +385,25 @@ namespace pip3D
                 }
 
                 fillInterpolatedHalfN<Shader, N_ATTRS>(
-                    static_cast<float>(x1), static_cast<float>(y1),
-                    static_cast<float>(x2), static_cast<float>(y2),
-                    static_cast<float>(x0), static_cast<float>(y0),
-                    static_cast<float>(x2), static_cast<float>(y2),
+                    x1, y1,
+                    x2, y2,
+                    x0, y0,
+                    x2, y2,
                     endBottomExclusive,
                     static_cast<int32_t>(z_base),
                     a_base,
                     clampStartY_bottom,
                     params);
             }
+            return true;
         }
 
         struct SmoothShader
         {
+            uint32_t fogRb = 0, fogG = 0;
+            uint16_t fogColor565 = 0;
+            bool fogEnabled = false;
+
             PIP3D_FORCE_INLINE uint16_t operator()(
                 const int32_t *PIP3D_RESTRICT attrs, int32_t bayer) const noexcept
             {
@@ -421,16 +424,19 @@ namespace pip3D
                 else if (b > 31)
                     b = 31;
 
-                return static_cast<uint16_t>((static_cast<uint32_t>(r) << 11) |
-                                             (static_cast<uint32_t>(g) << 5) |
-                                             static_cast<uint32_t>(b));
+                uint16_t out = static_cast<uint16_t>((static_cast<uint32_t>(r) << 11) |
+                                                     (static_cast<uint32_t>(g) << 5) |
+                                                     static_cast<uint32_t>(b));
+                if (fogEnabled)
+                    out = foggedColor(out, static_cast<uint16_t>(attrs[3]), fogRb, fogG, fogColor565);
+                return out;
             }
         };
 
-        PIP3D_FORCE_INLINE static void IRAM_ATTR fillTriangleSmooth(
-            int16_t x0, int16_t y0, float z0,
-            int16_t x1, int16_t y1, float z1,
-            int16_t x2, int16_t y2, float z2,
+        PIP3D_FORCE_INLINE static bool IRAM_ATTR fillTriangleSmooth(
+            float x0, float y0, float z0,
+            float x1, float y1, float z1,
+            float x2, float y2, float z2,
             float r0, float g0, float b0,
             float r1, float g1, float b1,
             float r2, float g2, float b2,
@@ -438,14 +444,19 @@ namespace pip3D
             ZBuffer *PIP3D_RESTRICT zBuffer,
             const DisplayConfig &config) noexcept
         {
-            constexpr int N = 3;
-            const float a0[N] = {r0, g0, b0};
-            const float a1[N] = {r1, g1, b1};
-            const float a2[N] = {r2, g2, b2};
-            constexpr float scales[N] = {31.0f * 1024.0f, 63.0f * 1024.0f, 31.0f * 1024.0f};
+            constexpr int N = 4;
+            const float a0[N] = {r0, g0, b0, z0};
+            const float a1[N] = {r1, g1, b1, z1};
+            const float a2[N] = {r2, g2, b2, z2};
+            constexpr float scales[N] = {31.0f * 1024.0f, 63.0f * 1024.0f, 31.0f * 1024.0f, 1.0f};
 
             SmoothShader shader;
-            fillTriangleInterpolatedN<SmoothShader, N>(
+            const auto &fog = g_fogState;
+            shader.fogEnabled = fog.enabled;
+            shader.fogRb = fog.color_rb;
+            shader.fogG = fog.color_g;
+            shader.fogColor565 = fog.color;
+            return fillTriangleInterpolatedN<SmoothShader, N>(
                 x0, y0, z0, a0,
                 x1, y1, z1, a1,
                 x2, y2, z2, a2,
@@ -453,6 +464,8 @@ namespace pip3D
                 shader,
                 frameBuffer, zBuffer, config);
         }
+
+        static constexpr float PHONG_ATTR_FIXED_SCALE = 65536.0f;
 
         struct PhongShader
         {
@@ -462,9 +475,8 @@ namespace pip3D
             int lightCount;
             float baseR, baseG, baseB;
 
-            float fogR = 0.0f, fogG = 0.0f, fogB = 0.0f;
-            float fogWorldNear = 0.0f;
-            float fogWorldScale = 0.0f;
+            uint32_t fogRb = 0, fogG = 0;
+            uint16_t fogColor565 = 0;
             bool fogEnabled = false;
 
             float hemiScale = 0.22f;
@@ -475,7 +487,7 @@ namespace pip3D
             bool enableSpec = false;
             bool enableRim = false;
 
-            __attribute__((noinline, hot)) IRAM_ATTR uint16_t operator()(
+            PIP3D_NOINLINE_HOT IRAM_ATTR uint16_t operator()(
                 const int32_t *PIP3D_RESTRICT attrs, int32_t bayer) const noexcept
             {
 
@@ -509,7 +521,6 @@ namespace pip3D
                 const float vdx = vdx_raw * invVLen;
                 const float vdy = vdy_raw * invVLen;
                 const float vdz = vdz_raw * invVLen;
-                const float dist = vLenSq * invVLen;
 
                 const float NdotV_raw = nx * vdx + ny * vdy + nz * vdz;
 
@@ -636,28 +647,21 @@ namespace pip3D
 
                 Shading::toneMap3(r, g, b);
 
-                if (fogEnabled)
-                {
-                    float fogFactor = (dist - fogWorldNear) * fogWorldScale;
-                    fogFactor = clamp(fogFactor, 0.0f, 1.0f);
-                    const float invFog = 1.0f - fogFactor;
-                    r = r * invFog + fogR * fogFactor;
-                    g = g * invFog + fogG * fogFactor;
-                    b = b * invFog + fogB * fogFactor;
-                }
-
                 const int32_t ir = clamp((static_cast<int32_t>(r * 31744.0f) + bayer) >> 10, 0, 31);
                 const int32_t ig = clamp((static_cast<int32_t>(g * 64512.0f) + bayer) >> 10, 0, 63);
                 const int32_t ib = clamp((static_cast<int32_t>(b * 31744.0f) + bayer) >> 10, 0, 31);
 
-                return static_cast<uint16_t>((ir << 11) | (ig << 5) | ib);
+                uint16_t out = static_cast<uint16_t>((ir << 11) | (ig << 5) | ib);
+                if (fogEnabled)
+                    out = foggedColor(out, static_cast<uint16_t>(attrs[7]), fogRb, fogG, fogColor565);
+                return out;
             }
         };
 
-        PIP3D_FORCE_INLINE static void IRAM_ATTR fillTrianglePhong(
-            int16_t x0, int16_t y0, float z0,
-            int16_t x1, int16_t y1, float z1,
-            int16_t x2, int16_t y2, float z2,
+        PIP3D_FORCE_INLINE static bool IRAM_ATTR fillTrianglePhong(
+            float x0, float y0, float z0,
+            float x1, float y1, float z1,
+            float x2, float y2, float z2,
             float px0, float py0, float pz0,
             float px1, float py1, float pz1,
             float px2, float py2, float pz2,
@@ -681,7 +685,7 @@ namespace pip3D
             if (enableSpec)
                 Shading::ensureSpecLUT();
 
-            constexpr int N = 7;
+            constexpr int N = 8;
 
             const float invW0 = (d0 > 1e-4f) ? FastMath::fastReciprocal(d0) : 1.0f;
             const float invW1 = (d1 > 1e-4f) ? FastMath::fastReciprocal(d1) : 1.0f;
@@ -690,21 +694,20 @@ namespace pip3D
             const float a0[N] = {
                 px0 * invW0, py0 * invW0, pz0 * invW0,
                 nx0 * invW0, ny0 * invW0, nz0 * invW0,
-                invW0};
+                invW0, z0};
             const float a1[N] = {
                 px1 * invW1, py1 * invW1, pz1 * invW1,
                 nx1 * invW1, ny1 * invW1, nz1 * invW1,
-                invW1};
+                invW1, z1};
             const float a2[N] = {
                 px2 * invW2, py2 * invW2, pz2 * invW2,
                 nx2 * invW2, ny2 * invW2, nz2 * invW2,
-                invW2};
+                invW2, z2};
 
-            constexpr float normalScale = 65536.0f;
             constexpr float scales[N] = {
-                normalScale, normalScale, normalScale,
-                normalScale, normalScale, normalScale,
-                normalScale};
+                PHONG_ATTR_FIXED_SCALE, PHONG_ATTR_FIXED_SCALE, PHONG_ATTR_FIXED_SCALE,
+                PHONG_ATTR_FIXED_SCALE, PHONG_ATTR_FIXED_SCALE, PHONG_ATTR_FIXED_SCALE,
+                PHONG_ATTR_FIXED_SCALE, 1.0f};
 
             PhongShader shader;
             shader.camPos = camPos;
@@ -716,15 +719,9 @@ namespace pip3D
 
             const auto &fog = g_fogState;
             shader.fogEnabled = fog.enabled;
-            if (fog.enabled)
-            {
-                const FogColorF fc = fogColorFloat();
-                shader.fogR = fc.r;
-                shader.fogG = fc.g;
-                shader.fogB = fc.b;
-                shader.fogWorldNear = fog.worldNear;
-                shader.fogWorldScale = fog.worldScale;
-            }
+            shader.fogRb = fog.color_rb;
+            shader.fogG = fog.color_g;
+            shader.fogColor565 = fog.color;
 
             shader.hemiScale = sp.hemiScale;
             shader.ambientBase = sp.ambientBase;
@@ -736,7 +733,7 @@ namespace pip3D
             shader.enableSpec = enableSpec;
             shader.enableRim = enableRim;
 
-            fillTriangleInterpolatedN<PhongShader, N>(
+            return fillTriangleInterpolatedN<PhongShader, N>(
                 x0, y0, z0, a0,
                 x1, y1, z1, a1,
                 x2, y2, z2, a2,

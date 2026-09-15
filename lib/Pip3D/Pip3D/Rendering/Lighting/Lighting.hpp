@@ -45,7 +45,7 @@ namespace pip3D
             direction.normalize();
         }
 
-        __attribute__((always_inline)) inline void warmCache() const
+        PIP3D_ALWAYS_INLINE inline void warmCache() const
         {
             if (unlikely(colorCacheDirty))
             {
@@ -54,7 +54,7 @@ namespace pip3D
             }
         }
 
-        __attribute__((always_inline)) inline void setRange(float r)
+        PIP3D_ALWAYS_INLINE inline void setRange(float r)
         {
             range = r;
             if (r > 0.0f)
