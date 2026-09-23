@@ -417,19 +417,21 @@ namespace pip3D
             const float offsetY = shadowSettings.shadowOffset;
             const float depthBias = 1.0f;
 
-            const uint16_t vertexCount = shadowMesh->numVertices();
-            const uint16_t faceCount = shadowMesh->numFaces();
+            const uint32_t vertexCount = shadowMesh->numVertices();
             const float viewportHalfWidth = static_cast<float>(viewport.width) * 0.5f;
             const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
 
-            const Vertex *PIP3D_RESTRICT vbaseS = shadowMesh->vertexData();
+            if (vertexCount == 0 || vertexCount > 0xFFFFu)
+            {
+                backfaceCullingEnabled = oldCulling;
+                return;
+            }
 
             Vector3 *PIP3D_RESTRICT worldVerts = nullptr;
-            Vector3 *PIP3D_RESTRICT localVerts = nullptr;
 
             if (drawCache)
             {
-                if (!drawCache->ensureCapacity(vertexCount))
+                if (!drawCache->ensureCapacity(static_cast<uint16_t>(vertexCount), 0))
                 {
                     backfaceCullingEnabled = oldCulling;
                     return;
@@ -439,27 +441,20 @@ namespace pip3D
 
                 if (!drawCache->worldVertsValid(instanceVersion))
                 {
-
-                    for (uint16_t vi = 0; vi < vertexCount; ++vi)
-                    {
-                        const Vector3 local = shadowMesh->decodePosition(vbaseS[vi]);
-                        worldVerts[vi] = worldTransform.transformNoDiv(local);
-                    }
-
+                    uint32_t vi = 0;
+                    shadowMesh->forEachPosition([&](const Vector3 &local)
+                                                { worldVerts[vi++] = worldTransform.transformNoDiv(local); });
                     drawCache->commitWorldVerts(instanceVersion);
                 }
             }
             else
             {
-
-                localVerts = static_cast<Vector3 *>(
-                    alloca(vertexCount * sizeof(Vector3)));
                 worldVerts = static_cast<Vector3 *>(
                     alloca(vertexCount * sizeof(Vector3)));
-                for (uint16_t vi = 0; vi < vertexCount; ++vi)
                 {
-                    localVerts[vi] = shadowMesh->decodePosition(vbaseS[vi]);
-                    worldVerts[vi] = worldTransform.transformNoDiv(localVerts[vi]);
+                    uint32_t vi = 0;
+                    shadowMesh->forEachPosition([&](const Vector3 &local)
+                                                { worldVerts[vi++] = worldTransform.transformNoDiv(local); });
                 }
             }
 
@@ -529,19 +524,18 @@ namespace pip3D
             const float pnZ = plane.normal.z;
             const float pd = plane.d;
 
-            const Face *PIP3D_RESTRICT fbaseS = shadowMesh->faceData();
-            for (uint16_t i = 0; i < faceCount; ++i)
-            {
-                const Face &face = fbaseS[i];
-                const Vector3 v0 = worldVerts[face.v0];
-                const Vector3 v1 = worldVerts[face.v1];
-                const Vector3 v2 = worldVerts[face.v2];
+            shadowMesh->forEachFace([&](uint32_t, uint32_t pi0, uint32_t pi1, uint32_t pi2,
+                                        uint32_t, uint32_t, uint32_t)
+                                    {
+                const Vector3 v0 = worldVerts[pi0];
+                const Vector3 v1 = worldVerts[pi1];
+                const Vector3 v2 = worldVerts[pi2];
 
                 const float d0 = pnX * v0.x + pnY * v0.y + pnZ * v0.z + pd;
                 const float d1 = pnX * v1.x + pnY * v1.y + pnZ * v1.z + pd;
                 const float d2 = pnX * v2.x + pnY * v2.y + pnZ * v2.z + pd;
                 if (d0 <= 0.0f && d1 <= 0.0f && d2 <= 0.0f)
-                    continue;
+                    return;
 
                 const Vector3 n = (v1 - v0).cross(v2 - v0);
                 Vector3 L;
@@ -555,18 +549,17 @@ namespace pip3D
                 }
                 const float nl = n.dot(L);
                 if (nl <= 0.0f)
-                    continue;
+                    return;
 
-                const Vector3 sv0 = shadowVertsCache[face.v0];
-                const Vector3 sv1 = shadowVertsCache[face.v1];
-                const Vector3 sv2 = shadowVertsCache[face.v2];
+                const Vector3 sv0 = shadowVertsCache[pi0];
+                const Vector3 sv1 = shadowVertsCache[pi1];
+                const Vector3 sv2 = shadowVertsCache[pi2];
 
                 clipAndRenderShadowTriangle(sv0, sv1, sv2,
                                             camera, viewport, viewProjMatrix,
                                             viewportHalfWidth, viewportHalfHeight,
                                             bandTop, bandBottom, shadowColor, baseAlpha,
-                                            frameBuffer, zBuffer, framebufferConfig, depthBias);
-            }
+                                            frameBuffer, zBuffer, framebufferConfig, depthBias); });
 
             backfaceCullingEnabled = oldCulling;
         }

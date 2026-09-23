@@ -241,75 +241,47 @@ namespace pip3D
         }
     }
 
-    template <typename EmitTri>
-    PIP3D_HOT static bool clipAndDrawNear(const MeshRenderer::ClipVertLM inVerts[3],
-                                          float nearD,
-                                          const Viewport &viewport,
-                                          const Matrix4x4 &viewProjMatrix,
-                                          FrameBuffer &framebuffer,
-                                          EmitTri &&emitTriangle)
+    MeshInstance *Renderer::acquirePlacementInstance()
     {
-        MeshRenderer::ClipVertLM clipped[4];
-        int outCount = 0;
+        if (!placementInstance_)
+            placementInstance_ = new MeshInstance();
+        return placementInstance_;
+    }
 
-        for (int edge = 0; edge < 3; ++edge)
+    void Renderer::drawPlacements(const PlacementSet &set)
+    {
+        if (!set.placements || set.placementCount == 0 || !set.props || set.propCount == 0)
+            return;
+
+        MeshInstance *inst = acquirePlacementInstance();
+
+        const float scale = set.unitScale;
+        const float yawToRad = kTwoPi * (1.0f / 256.0f);
+
+        for (uint32_t i = 0; i < set.placementCount; ++i)
         {
-            const MeshRenderer::ClipVertLM &P0 = inVerts[edge];
-            const MeshRenderer::ClipVertLM &P1 = inVerts[(edge + 1) % 3];
-            const float d0 = P0.d;
-            const float d1 = P1.d;
-            const bool in0 = d0 >= nearD;
-            const bool in1 = d1 >= nearD;
-            if (in0 && in1)
-            {
-                clipped[outCount++] = P1;
-            }
-            else if (in0 != in1)
-            {
-                const float denom = d1 - d0;
-                float t = (fabsf(denom) < 1e-6f) ? 0.0f : (nearD - d0) / denom;
-                t = clamp(t, 0.0f, 1.0f);
-                const MeshRenderer::ClipVertLM ip = lerpClipVertLM(P0, P1, t);
-                clipped[outCount++] = ip;
-                if (!in0)
-                    clipped[outCount++] = P1;
-            }
+            const Placement &pl = set.placements[i];
+            if (!(pl.flags & kPlacementVisible) || pl.propIndex >= set.propCount)
+                continue;
+
+            Mesh *mesh = set.props[pl.propIndex];
+            if (!mesh)
+                continue;
+
+            inst->setMesh(mesh);
+            inst->setPosition(Vector3(static_cast<float>(pl.x) * scale,
+                                      static_cast<float>(pl.y) * scale,
+                                      static_cast<float>(pl.z) * scale));
+            inst->setRotation(Quaternion::fromAxisAngle(Vector3(0.0f, 1.0f, 0.0f),
+                                                        static_cast<float>(pl.yaw) * yawToRad));
+            const float propScale = (set.scaleProps && mesh->getQScale() > 0.0f)
+                                        ? scale / mesh->getQScale()
+                                        : 1.0f;
+            inst->setScale(Vector3(propScale, propScale, propScale));
+            inst->setColor(pl.color);
+
+            drawMeshInstanceInternal(inst, true);
         }
-
-        if (outCount < 3)
-            return false;
-
-        const float viewportHalfWidth = static_cast<float>(viewport.width) * 0.5f;
-        const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
-        const int16_t bandTop = g_bandOffsetY;
-        const int16_t bandBottom = static_cast<int16_t>(bandTop + g_bandHeight);
-        const float viewportWidth = static_cast<float>(viewport.width);
-
-        Vector3 proj[4];
-        for (int i = 0; i < outCount; ++i)
-            proj[i] = CameraController::project(clipped[i].pos, viewProjMatrix,
-                                                viewportHalfWidth, viewportHalfHeight, 0, 0);
-
-        const auto passesBand = [&](int a, int b, int c) -> bool
-        {
-            const Vector3 &p0 = proj[a];
-            const Vector3 &p1 = proj[b];
-            const Vector3 &p2 = proj[c];
-            const float minY = (p0.y < p1.y) ? ((p0.y < p2.y) ? p0.y : p2.y) : ((p1.y < p2.y) ? p1.y : p2.y);
-            const float maxY = (p0.y > p1.y) ? ((p0.y > p2.y) ? p0.y : p2.y) : ((p1.y > p2.y) ? p1.y : p2.y);
-            if (maxY < bandTop || minY >= bandBottom)
-                return false;
-            const float minX = (p0.x < p1.x) ? ((p0.x < p2.x) ? p0.x : p2.x) : ((p1.x < p2.x) ? p1.x : p2.x);
-            const float maxX = (p0.x > p1.x) ? ((p0.x > p2.x) ? p0.x : p2.x) : ((p1.x > p2.x) ? p1.x : p2.x);
-            return !(maxX < 0.0f || minX >= viewportWidth);
-        };
-
-        bool drew = false;
-        if (passesBand(0, 1, 2))
-            drew = emitTriangle(proj, clipped, 0, 1, 2);
-        if (outCount == 4 && passesBand(0, 2, 3))
-            drew |= emitTriangle(proj, clipped, 0, 2, 3);
-        return drew;
     }
 
     IRAM_ATTR void Renderer::drawMeshInstanceInternal(MeshInstance *instance, bool performFrustumCull)
@@ -388,15 +360,7 @@ namespace pip3D
         cache.reset(frameStamp);
 
         if (chunkCount == 0)
-        {
-            if (mesh->numFaces() > 0xFFFFu || mesh->numVertices() > 0xFFFFu)
-                return false;
-            if (!cache.ensure(1))
-                return false;
-            cache.records[0] = {0, 0, static_cast<uint8_t>(SCREEN_BAND_COUNT - 1)};
-            cache.visibleCount = 1;
             return true;
-        }
 
         if (!cache.ensure(static_cast<uint16_t>(chunkCount)))
             return false;
@@ -425,6 +389,39 @@ namespace pip3D
             if (!frustum.testAABB(worldMin, worldMax))
                 continue;
 
+            const float radiusSq = rX * rX + rY * rY + rZ * rZ;
+            const float chunkRadius = (radiusSq > 0.0f)
+                                          ? radiusSq * FastMath::fastInvSqrt(radiusSq)
+                                          : 0.0f;
+
+            if (chunk.coneSin > 0)
+            {
+                const float toCamX = camPos.x - worldCenter.x;
+                const float toCamY = camPos.y - worldCenter.y;
+                const float toCamZ = camPos.z - worldCenter.z;
+                const float distSq = toCamX * toCamX + toCamY * toCamY + toCamZ * toCamZ;
+                if (distSq > 4.0f * radiusSq)
+                {
+                    const Vector3 axisL = PackedNormal(chunk.coneNormal).get();
+                    float axW = worldTransform.m[0] * axisL.x + worldTransform.m[4] * axisL.y + worldTransform.m[8] * axisL.z;
+                    float ayW = worldTransform.m[1] * axisL.x + worldTransform.m[5] * axisL.y + worldTransform.m[9] * axisL.z;
+                    float azW = worldTransform.m[2] * axisL.x + worldTransform.m[6] * axisL.y + worldTransform.m[10] * axisL.z;
+                    const float axSq = axW * axW + ayW * ayW + azW * azW;
+                    if (axSq > 1e-16f)
+                    {
+                        const float invDist = FastMath::fastInvSqrt(distSq);
+                        const float invAx = FastMath::fastInvSqrt(axSq);
+                        const float dot = (axW * invAx) * (toCamX * invDist) +
+                                          (ayW * invAx) * (toCamY * invDist) +
+                                          (azW * invAx) * (toCamZ * invDist);
+
+                        if (dot <= -(static_cast<float>(chunk.coneSin) * (1.0f / 255.0f) +
+                                     chunkRadius * invDist))
+                            continue;
+                    }
+                }
+            }
+
             const float chunkEyeZ = (worldCenter.x - camPos.x) * camFwd.x +
                                     (worldCenter.y - camPos.y) * camFwd.y +
                                     (worldCenter.z - camPos.z) * camFwd.z;
@@ -434,8 +431,10 @@ namespace pip3D
 
             if (chunkEyeZ > nearPlane)
             {
-                const float chunkRadius = sqrtf(rX * rX + rY * rY + rZ * rZ);
-                const float chunkRadiusPx = chunkRadius * projScale * FastMath::fastReciprocal(chunkEyeZ);
+                const float chunkEyeZNear = (chunkEyeZ - chunkRadius) > nearPlane
+                                                ? (chunkEyeZ - chunkRadius)
+                                                : nearPlane;
+                const float chunkRadiusPx = chunkRadius * projScale * FastMath::fastReciprocal(chunkEyeZNear);
                 const Vector3 scrCenter = CameraController::project(worldCenter, viewProjMatrix,
                                                                     viewportHalfWidth, viewportHalfHeight, 0, 0);
 
@@ -499,11 +498,19 @@ namespace pip3D
             Vector3 *worldVerts;
             Vector3 *screenVerts;
             Vector3 *worldNormals;
-            const Face16 *fbase16;
-            const Face32 *fbase32;
-            bool is32;
+            const Face *fbase;
+            const uint8_t *attrBase;
+            uint32_t attrRecSize;
+            const MeshChunk *chunk;
+            const uint8_t *posBase;
+            uint32_t posRecSize;
+            ChunkPosDecode posDecode;
+            uint32_t winPosBase;
+            uint32_t winNormBase;
             uint32_t subMeshCount;
             bool hasSubMeshes;
+            uint32_t faceStride;
+            float nearZWThreshold;
 
             ShadingMode effectiveMode;
             bool effectiveTextured;
@@ -537,51 +544,30 @@ namespace pip3D
         };
 
         PIP3D_HOT PIP3D_FORCE_INLINE static void drawMeshFace(FaceDrawCtx &ctx,
-                                                              const Vertex *__restrict__ chunkVBase,
                                                               const ProbeCache *__restrict__ probes,
                                                               const uint32_t faceIdx) noexcept
         {
-            uint32_t vIdx0, vIdx1, vIdx2;
-            if (likely(!ctx.is32))
-            {
-                vIdx0 = ctx.fbase16[faceIdx].v0;
-                vIdx1 = ctx.fbase16[faceIdx].v1;
-                vIdx2 = ctx.fbase16[faceIdx].v2;
-            }
-            else
-            {
-                vIdx0 = ctx.fbase32[faceIdx].v0;
-                vIdx1 = ctx.fbase32[faceIdx].v1;
-                vIdx2 = ctx.fbase32[faceIdx].v2;
-            }
+            const uint8_t *PIP3D_RESTRICT frec =
+                reinterpret_cast<const uint8_t *>(ctx.fbase) +
+                static_cast<size_t>(faceIdx) * ctx.faceStride;
+            const uint32_t pi0 = frec[0], pi1 = frec[1], pi2 = frec[2];
 
             const Vector3 &camPos = ctx.camPos;
             const Vector3 &camFwd = ctx.camFwd;
             Vector3 v0, v1, v2;
             if (likely(ctx.worldVerts))
             {
-                v0 = ctx.worldVerts[vIdx0];
-                v1 = ctx.worldVerts[vIdx1];
-                v2 = ctx.worldVerts[vIdx2];
+                v0 = ctx.worldVerts[ctx.winPosBase + pi0];
+                v1 = ctx.worldVerts[ctx.winPosBase + pi1];
+                v2 = ctx.worldVerts[ctx.winPosBase + pi2];
             }
             else
             {
-                v0 = ctx.worldTransform.transformNoDiv(ctx.mesh->decodePosition(chunkVBase[vIdx0]));
-                v1 = ctx.worldTransform.transformNoDiv(ctx.mesh->decodePosition(chunkVBase[vIdx1]));
-                v2 = ctx.worldTransform.transformNoDiv(ctx.mesh->decodePosition(chunkVBase[vIdx2]));
+                const MeshChunk &chunk = *ctx.chunk;
+                v0 = ctx.worldTransform.transformNoDiv(Mesh::chunkPosition(chunk, ctx.posDecode, ctx.posBase + pi0 * ctx.posRecSize));
+                v1 = ctx.worldTransform.transformNoDiv(Mesh::chunkPosition(chunk, ctx.posDecode, ctx.posBase + pi1 * ctx.posRecSize));
+                v2 = ctx.worldTransform.transformNoDiv(Mesh::chunkPosition(chunk, ctx.posDecode, ctx.posBase + pi2 * ctx.posRecSize));
             }
-
-            const float d0 = (v0.x - camPos.x) * camFwd.x + (v0.y - camPos.y) * camFwd.y + (v0.z - camPos.z) * camFwd.z;
-            const float d1 = (v1.x - camPos.x) * camFwd.x + (v1.y - camPos.y) * camFwd.y + (v1.z - camPos.z) * camFwd.z;
-            const float d2 = (v2.x - camPos.x) * camFwd.x + (v2.y - camPos.y) * camFwd.y + (v2.z - camPos.z) * camFwd.z;
-
-            if (unlikely(d0 < ctx.nearClip && d1 < ctx.nearClip && d2 < ctx.nearClip))
-            {
-                ++ctx.statsCulled;
-                return;
-            }
-
-            const bool partiallyClipped = unlikely(d0 < ctx.nearClip || d1 < ctx.nearClip || d2 < ctx.nearClip);
 
             if (ctx.doBackfaceCull)
             {
@@ -603,9 +589,9 @@ namespace pip3D
             Vector3 p0, p1, p2;
             if (likely(ctx.screenVerts))
             {
-                p0 = ctx.screenVerts[vIdx0];
-                p1 = ctx.screenVerts[vIdx1];
-                p2 = ctx.screenVerts[vIdx2];
+                p0 = ctx.screenVerts[ctx.winPosBase + pi0];
+                p1 = ctx.screenVerts[ctx.winPosBase + pi1];
+                p2 = ctx.screenVerts[ctx.winPosBase + pi2];
             }
             else
             {
@@ -613,6 +599,17 @@ namespace pip3D
                 p1 = CameraController::project(v1, ctx.viewProjMatrix, ctx.viewportHalfWidth, ctx.viewportHalfHeight, 0, 0);
                 p2 = CameraController::project(v2, ctx.viewProjMatrix, ctx.viewportHalfWidth, ctx.viewportHalfHeight, 0, 0);
             }
+
+            const float nearZT = ctx.nearZWThreshold;
+            const bool behind0 = (p0.z <= 0.0f) | (p0.z > nearZT);
+            const bool behind1 = (p1.z <= 0.0f) | (p1.z > nearZT);
+            const bool behind2 = (p2.z <= 0.0f) | (p2.z > nearZT);
+            if (unlikely(behind0 & behind1 & behind2))
+            {
+                ++ctx.statsCulled;
+                return;
+            }
+            const bool partiallyClipped = behind0 | behind1 | behind2;
 
             if (!partiallyClipped)
             {
@@ -627,6 +624,15 @@ namespace pip3D
             }
 
             ++ctx.statsTotal;
+
+            float d0 = 0.0f, d1 = 0.0f, d2 = 0.0f;
+            if (partiallyClipped || ctx.effectiveTextured || ctx.lmActive ||
+                ctx.effectiveMode == SHADING_PHONG)
+            {
+                d0 = (v0.x - camPos.x) * camFwd.x + (v0.y - camPos.y) * camFwd.y + (v0.z - camPos.z) * camFwd.z;
+                d1 = (v1.x - camPos.x) * camFwd.x + (v1.y - camPos.y) * camFwd.y + (v1.z - camPos.z) * camFwd.z;
+                d2 = (v2.x - camPos.x) * camFwd.x + (v2.y - camPos.y) * camFwd.y + (v2.z - camPos.z) * camFwd.z;
+            }
 
             float faceR = ctx.instR, faceG = ctx.instG, faceB = ctx.instB;
             if (ctx.hasSubMeshes)
@@ -646,9 +652,17 @@ namespace pip3D
 
             if (ctx.effectiveTextured)
             {
-                const Vertex &vert0 = chunkVBase[vIdx0];
-                const Vertex &vert1 = chunkVBase[vIdx1];
-                const Vertex &vert2 = chunkVBase[vIdx2];
+                float tu0, tv0, tu1, tv1, tu2, tv2;
+                if (ctx.mesh->hasUV())
+                {
+                    ctx.mesh->attrUV(ctx.attrBase + frec[3] * ctx.attrRecSize, tu0, tv0);
+                    ctx.mesh->attrUV(ctx.attrBase + frec[4] * ctx.attrRecSize, tu1, tv1);
+                    ctx.mesh->attrUV(ctx.attrBase + frec[5] * ctx.attrRecSize, tu2, tv2);
+                }
+                else
+                {
+                    tu0 = tv0 = tu1 = tv1 = tu2 = tv2 = 0.0f;
+                }
 
                 if (ctx.lmActive)
                 {
@@ -663,9 +677,9 @@ namespace pip3D
                             p0.x, p0.y - ctx.bandTopF, p0.z,
                             p1.x, p1.y - ctx.bandTopF, p1.z,
                             p2.x, p2.y - ctx.bandTopF, p2.z,
-                            vert0.tu, vert0.tv,
-                            vert1.tu, vert1.tv,
-                            vert2.tu, vert2.tv,
+                            tu0, tv0,
+                            tu1, tv1,
+                            tu2, tv2,
                             mu0, mv0, mu1, mv1, mu2, mv2,
                             d0, d1, d2,
                             *ctx.meshTexture, *ctx.lmAtlas,
@@ -674,26 +688,26 @@ namespace pip3D
                     else
                     {
                         const MeshRenderer::ClipVertLM cv[3] = {
-                            {v0, vert0.tu, vert0.tv, d0, 0, 0, 0, mu0, mv0},
-                            {v1, vert1.tu, vert1.tv, d1, 0, 0, 0, mu1, mv1},
-                            {v2, vert2.tu, vert2.tv, d2, 0, 0, 0, mu2, mv2}};
-                        drew = clipAndDrawNear(cv, ctx.nearClip, ctx.viewport, ctx.viewProjMatrix, ctx.framebuffer,
-                                               [&](const Vector3 *proj, const MeshRenderer::ClipVertLM *cvp, int a, int b, int c) -> bool
-                                               {
-                                                   return Rasterizer::fillTriangleTexturedLM(
-                                                       proj[a].x, proj[a].y - ctx.bandTopF, proj[a].z,
-                                                       proj[b].x, proj[b].y - ctx.bandTopF, proj[b].z,
-                                                       proj[c].x, proj[c].y - ctx.bandTopF, proj[c].z,
-                                                       cvp[a].u, cvp[a].v,
-                                                       cvp[b].u, cvp[b].v,
-                                                       cvp[c].u, cvp[c].v,
-                                                       cvp[a].mu, cvp[a].mv,
-                                                       cvp[b].mu, cvp[b].mv,
-                                                       cvp[c].mu, cvp[c].mv,
-                                                       cvp[a].d, cvp[b].d, cvp[c].d,
-                                                       *ctx.meshTexture, *ctx.lmAtlas,
-                                                       ctx.frameBuffer, ctx.zBuffer, ctx.fbConfig);
-                                               });
+                            {v0, tu0, tv0, d0, 0, 0, 0, mu0, mv0},
+                            {v1, tu1, tv1, d1, 0, 0, 0, mu1, mv1},
+                            {v2, tu2, tv2, d2, 0, 0, 0, mu2, mv2}};
+                        drew = MeshRenderer::clipAndDrawNear(cv, ctx.nearClip, ctx.viewport, ctx.viewProjMatrix, ctx.framebuffer,
+                                                             [&](const Vector3 *proj, const MeshRenderer::ClipVertLM *cvp, int a, int b, int c) -> bool
+                                                             {
+                                                                 return Rasterizer::fillTriangleTexturedLM(
+                                                                     proj[a].x, proj[a].y - ctx.bandTopF, proj[a].z,
+                                                                     proj[b].x, proj[b].y - ctx.bandTopF, proj[b].z,
+                                                                     proj[c].x, proj[c].y - ctx.bandTopF, proj[c].z,
+                                                                     cvp[a].u, cvp[a].v,
+                                                                     cvp[b].u, cvp[b].v,
+                                                                     cvp[c].u, cvp[c].v,
+                                                                     cvp[a].mu, cvp[a].mv,
+                                                                     cvp[b].mu, cvp[b].mv,
+                                                                     cvp[c].mu, cvp[c].mv,
+                                                                     cvp[a].d, cvp[b].d, cvp[c].d,
+                                                                     *ctx.meshTexture, *ctx.lmAtlas,
+                                                                     ctx.frameBuffer, ctx.zBuffer, ctx.fbConfig);
+                                                             });
                     }
                     if (unlikely(!drew))
                         ++ctx.statsCulled;
@@ -706,18 +720,36 @@ namespace pip3D
 
                 if (ctx.effectiveMode == SHADING_GOURAUD)
                 {
-                    Vector3 n0 = ctx.worldNormals ? ctx.worldNormals[vIdx0] : vert0.normal.get();
-                    Vector3 n1 = ctx.worldNormals ? ctx.worldNormals[vIdx1] : vert1.normal.get();
-                    Vector3 n2 = ctx.worldNormals ? ctx.worldNormals[vIdx2] : vert2.normal.get();
+                    Vector3 n0, n1, n2;
+                    if (likely(ctx.worldNormals))
+                    {
+                        n0 = ctx.worldNormals[ctx.winNormBase + frec[3]];
+                        n1 = ctx.worldNormals[ctx.winNormBase + frec[4]];
+                        n2 = ctx.worldNormals[ctx.winNormBase + frec[5]];
+                    }
+                    else if (ctx.mesh->hasNormals())
+                    {
+                        n0 = ctx.mesh->attrNormal(ctx.attrBase + frec[3] * ctx.attrRecSize);
+                        n1 = ctx.mesh->attrNormal(ctx.attrBase + frec[4] * ctx.attrRecSize);
+                        n2 = ctx.mesh->attrNormal(ctx.attrBase + frec[5] * ctx.attrRecSize);
+                    }
+                    else
+                    {
+                        Vector3 fn = (v1 - v0).cross(v2 - v0);
+                        const float len = sqrtf(fn.x * fn.x + fn.y * fn.y + fn.z * fn.z);
+                        if (len > 1e-8f)
+                            fn = fn * (1.0f / len);
+                        n0 = n1 = n2 = fn;
+                    }
 
                     if (ctx.useProbes)
                     {
                         ProbeLightSample p0, p1, p2;
                         if (probes)
                         {
-                            probes->sample(vIdx0, p0);
-                            probes->sample(vIdx1, p1);
-                            probes->sample(vIdx2, p2);
+                            probes->sample(ctx.winPosBase + pi0, p0);
+                            probes->sample(ctx.winPosBase + pi1, p1);
+                            probes->sample(ctx.winPosBase + pi2, p2);
                         }
                         else
                         {
@@ -777,9 +809,9 @@ namespace pip3D
                         p0.x, p0.y - ctx.bandTopF, p0.z,
                         p1.x, p1.y - ctx.bandTopF, p1.z,
                         p2.x, p2.y - ctx.bandTopF, p2.z,
-                        vert0.tu, vert0.tv,
-                        vert1.tu, vert1.tv,
-                        vert2.tu, vert2.tv,
+                        tu0, tv0,
+                        tu1, tv1,
+                        tu2, tv2,
                         d0, d1, d2,
                         lr0, lg0, lb0,
                         lr1, lg1, lb1,
@@ -792,25 +824,25 @@ namespace pip3D
                 else
                 {
                     const MeshRenderer::ClipVertLM cv[3] = {
-                        {v0, vert0.tu, vert0.tv, d0, lr0, lg0, lb0},
-                        {v1, vert1.tu, vert1.tv, d1, lr1, lg1, lb1},
-                        {v2, vert2.tu, vert2.tv, d2, lr2, lg2, lb2}};
-                    drew = clipAndDrawNear(cv, ctx.nearClip, ctx.viewport, ctx.viewProjMatrix, ctx.framebuffer,
-                                           [&](const Vector3 *proj, const MeshRenderer::ClipVertLM *cvp, int a, int b, int c) -> bool
-                                           {
-                                               return Rasterizer::fillTriangleTextured(
-                                                   proj[a].x, proj[a].y - ctx.bandTopF, proj[a].z,
-                                                   proj[b].x, proj[b].y - ctx.bandTopF, proj[b].z,
-                                                   proj[c].x, proj[c].y - ctx.bandTopF, proj[c].z,
-                                                   cvp[a].u, cvp[a].v,
-                                                   cvp[b].u, cvp[b].v,
-                                                   cvp[c].u, cvp[c].v,
-                                                   cvp[a].d, cvp[b].d, cvp[c].d,
-                                                   cvp[a].lr, cvp[a].lg, cvp[a].lb,
-                                                   cvp[b].lr, cvp[b].lg, cvp[b].lb,
-                                                   cvp[c].lr, cvp[c].lg, cvp[c].lb,
-                                                   *ctx.meshTexture, ctx.frameBuffer, ctx.zBuffer, ctx.fbConfig);
-                                           });
+                        {v0, tu0, tv0, d0, lr0, lg0, lb0},
+                        {v1, tu1, tv1, d1, lr1, lg1, lb1},
+                        {v2, tu2, tv2, d2, lr2, lg2, lb2}};
+                    drew = MeshRenderer::clipAndDrawNear(cv, ctx.nearClip, ctx.viewport, ctx.viewProjMatrix, ctx.framebuffer,
+                                                         [&](const Vector3 *proj, const MeshRenderer::ClipVertLM *cvp, int a, int b, int c) -> bool
+                                                         {
+                                                             return Rasterizer::fillTriangleTextured(
+                                                                 proj[a].x, proj[a].y - ctx.bandTopF, proj[a].z,
+                                                                 proj[b].x, proj[b].y - ctx.bandTopF, proj[b].z,
+                                                                 proj[c].x, proj[c].y - ctx.bandTopF, proj[c].z,
+                                                                 cvp[a].u, cvp[a].v,
+                                                                 cvp[b].u, cvp[b].v,
+                                                                 cvp[c].u, cvp[c].v,
+                                                                 cvp[a].d, cvp[b].d, cvp[c].d,
+                                                                 cvp[a].lr, cvp[a].lg, cvp[a].lb,
+                                                                 cvp[b].lr, cvp[b].lg, cvp[b].lb,
+                                                                 cvp[c].lr, cvp[c].lg, cvp[c].lb,
+                                                                 *ctx.meshTexture, ctx.frameBuffer, ctx.zBuffer, ctx.fbConfig);
+                                                         });
                 }
                 if (unlikely(!drew))
                     ++ctx.statsCulled;
@@ -842,19 +874,19 @@ namespace pip3D
                         {v0, 0, 0, d0, 0, 0, 0, mu0, mv0},
                         {v1, 0, 0, d1, 0, 0, 0, mu1, mv1},
                         {v2, 0, 0, d2, 0, 0, 0, mu2, mv2}};
-                    drew = clipAndDrawNear(cv, ctx.nearClip, ctx.viewport, ctx.viewProjMatrix, ctx.framebuffer,
-                                           [&](const Vector3 *proj, const MeshRenderer::ClipVertLM *cvp, int a, int b, int c) -> bool
-                                           {
-                                               return Rasterizer::fillTriangleSolidLM(
-                                                   proj[a].x, proj[a].y - ctx.bandTopF, proj[a].z,
-                                                   proj[b].x, proj[b].y - ctx.bandTopF, proj[b].z,
-                                                   proj[c].x, proj[c].y - ctx.bandTopF, proj[c].z,
-                                                   cvp[a].mu, cvp[a].mv,
-                                                   cvp[b].mu, cvp[b].mv,
-                                                   cvp[c].mu, cvp[c].mv,
-                                                   cvp[a].d, cvp[b].d, cvp[c].d,
-                                                   solid565, *ctx.lmAtlas, ctx.frameBuffer, ctx.zBuffer, ctx.fbConfig);
-                                           });
+                    drew = MeshRenderer::clipAndDrawNear(cv, ctx.nearClip, ctx.viewport, ctx.viewProjMatrix, ctx.framebuffer,
+                                                         [&](const Vector3 *proj, const MeshRenderer::ClipVertLM *cvp, int a, int b, int c) -> bool
+                                                         {
+                                                             return Rasterizer::fillTriangleSolidLM(
+                                                                 proj[a].x, proj[a].y - ctx.bandTopF, proj[a].z,
+                                                                 proj[b].x, proj[b].y - ctx.bandTopF, proj[b].z,
+                                                                 proj[c].x, proj[c].y - ctx.bandTopF, proj[c].z,
+                                                                 cvp[a].mu, cvp[a].mv,
+                                                                 cvp[b].mu, cvp[b].mv,
+                                                                 cvp[c].mu, cvp[c].mv,
+                                                                 cvp[a].d, cvp[b].d, cvp[c].d,
+                                                                 solid565, *ctx.lmAtlas, ctx.frameBuffer, ctx.zBuffer, ctx.fbConfig);
+                                                         });
                 }
                 if (unlikely(!drew))
                     ++ctx.statsCulled;
@@ -895,9 +927,27 @@ namespace pip3D
 
             case SHADING_GOURAUD:
             {
-                Vector3 n0 = ctx.worldNormals ? ctx.worldNormals[vIdx0] : chunkVBase[vIdx0].normal.get();
-                Vector3 n1 = ctx.worldNormals ? ctx.worldNormals[vIdx1] : chunkVBase[vIdx1].normal.get();
-                Vector3 n2 = ctx.worldNormals ? ctx.worldNormals[vIdx2] : chunkVBase[vIdx2].normal.get();
+                Vector3 n0, n1, n2;
+                if (likely(ctx.worldNormals))
+                {
+                    n0 = ctx.worldNormals[ctx.winNormBase + frec[3]];
+                    n1 = ctx.worldNormals[ctx.winNormBase + frec[4]];
+                    n2 = ctx.worldNormals[ctx.winNormBase + frec[5]];
+                }
+                else if (ctx.mesh->hasNormals())
+                {
+                    n0 = ctx.mesh->attrNormal(ctx.attrBase + frec[3] * ctx.attrRecSize);
+                    n1 = ctx.mesh->attrNormal(ctx.attrBase + frec[4] * ctx.attrRecSize);
+                    n2 = ctx.mesh->attrNormal(ctx.attrBase + frec[5] * ctx.attrRecSize);
+                }
+                else
+                {
+                    Vector3 fn = (v1 - v0).cross(v2 - v0);
+                    const float len = sqrtf(fn.x * fn.x + fn.y * fn.y + fn.z * fn.z);
+                    if (len > 1e-8f)
+                        fn = fn * (1.0f / len);
+                    n0 = n1 = n2 = fn;
+                }
 
                 float lr0 = 0.0f, lg0 = 0.0f, lb0 = 0.0f;
                 float lr1 = 0.0f, lg1 = 0.0f, lb1 = 0.0f;
@@ -907,9 +957,9 @@ namespace pip3D
                     ProbeLightSample p0, p1, p2;
                     if (probes)
                     {
-                        probes->sample(vIdx0, p0);
-                        probes->sample(vIdx1, p1);
-                        probes->sample(vIdx2, p2);
+                        probes->sample(ctx.winPosBase + pi0, p0);
+                        probes->sample(ctx.winPosBase + pi1, p1);
+                        probes->sample(ctx.winPosBase + pi2, p2);
                     }
                     else
                     {
@@ -960,9 +1010,27 @@ namespace pip3D
 
             case SHADING_PHONG:
             {
-                Vector3 n0 = ctx.worldNormals ? ctx.worldNormals[vIdx0] : chunkVBase[vIdx0].normal.get();
-                Vector3 n1 = ctx.worldNormals ? ctx.worldNormals[vIdx1] : chunkVBase[vIdx1].normal.get();
-                Vector3 n2 = ctx.worldNormals ? ctx.worldNormals[vIdx2] : chunkVBase[vIdx2].normal.get();
+                Vector3 n0, n1, n2;
+                if (likely(ctx.worldNormals))
+                {
+                    n0 = ctx.worldNormals[ctx.winNormBase + frec[3]];
+                    n1 = ctx.worldNormals[ctx.winNormBase + frec[4]];
+                    n2 = ctx.worldNormals[ctx.winNormBase + frec[5]];
+                }
+                else if (ctx.mesh->hasNormals())
+                {
+                    n0 = ctx.mesh->attrNormal(ctx.attrBase + frec[3] * ctx.attrRecSize);
+                    n1 = ctx.mesh->attrNormal(ctx.attrBase + frec[4] * ctx.attrRecSize);
+                    n2 = ctx.mesh->attrNormal(ctx.attrBase + frec[5] * ctx.attrRecSize);
+                }
+                else
+                {
+                    Vector3 fn = (v1 - v0).cross(v2 - v0);
+                    const float len = sqrtf(fn.x * fn.x + fn.y * fn.y + fn.z * fn.z);
+                    if (len > 1e-8f)
+                        fn = fn * (1.0f / len);
+                    n0 = n1 = n2 = fn;
+                }
                 float prFaceR = faceR, prFaceG = faceG, prFaceB = faceB;
                 const Light *prLights = ctx.localLights;
                 int prCount = ctx.localLightCount;
@@ -1049,7 +1117,6 @@ namespace pip3D
                                               center, radius, lights.data(), activeLightCount, localLights, 4);
 
         const Matrix4x4 &worldTransform = instance->transform();
-        const Vertex *PIP3D_RESTRICT vbase = mesh->vertexData();
 
         if (useUniformColor)
         {
@@ -1060,7 +1127,9 @@ namespace pip3D
             else
             {
                 NormalMatrix nmUniform(worldTransform);
-                const Vector3 localNormal = (mesh->numVertices() > 0) ? vbase[0].normal.get() : Vector3(0.0f, 1.0f, 0.0f);
+                Vector3 localNormal(0.0f, 1.0f, 0.0f);
+                if (mesh->hasNormals() && mesh->numAttrs() > 0)
+                    localNormal = mesh->attrNormal(mesh->chunkAttrs(mesh->getChunk(0)));
                 const Vector3 worldNormal = nmUniform.transform(localNormal);
 
                 float litR, litG, litB;
@@ -1086,9 +1155,6 @@ namespace pip3D
         NormalMatrix *const nmWorld =
             needsWorldNormals ? ::new (static_cast<void *>(nmStorage)) NormalMatrix(worldTransform) : nullptr;
 
-        const uint32_t vertexCountUsed = mesh->numVertices();
-        const uint32_t faceCount = mesh->numFaces();
-
         DrawCache *const cache = &instance->drawCache();
 
         Vector3 *PIP3D_RESTRICT worldVerts = nullptr;
@@ -1108,6 +1174,8 @@ namespace pip3D
         const Vector3 camFwd = cam.forward();
         constexpr float kNearClipEps = 1e-4f;
         const float nearClip = cam.nearPlane + kNearClipEps;
+
+        const float nearZWThreshold = g_wBufferScale * FastMath::fastReciprocal(nearClip);
         const bool isTextured = mesh->isTextured();
         const bool doBackfaceCull = backfaceCullingEnabled;
 
@@ -1125,16 +1193,15 @@ namespace pip3D
         const bool lmActive = lmActiveEarly;
         const bool useProbes = usesProbes(instance);
 
-        bool directPath = !hasChunks && (faceCount > 0xFFFFu || vertexCountUsed > 0xFFFFu);
-
         uint32_t currentSubMesh = 0;
 
         FaceDrawCtx ctx{
             instance, mesh, worldTransform, nullptr, nullptr, nullptr,
-            mesh->isIndex32() ? nullptr : mesh->faceData16(),
-            mesh->isIndex32() ? mesh->faceData32() : nullptr,
-            mesh->isIndex32(),
+            nullptr, nullptr, 0u,
+            nullptr, nullptr, 0u, ChunkPosDecode{},
+            0u, 0u,
             subMeshCount, hasSubMeshes,
+            mesh->faceStride(), nearZWThreshold,
             effectiveMode, effectiveTextured, meshTexture,
             lmActive ? instance->lightmapAtlas() : nullptr,
             lmActive, useProbes, useUniformColor, uniformColor,
@@ -1146,54 +1213,16 @@ namespace pip3D
             viewportWidth, viewportHalfWidth, viewportHalfHeight,
             currentSubMesh, statsTrianglesTotal, statsTrianglesBackfaceCulled};
 
-        if (directPath)
-        {
-            const uint16_t cacheVerts = static_cast<uint16_t>(vertexCountUsed > 0xFFFFu ? 0xFFFFu : vertexCountUsed);
-            if (likely(cache->ensureCapacity(cacheVerts, needsWorldNormals)))
-            {
-                worldVerts = cache->worldVerts();
-                worldNormals = cache->worldNormals();
-                screenVerts = cache->screenVerts();
-            }
-
-            if (likely(worldVerts))
-            {
-                const DrawCache::ProjState projState = cache->beginProjection(frameStamp, instanceVersion);
-
-                if (projState == DrawCache::ProjState::NeedsTransformAndProject)
-                {
-                    for (uint32_t i = 0; i < cacheVerts; ++i)
-                    {
-                        const Vector3 local = mesh->decodePosition(vbase[i]);
-                        const Vector3 world = worldTransform.transformNoDiv(local);
-                        worldVerts[i] = world;
-                        screenVerts[i] = CameraController::project(world, viewProjMatrix,
-                                                                   viewportHalfWidth, viewportHalfHeight, 0, 0);
-                        if (needsWorldNormals)
-                            worldNormals[i] = nmWorld->transform(vbase[i].normal.get());
-                    }
-                    cache->commitProjection(frameStamp, instanceVersion);
-                }
-                else if (projState == DrawCache::ProjState::NeedsReproject)
-                {
-                    for (uint32_t i = 0; i < cacheVerts; ++i)
-                        screenVerts[i] = CameraController::project(worldVerts[i], viewProjMatrix,
-                                                                   viewportHalfWidth, viewportHalfHeight, 0, 0);
-                    cache->commitProjection(frameStamp, instanceVersion);
-                }
-            }
-
-            ctx.worldVerts = worldVerts;
-            ctx.screenVerts = screenVerts;
-            ctx.worldNormals = worldNormals;
-
-            for (uint32_t i = 0; i < faceCount; ++i)
-                drawMeshFace(ctx, vbase, nullptr, i);
-            return;
-        }
-
-        const uint16_t chunkCacheVerts = mesh->maxChunkVertexCount();
-        if (likely(cache->ensureCapacity(chunkCacheVerts, needsWorldNormals)))
+        const uint32_t maxChunkPos = mesh->maxChunkPosCount();
+        const uint32_t maxChunkAttr = mesh->maxChunkAttrCount();
+        const uint32_t totalPos = mesh->numVertices();
+        const uint32_t totalAttr = mesh->numAttrs();
+        const bool mergedWindow = (totalPos > 0 && totalPos <= 256 && totalAttr <= 256);
+        const uint32_t windowPos = mergedWindow ? totalPos : maxChunkPos;
+        const uint32_t windowAttr = mergedWindow ? totalAttr : maxChunkAttr;
+        if (likely(cache->ensureCapacity(static_cast<uint16_t>(windowPos),
+                                         needsWorldNormals ? static_cast<uint16_t>(windowAttr) : 0u,
+                                         needsWorldNormals)))
         {
             worldVerts = cache->worldVerts();
             worldNormals = cache->worldNormals();
@@ -1220,18 +1249,11 @@ namespace pip3D
             }
         }
 
-        MeshChunk virtualChunk{};
-        if (!hasChunks)
-        {
-            virtualChunk.vCount = static_cast<uint16_t>(vertexCountUsed);
-            virtualChunk.faceCount = static_cast<uint16_t>(faceCount);
-        }
-
-        bool useProbeCache = useProbes && (effectiveMode == SHADING_GOURAUD) && worldVerts && chunkCacheVerts > 0 && chunkCacheVerts <= kProbeCacheMaxVerts;
+        bool useProbeCache = useProbes && (effectiveMode == SHADING_GOURAUD) && worldVerts && windowPos > 0 && windowPos <= kProbeCacheMaxVerts;
         ProbeCache probeCache;
         if (useProbeCache)
         {
-            if (uint8_t *PIP3D_RESTRICT pd = cache->ensureProbePlanes(chunkCacheVerts))
+            if (uint8_t *PIP3D_RESTRICT pd = cache->ensureProbePlanes(static_cast<uint16_t>(windowPos)))
             {
                 probeCache.data = pd;
                 if (const BakedProbeGrid *grid = Rasterizer::g_bakedState.probes)
@@ -1245,74 +1267,170 @@ namespace pip3D
                 useProbeCache = false;
         }
 
-        for (uint16_t k = 0; k < chunkCache.visibleCount; ++k)
+        if (useProbeCache && cache->probeStateVersion() != Rasterizer::g_bakedStateVersion)
+        {
+            cache->commitProbeStateVersion(Rasterizer::g_bakedStateVersion);
+            cache->invalidateWorldVerts();
+        }
+
+        const float qScale = mesh->getQScale();
+
+        const BakedProbeGrid *probeGrid = Rasterizer::g_bakedState.probes;
+        const bool probeGridOk = probeGrid && probeGrid->valid() && !instance->getIgnoreBakedProbes();
+        const auto sampleProbes = [&](uint8_t *PIP3D_RESTRICT pd, uint32_t base, uint32_t count)
+        {
+            for (uint32_t vi = 0; vi < count; ++vi)
+            {
+                float ps, pa, luma;
+                uint8_t ti = 0;
+                if (probeGridOk)
+                    probeGrid->sample(worldVerts[base + vi], ps, pa, luma, ti);
+                else
+                {
+                    ps = 1.0f;
+                    pa = 1.0f;
+                    luma = 0.0f;
+                }
+                const uint32_t o = (base + vi) * 4;
+                pd[o + 0] = static_cast<uint8_t>(ps * 255.0f + 0.5f);
+                pd[o + 1] = static_cast<uint8_t>(pa * 255.0f + 0.5f);
+                pd[o + 2] = static_cast<uint8_t>(luma * 255.0f + 0.5f);
+                pd[o + 3] = ti;
+            }
+        };
+
+        const auto indexPosBase = [&](uint32_t ci) -> uint32_t
+        {
+            uint32_t s = 0;
+            for (uint32_t j = 0; j < ci; ++j)
+                s += chunks[j].posCount;
+            return s;
+        };
+        const auto indexNormBase = [&](uint32_t ci) -> uint32_t
+        {
+            uint32_t s = 0;
+            for (uint32_t j = 0; j < ci; ++j)
+                s += chunks[j].attrCount;
+            return s;
+        };
+
+        for (uint16_t k = 0; k < chunkCache.visibleCount && hasChunks; ++k)
         {
             {
                 const ChunkBandRecord rec = chunkCache.records[k];
-
                 if (bandIndex < rec.minBand || bandIndex > rec.maxBand)
                     continue;
 
-                const MeshChunk &chunk = hasChunks ? chunks[rec.chunkIdx] : virtualChunk;
-                const uint16_t chunkVCount = chunk.vCount;
-                const uint32_t chunkVOffset = chunk.vOffset;
+                const MeshChunk &chunk = chunks[rec.chunkIdx];
+                const uint16_t chunkPosCount = chunk.posCount;
                 const uint32_t chunkFOffset = chunk.faceOffset;
                 const uint16_t chunkFCount = chunk.faceCount;
 
-                const Vertex *PIP3D_RESTRICT chunkVBase = vbase + chunkVOffset;
+                const ChunkPosDecode posDecode = Mesh::chunkPosDecode(chunk, qScale);
+                const uint8_t *PIP3D_RESTRICT posBase = mesh->chunkPositions(chunk);
+                const uint32_t posRecSize = Mesh::posRecordSize(chunk);
+                const uint8_t *PIP3D_RESTRICT attrBase = mesh->chunkAttrs(chunk);
+                const uint32_t attrRecSize = mesh->attrRecordSize();
 
                 if (likely(worldVerts && screenVerts))
                 {
-                    if (chunkCache.currentChunkIdx != rec.chunkIdx)
+                    if (mergedWindow)
                     {
-                        for (uint16_t i = 0; i < chunkVCount; ++i)
+                        const DrawCache::ProjState st = cache->beginProjection(frameStamp, instanceVersion);
+                        if (st == DrawCache::ProjState::NeedsTransformAndProject)
                         {
-                            const Vector3 local = mesh->decodePosition(chunkVBase[i]);
+
+                            uint32_t fillPos = 0;
+                            uint32_t fillNorm = 0;
+                            for (uint32_t ci = 0; ci < chunkCount; ++ci)
+                            {
+                                const MeshChunk &ck = chunks[ci];
+                                const ChunkPosDecode dec = Mesh::chunkPosDecode(ck, qScale);
+                                const uint8_t *recs = mesh->chunkPositions(ck);
+                                const uint32_t recSize = Mesh::posRecordSize(ck);
+                                for (uint16_t i = 0; i < ck.posCount; ++i)
+                                {
+                                    const Vector3 world = worldTransform.transformNoDiv(
+                                        Mesh::chunkPosition(ck, dec, recs + static_cast<uint32_t>(i) * recSize));
+                                    worldVerts[fillPos + i] = world;
+                                    screenVerts[fillPos + i] = CameraController::project(world, viewProjMatrix,
+                                                                                         viewportHalfWidth, viewportHalfHeight, 0, 0);
+                                }
+                                if (needsWorldNormals && worldNormals)
+                                {
+                                    const uint8_t *arecs = mesh->chunkAttrs(ck);
+                                    const uint32_t arecSize = mesh->attrRecordSize();
+                                    for (uint16_t a = 0; a < ck.attrCount; ++a)
+                                        worldNormals[fillNorm + a] = nmWorld->transform(
+                                            mesh->attrNormal(arecs + static_cast<uint32_t>(a) * arecSize));
+                                }
+                                if (useProbeCache)
+                                    sampleProbes(probeCache.data, fillPos, ck.posCount);
+                                fillPos += ck.posCount;
+                                fillNorm += ck.attrCount;
+                            }
+                            cache->commitProjection(frameStamp, instanceVersion);
+                        }
+                        else if (st == DrawCache::ProjState::NeedsReproject)
+                        {
+
+                            for (uint16_t kk = 0; kk < chunkCache.visibleCount; ++kk)
+                            {
+                                const uint32_t visChunkIdx = chunkCache.records[kk].chunkIdx;
+                                const MeshChunk &ck = chunks[visChunkIdx];
+                                const uint32_t base = indexPosBase(visChunkIdx);
+                                for (uint16_t i = 0; i < ck.posCount; ++i)
+                                {
+                                    screenVerts[base + i] = CameraController::project(worldVerts[base + i], viewProjMatrix,
+                                                                                      viewportHalfWidth, viewportHalfHeight, 0, 0);
+                                }
+                            }
+                            cache->commitProjection(frameStamp, instanceVersion);
+                        }
+                    }
+                    else if (chunkCache.currentChunkIdx != rec.chunkIdx)
+                    {
+
+                        for (uint16_t i = 0; i < chunkPosCount; ++i)
+                        {
+                            const Vector3 local = Mesh::chunkPosition(chunk, posDecode,
+                                                                      posBase + static_cast<uint32_t>(i) * posRecSize);
                             const Vector3 world = worldTransform.transformNoDiv(local);
                             worldVerts[i] = world;
                             screenVerts[i] = CameraController::project(world, viewProjMatrix,
                                                                        viewportHalfWidth, viewportHalfHeight, 0, 0);
-                            if (needsWorldNormals)
-                                worldNormals[i] = nmWorld->transform(chunkVBase[i].normal.get());
+                        }
+                        if (needsWorldNormals && worldNormals)
+                        {
+                            for (uint16_t a = 0; a < chunk.attrCount; ++a)
+                                worldNormals[a] = nmWorld->transform(
+                                    mesh->attrNormal(attrBase + static_cast<uint32_t>(a) * attrRecSize));
                         }
                         chunkCache.currentChunkIdx = rec.chunkIdx;
-                        currentSubMesh = 0;
-
                         if (useProbeCache)
-                        {
-                            const BakedProbeGrid *grid = Rasterizer::g_bakedState.probes;
-                            const bool gridOk = grid && grid->valid() && !instance->getIgnoreBakedProbes();
-                            uint8_t *PIP3D_RESTRICT pd = probeCache.data;
-                            for (uint16_t vi = 0; vi < chunkVCount; ++vi)
-                            {
-                                float ps, pa, luma;
-                                uint8_t ti = 0;
-                                if (gridOk)
-                                    grid->sample(worldVerts[vi], ps, pa, luma, ti);
-                                else
-                                {
-                                    ps = 1.0f;
-                                    pa = 1.0f;
-                                    luma = 0.0f;
-                                }
-                                const uint32_t o = static_cast<uint32_t>(vi) * 4;
-                                pd[o + 0] = static_cast<uint8_t>(ps * 255.0f + 0.5f);
-                                pd[o + 1] = static_cast<uint8_t>(pa * 255.0f + 0.5f);
-                                pd[o + 2] = static_cast<uint8_t>(luma * 255.0f + 0.5f);
-                                pd[o + 3] = ti;
-                            }
-                        }
+                            sampleProbes(probeCache.data, 0, chunkPosCount);
                     }
                 }
 
                 ctx.worldVerts = worldVerts;
                 ctx.screenVerts = screenVerts;
                 ctx.worldNormals = worldNormals;
+                ctx.fbase = mesh->faceData();
+                ctx.attrBase = attrBase;
+                ctx.attrRecSize = attrRecSize;
+                ctx.chunk = &chunk;
+                ctx.posBase = posBase;
+                ctx.posRecSize = posRecSize;
+                ctx.posDecode = posDecode;
+                ctx.faceStride = mesh->faceStride();
+                ctx.winPosBase = mergedWindow ? indexPosBase(rec.chunkIdx) : 0u;
+                ctx.winNormBase = mergedWindow ? indexNormBase(rec.chunkIdx) : 0u;
+                currentSubMesh = 0;
 
                 const ProbeCache *probes = (useProbeCache && worldVerts) ? &probeCache : nullptr;
 
                 for (uint16_t fi = 0; fi < chunkFCount; ++fi)
-                    drawMeshFace(ctx, chunkVBase, probes, chunkFOffset + fi);
+                    drawMeshFace(ctx, probes, chunkFOffset + fi);
             }
         }
     }

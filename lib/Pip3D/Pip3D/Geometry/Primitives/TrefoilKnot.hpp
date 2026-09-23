@@ -51,22 +51,26 @@ namespace pip3D
                     uint8_t tubeSegments = 12,
                     float uvScaleU = 1.0f,
                     float uvScaleV = 1.0f)
-            : Mesh(static_cast<uint16_t>(((segments ? segments : 3) + 1) *
-                                         ((tubeSegments ? tubeSegments : 3) + 1)),
-                   static_cast<uint16_t>((segments ? segments : 3) *
-                                         (tubeSegments ? tubeSegments : 3) * 2))
+            : Mesh(FromInterleavedTag{}, static_cast<const Vertex *>(nullptr), 0,
+                   static_cast<const Face16 *>(nullptr), 0, false, true, true)
         {
-
             autoScale(scale * 7.5f);
-            if (unlikely(!vertices_ || !faces_))
+
+            const uint8_t segs = segments ? segments : 3;
+            const uint8_t tubeSegs = tubeSegments ? tubeSegments : 3;
+
+            const uint32_t vertCap = (static_cast<uint32_t>(segs) + 1) * (tubeSegs + 1);
+            const uint32_t faceCap = static_cast<uint32_t>(segs) * tubeSegs * 2u;
+            Vertex *verts = static_cast<Vertex *>(MemUtils::allocData(vertCap * sizeof(Vertex), 16));
+            Face16 *faces = static_cast<Face16 *>(MemUtils::allocData(faceCap * sizeof(Face16), 4));
+            if (unlikely(!verts || !faces))
             {
+                MemUtils::freeData(verts);
+                MemUtils::freeData(faces);
                 LOGE(::pip3D::Debug::LOG_MODULE_RESOURCES,
                      "TrefoilKnot: base alloc failed");
                 return;
             }
-
-            const uint8_t segs = segments ? segments : 3;
-            const uint8_t tubeSegs = tubeSegments ? tubeSegments : 3;
 
             constexpr float tubeScale = 0.55f;
             const float tubeRadius = tubeScale * scale;
@@ -168,7 +172,7 @@ namespace pip3D
 
             frames[segs] = frames[0];
 
-            Vertex *PIP3D_RESTRICT vPtr = vertices_;
+            Vertex *PIP3D_RESTRICT vPtr = verts;
             const float invQ = (qScale_ > 1e-6f)
                                    ? FastMath::fastReciprocal(qScale_)
                                    : 1.0f;
@@ -217,9 +221,9 @@ namespace pip3D
 
             MemUtils::freeData(block);
 
-            vertexCount_ = static_cast<uint16_t>(vPtr - vertices_);
+            const uint32_t vCount = static_cast<uint32_t>(vPtr - verts);
 
-            Face *PIP3D_RESTRICT fPtr = faces_;
+            Face16 *PIP3D_RESTRICT fPtr = faces;
             const uint16_t pitch = tubeSegs + 1;
             for (uint8_t i = 0; i < segs; ++i)
             {
@@ -233,17 +237,18 @@ namespace pip3D
                     const uint16_t c = rowNext + j + 1;
                     const uint16_t d = rowCurrent + j + 1;
 
-                    fPtr[0] = Face(a, c, b);
-                    fPtr[1] = Face(a, d, c);
+                    fPtr[0] = Face16(a, c, b);
+                    fPtr[1] = Face16(a, d, c);
                     fPtr += 2;
                 }
             }
 
-            faceCount_ = static_cast<uint16_t>(fPtr - faces_);
+            buildFromInterleaved(verts, vCount, faces,
+                                 static_cast<uint32_t>(fPtr - faces), false, true, true);
+            MemUtils::freeData(verts);
+            MemUtils::freeData(faces);
 
-            finalizeGeometry(vertexCount_, faceCount_,
-                             Vector3(0.0f, 0.0f, 0.0f),
-                             scale * 5.5f);
+            finalizeBounds(Vector3(0.0f, 0.0f, 0.0f), scale * 5.5f);
             bindDeleter<TrefoilKnot>();
         }
     };

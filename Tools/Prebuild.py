@@ -230,6 +230,9 @@ def asset_mark_built(key, fingerprint, output_path):
 models_dir        = os.path.join(project_dir, "Tools", "Models")
 obj_sources_dir   = os.path.join(models_dir, "Asset")
 models_convert_py = os.path.join(models_dir, "Convert.py")
+models_tool_scripts = [os.path.join(models_dir, name)
+                       for name in sorted(os.listdir(models_dir))
+                       if name.endswith(".py")]
 
 engine_models_dir = os.path.join(project_dir, "lib", "Pip3D", "Pip3D", "Geometry", "Models")
 app_models_dir    = os.path.join(project_dir, "src", "Models")
@@ -257,7 +260,8 @@ if os.path.isdir(obj_sources_dir):
                 expected_app_models[os.path.basename(hpp_path)] = True
 
             key = "model:" + file
-            fingerprint = make_fingerprint([models_convert_py], [obj_path] + obj_material_deps(obj_path), "obj2mesh")
+            fingerprint = make_fingerprint(models_tool_scripts,
+                                           [obj_path] + obj_material_deps(obj_path), "obj2mesh")
             if not asset_is_current(key, fingerprint, hpp_path):
                 dest_label = "Engine (Geometry/Models)" if is_engine else "App (src/Models)"
                 print(_tag(ANSI_GREEN, f"Building model: {file} -> {dest_label}/{clean_name}.hpp"))

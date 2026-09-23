@@ -55,6 +55,32 @@ namespace pip3D
         }
     };
 
+    struct alignas(2) Placement
+    {
+        uint16_t propIndex;
+        int16_t x, y, z;
+        uint8_t yaw;
+        uint8_t flags;
+        Color color;
+    };
+    static_assert(sizeof(Placement) == 12, "Placement layout changed");
+
+    enum PlacementFlags : uint8_t
+    {
+        kPlacementVisible = 1u << 0,
+    };
+
+    struct PlacementSet
+    {
+        const Placement *placements = nullptr;
+        uint32_t placementCount = 0;
+        Mesh *const *props = nullptr;
+        uint32_t propCount = 0;
+        float unitScale = 0.01f;
+
+        bool scaleProps = false;
+    };
+
     class MeshInstance
     {
     public:
@@ -306,11 +332,11 @@ namespace pip3D
     private:
         static constexpr uint8_t kFlagTransformDirty = 0x01;
         static constexpr uint8_t kFlagBoundsDirty = 0x02;
+        static constexpr uint8_t kFlagIgnoreProbes = 0x04;
         static constexpr uint8_t kFlagVisible = 0x10;
         static constexpr uint8_t kFlagBlobShadow = 0x20;
         static constexpr uint8_t kFlagEmissive = 0x40;
         static constexpr uint8_t kFlagLightmapped = 0x80;
-        static constexpr uint8_t kFlagIgnoreProbes = 0x04;
 
         Mesh *sourceMesh;
         Color instanceColor;
