@@ -27,11 +27,19 @@ namespace pip3D
             Vector3 color;
         };
 
+        struct UV2
+        {
+            float u = 0.0f;
+            float v = 0.0f;
+        };
+
         struct MeshCacheEntry
         {
             std::vector<Vector3> localPos;
             std::vector<uint32_t> indices;
+            std::vector<uint32_t> attrIndices;
             std::vector<Vector3> localNormals;
+            std::vector<UV2> localUV;
             float uniqueArea = 0.0f;
             UnwrapResult unwrap;
             uint32_t rectW = 64;

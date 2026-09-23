@@ -15,29 +15,25 @@ namespace pip3D
 
     inline AABB getMeshLocalAABB(const Mesh &mesh)
     {
-        const uint16_t n = mesh.numVertices();
-        if (n == 0)
+        if (mesh.numVertices() == 0)
             return AABB(Vector3(0, 0, 0), Vector3(0, 0, 0));
 
-        const Vertex *v = mesh.vertexData();
-        Vector3 p0 = mesh.decodePosition(v[0]);
-        Vector3 mn(p0), mx(p0);
-        for (uint16_t i = 1; i < n; ++i)
-        {
-            const Vector3 p = mesh.decodePosition(v[i]);
+        Vector3 mn(1e30f, 1e30f, 1e30f);
+        Vector3 mx(-1e30f, -1e30f, -1e30f);
+        mesh.forEachPosition([&](const Vector3 &p)
+                             {
             if (p.x < mn.x)
                 mn.x = p.x;
-            else if (p.x > mx.x)
+            if (p.x > mx.x)
                 mx.x = p.x;
             if (p.y < mn.y)
                 mn.y = p.y;
-            else if (p.y > mx.y)
+            if (p.y > mx.y)
                 mx.y = p.y;
             if (p.z < mn.z)
                 mn.z = p.z;
-            else if (p.z > mx.z)
-                mx.z = p.z;
-        }
+            if (p.z > mx.z)
+                mx.z = p.z; });
         return AABB(mn, mx);
     }
 

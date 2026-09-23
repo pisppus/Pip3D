@@ -33,13 +33,20 @@ namespace pip3D
     public:
         Capsule(float radius = 1.0f, float height = 2.0f,
                 uint8_t segments = 12, uint8_t rings = 6)
-            : Mesh(detail::capsuleVertexCount(segments, rings, height, radius),
-                   detail::capsuleFaceCount(segments, rings, height, radius))
+            : Mesh(FromInterleavedTag{}, static_cast<const Vertex *>(nullptr), 0,
+                   static_cast<const Face16 *>(nullptr), 0, false, true, true)
         {
             const float size = (height > radius * 2.0f) ? height : radius * 2.0f;
             autoScale(size);
-            if (unlikely(!vertices_ || !faces_))
+
+            const uint32_t vertCap = detail::capsuleVertexCount(segments, rings, height, radius);
+            const uint32_t faceCap = detail::capsuleFaceCount(segments, rings, height, radius);
+            Vertex *verts = static_cast<Vertex *>(MemUtils::allocData(vertCap * sizeof(Vertex), 16));
+            Face16 *faces = static_cast<Face16 *>(MemUtils::allocData(faceCap * sizeof(Face16), 4));
+            if (unlikely(!verts || !faces))
             {
+                MemUtils::freeData(verts);
+                MemUtils::freeData(faces);
                 LOGE(::pip3D::Debug::LOG_MODULE_RESOURCES, "Capsule: alloc failed");
                 return;
             }
@@ -85,7 +92,7 @@ namespace pip3D
             constexpr uint16_t poleTopNData = packNormalConstexpr(0.0f, 1.0f, 0.0f);
             constexpr uint16_t poleBotNData = packNormalConstexpr(0.0f, -1.0f, 0.0f);
 
-            Vertex *PIP3D_RESTRICT vPtr = vertices_;
+            Vertex *PIP3D_RESTRICT vPtr = verts;
 
             const int16_t topPoleY = static_cast<int16_t>(lrintf(scaleCyl + scaleR));
             for (uint8_t seg = 0; seg < segs; ++seg)
@@ -215,16 +222,16 @@ namespace pip3D
                                  (static_cast<float>(seg) + 0.5f) * invSegs, 1.0f);
             }
 
-            const uint16_t vCount = static_cast<uint16_t>(vPtr - vertices_);
+            const uint16_t vCount = static_cast<uint16_t>(vPtr - verts);
 
-            Face *PIP3D_RESTRICT fPtr = faces_;
+            Face16 *PIP3D_RESTRICT fPtr = faces;
 
             for (uint8_t seg = 0; seg < segs; ++seg)
             {
                 const uint16_t poleIdx = topPoleStart + seg;
                 const uint16_t r0 = ringStart + seg;
                 const uint16_t r1 = ringStart + seg + 1;
-                *fPtr++ = Face(poleIdx, r1, r0);
+                *fPtr++ = Face16(poleIdx, r1, r0);
             }
 
             for (uint16_t ring = 0; ring < ringRows - 1; ++ring)
@@ -236,8 +243,8 @@ namespace pip3D
                 {
                     const uint16_t curr = currRow + seg;
                     const uint16_t below = nextRow + seg;
-                    fPtr[0] = Face(curr, curr + 1, below);
-                    fPtr[1] = Face(curr + 1, below + 1, below);
+                    fPtr[0] = Face16(curr, curr + 1, below);
+                    fPtr[1] = Face16(curr + 1, below + 1, below);
                     fPtr += 2;
                 }
             }
@@ -248,10 +255,10 @@ namespace pip3D
                 const uint16_t poleIdx = bottomPoleStart + seg;
                 const uint16_t r0 = lastRingStart + seg;
                 const uint16_t r1 = lastRingStart + seg + 1;
-                *fPtr++ = Face(poleIdx, r0, r1);
+                *fPtr++ = Face16(poleIdx, r0, r1);
             }
 
-            const uint16_t fCount = static_cast<uint16_t>(fPtr - faces_);
+            const uint16_t fCount = static_cast<uint16_t>(fPtr - faces);
 
             float boundRadius;
             if (hasCylinder)
@@ -263,7 +270,10 @@ namespace pip3D
             {
                 boundRadius = radius;
             }
-            finalizeGeometry(vCount, fCount, Vector3(0.0f, 0.0f, 0.0f), boundRadius);
+            buildFromInterleaved(verts, vCount, faces, fCount, false, true, true);
+            MemUtils::freeData(verts);
+            MemUtils::freeData(faces);
+            finalizeBounds(Vector3(0.0f, 0.0f, 0.0f), boundRadius);
             bindDeleter<Capsule>();
         }
     };

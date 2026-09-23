@@ -1,3 +1,5 @@
+#include <cstring>
+
 #include "Rendering/Pipeline/DrawCache.hpp"
 #include "Math/Algebra.hpp"
 
@@ -11,23 +13,26 @@ namespace pip3D
             MemUtils::freeData(probeData_);
     }
 
-    bool DrawCache::ensureCapacity(uint16_t required, bool withNormals) noexcept
+    bool DrawCache::ensureCapacity(uint16_t posRequired, uint16_t attrRequired,
+                                   bool withNormals) noexcept
     {
-        if (required == 0)
+        if (posRequired == 0)
             return false;
 
-        const bool currentHasNormals = (worldNormals_ != nullptr);
+        const bool normalsOk = !withNormals || (worldNormals_ && normCapacity_ >= attrRequired);
 
-        if (likely(capacity_ >= required && storage_))
-        {
-            if (!withNormals || currentHasNormals)
-                return true;
-        }
+        if (likely(capacity_ >= posRequired && storage_ && normalsOk))
+            return true;
 
         constexpr size_t kAlign = 16;
-        const size_t vertsBytes = static_cast<size_t>(required) * sizeof(Vector3);
-        const size_t alignedVertsBytes = (vertsBytes + kAlign - 1) & ~(kAlign - 1);
-        const size_t totalBytes = withNormals ? 3 * alignedVertsBytes : 2 * alignedVertsBytes;
+        const size_t posBytes = static_cast<size_t>(posRequired) * sizeof(Vector3);
+        const size_t alignedPosBytes = (posBytes + kAlign - 1) & ~(kAlign - 1);
+        const size_t normBytes = withNormals
+                                     ? ((static_cast<size_t>(attrRequired ? attrRequired : posRequired) * sizeof(Vector3) +
+                                         kAlign - 1) &
+                                        ~(kAlign - 1))
+                                     : 0;
+        const size_t totalBytes = 2 * alignedPosBytes + normBytes;
 
         Vector3 *block = static_cast<Vector3 *>(
             MemUtils::allocData(totalBytes, static_cast<uint8_t>(kAlign)));
@@ -38,10 +43,12 @@ namespace pip3D
             worldNormals_ = nullptr;
             screenVerts_ = nullptr;
             capacity_ = 0;
+            normCapacity_ = 0;
             cachedTransformVersion_ = 0;
             screenVertsFrameStamp_ = 0;
             shadowGen_ = 0;
             shadowVertsValid_ = false;
+            probeStateVersion_ = 0;
             return false;
         }
 
@@ -49,21 +56,23 @@ namespace pip3D
 
         uint8_t *base = reinterpret_cast<uint8_t *>(block);
         storage_ = block;
+        screenVerts_ = reinterpret_cast<Vector3 *>(base + alignedPosBytes);
         if (withNormals)
         {
-            worldNormals_ = reinterpret_cast<Vector3 *>(base + alignedVertsBytes);
-            screenVerts_ = reinterpret_cast<Vector3 *>(base + 2 * alignedVertsBytes);
+            worldNormals_ = reinterpret_cast<Vector3 *>(base + 2 * alignedPosBytes);
+            normCapacity_ = static_cast<uint16_t>(attrRequired ? attrRequired : posRequired);
         }
         else
         {
             worldNormals_ = nullptr;
-            screenVerts_ = reinterpret_cast<Vector3 *>(base + alignedVertsBytes);
+            normCapacity_ = 0;
         }
-        capacity_ = required;
+        capacity_ = posRequired;
         cachedTransformVersion_ = 0;
         screenVertsFrameStamp_ = 0;
         shadowVertsValid_ = false;
         shadowGen_ = 0;
+        probeStateVersion_ = 0;
         return true;
     }
 
@@ -72,7 +81,7 @@ namespace pip3D
     {
         if (!storage_ || capacity_ < count)
         {
-            if (!ensureCapacity(count))
+            if (!ensureCapacity(count, 0))
             {
                 needsCompute = true;
                 return nullptr;

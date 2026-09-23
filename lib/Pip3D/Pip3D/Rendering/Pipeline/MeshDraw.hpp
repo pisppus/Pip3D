@@ -166,6 +166,77 @@ namespace pip3D
             return outCount;
         }
 
+        template <typename EmitTri>
+        PIP3D_HOT static bool clipAndDrawNear(const ClipVertLM inVerts[3],
+                                              float nearD,
+                                              const Viewport &viewport,
+                                              const Matrix4x4 &viewProjMatrix,
+                                              FrameBuffer &framebuffer,
+                                              EmitTri &&emitTriangle)
+        {
+            ClipVertLM clipped[4];
+            int outCount = 0;
+
+            for (int edge = 0; edge < 3; ++edge)
+            {
+                const ClipVertLM &P0 = inVerts[edge];
+                const ClipVertLM &P1 = inVerts[(edge + 1) % 3];
+                const float d0 = P0.d;
+                const float d1 = P1.d;
+                const bool in0 = d0 >= nearD;
+                const bool in1 = d1 >= nearD;
+                if (in0 && in1)
+                {
+                    clipped[outCount++] = P1;
+                }
+                else if (in0 != in1)
+                {
+                    const float denom = d1 - d0;
+                    float t = (fabsf(denom) < 1e-6f) ? 0.0f : (nearD - d0) / denom;
+                    t = clamp(t, 0.0f, 1.0f);
+                    const ClipVertLM ip = lerpClipVertLM(P0, P1, t);
+                    clipped[outCount++] = ip;
+                    if (!in0)
+                        clipped[outCount++] = P1;
+                }
+            }
+
+            if (outCount < 3)
+                return false;
+
+            const float viewportHalfWidth = static_cast<float>(viewport.width) * 0.5f;
+            const float viewportHalfHeight = static_cast<float>(viewport.height) * 0.5f;
+            const int16_t bandTop = g_bandOffsetY;
+            const int16_t bandBottom = static_cast<int16_t>(bandTop + g_bandHeight);
+            const float viewportWidth = static_cast<float>(viewport.width);
+
+            Vector3 proj[4];
+            for (int i = 0; i < outCount; ++i)
+                proj[i] = CameraController::project(clipped[i].pos, viewProjMatrix,
+                                                    viewportHalfWidth, viewportHalfHeight, 0, 0);
+
+            const auto passesBand = [&](int a, int b, int c) -> bool
+            {
+                const Vector3 &p0 = proj[a];
+                const Vector3 &p1 = proj[b];
+                const Vector3 &p2 = proj[c];
+                const float minY = (p0.y < p1.y) ? ((p0.y < p2.y) ? p0.y : p2.y) : ((p1.y < p2.y) ? p1.y : p2.y);
+                const float maxY = (p0.y > p1.y) ? ((p0.y > p2.y) ? p0.y : p2.y) : ((p1.y > p2.y) ? p1.y : p2.y);
+                if (maxY < bandTop || minY >= bandBottom)
+                    return false;
+                const float minX = (p0.x < p1.x) ? ((p0.x < p2.x) ? p0.x : p2.x) : ((p1.x < p2.x) ? p1.x : p2.x);
+                const float maxX = (p0.x > p1.x) ? ((p0.x > p2.x) ? p0.x : p2.x) : ((p1.x > p2.x) ? p1.x : p2.x);
+                return !(maxX < 0.0f || minX >= viewportWidth);
+            };
+
+            bool drew = false;
+            if (passesBand(0, 1, 2))
+                drew = emitTriangle(proj, clipped, 0, 1, 2);
+            if (outCount == 4 && passesBand(0, 2, 3))
+                drew |= emitTriangle(proj, clipped, 0, 2, 3);
+            return drew;
+        }
+
         PIP3D_FORCE_INLINE static bool bboxCull(
             const Vector3 &p0, const Vector3 &p1, const Vector3 &p2,
             int16_t bandTop, int16_t bandBottom,

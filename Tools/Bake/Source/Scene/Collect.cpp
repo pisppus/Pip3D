@@ -135,34 +135,54 @@ namespace pip3D
                     MeshCacheEntry &entry = meshCache[mesh];
                     entry.meshKey = nextMeshKey++;
                     const uint32_t vn = mesh->numVertices();
+                    const uint32_t an = mesh->numAttrs();
                     const uint32_t fn = mesh->numFaces();
                     entry.localPos.resize(vn);
-                    mesh->decodePositions(entry.localPos.data(), vn);
-                    entry.localNormals.resize(vn);
-                    const Vertex *vd = mesh->vertexData();
-                    for (uint32_t i = 0; i < vn; ++i)
-                        entry.localNormals[i] = vd[i].normal.get();
+                    {
+                        uint32_t vi = 0;
+                        mesh->forEachPosition([&](const Vector3 &p)
+                                              { entry.localPos[vi++] = p; });
+                    }
+
+                    entry.localNormals.resize(an);
+                    entry.localUV.resize(an);
+                    const bool meshHasUV = mesh->hasUV();
+                    uint32_t attrBase = 0;
+                    for (uint32_t ci = 0; ci < mesh->numChunks(); ++ci)
+                    {
+                        const MeshChunk &ch = mesh->getChunk(ci);
+                        const uint8_t *rec = mesh->chunkAttrs(ch);
+                        const uint32_t recSize = mesh->attrRecordSize();
+                        for (uint32_t a = 0; a < ch.attrCount; ++a, rec += recSize)
+                        {
+                            const uint32_t gi = attrBase + a;
+                            if (recSize == 0)
+                            {
+                                entry.localNormals[gi] = Vector3(0.0f, 1.0f, 0.0f);
+                                continue;
+                            }
+                            entry.localNormals[gi] = mesh->hasNormals() ? mesh->attrNormal(rec)
+                                                                        : Vector3(0.0f, 1.0f, 0.0f);
+                            if (meshHasUV)
+                                mesh->attrUV(rec, entry.localUV[gi].u, entry.localUV[gi].v);
+                        }
+                        attrBase += ch.attrCount;
+                    }
 
                     entry.indices.resize(static_cast<size_t>(fn) * 3);
-                    if (mesh->isIndex32())
+                    entry.attrIndices.resize(static_cast<size_t>(fn) * 3);
                     {
-                        const Face32 *f = mesh->faceData32();
-                        for (uint32_t i = 0; i < fn; ++i)
-                        {
-                            entry.indices[i * 3 + 0] = f[i].v0;
-                            entry.indices[i * 3 + 1] = f[i].v1;
-                            entry.indices[i * 3 + 2] = f[i].v2;
-                        }
-                    }
-                    else
-                    {
-                        const Face16 *f = mesh->faceData16();
-                        for (uint32_t i = 0; i < fn; ++i)
-                        {
-                            entry.indices[i * 3 + 0] = f[i].v0;
-                            entry.indices[i * 3 + 1] = f[i].v1;
-                            entry.indices[i * 3 + 2] = f[i].v2;
-                        }
+                        uint32_t fi = 0;
+                        mesh->forEachFace([&](uint32_t, uint32_t p0, uint32_t p1, uint32_t p2,
+                                              uint32_t a0, uint32_t a1, uint32_t a2)
+                                          {
+                            entry.indices[fi * 3 + 0] = p0;
+                            entry.indices[fi * 3 + 1] = p1;
+                            entry.indices[fi * 3 + 2] = p2;
+                            entry.attrIndices[fi * 3 + 0] = a0;
+                            entry.attrIndices[fi * 3 + 1] = a1;
+                            entry.attrIndices[fi * 3 + 2] = a2;
+                            ++fi; });
                     }
 
                     {
@@ -208,7 +228,6 @@ namespace pip3D
                 const bool hasSub = mesh->hasSubMeshes();
                 const uint32_t subN = mesh->numSubMeshes();
                 const Texture *meshTex = mesh->isTextured() ? mesh->getTexture() : nullptr;
-                const Vertex *vd = mesh->vertexData();
                 uint32_t subCursor = 0;
 
                 ib.worldPos.resize(static_cast<size_t>(fn) * 3);
@@ -229,9 +248,10 @@ namespace pip3D
                     for (int k = 0; k < 3; ++k)
                     {
                         const uint32_t vi = mc->indices[i * 3 + k];
+                        const uint32_t ai = mc->attrIndices[i * 3 + k];
                         p[k] = wt.transformNoDiv(mc->localPos[vi]);
                         ib.worldPos[i * 3 + k] = p[k];
-                        ib.worldNrm[i * 3 + k] = transformDir(wt, mc->localNormals[vi]);
+                        ib.worldNrm[i * 3 + k] = transformDir(wt, mc->localNormals[ai]);
                     }
 
                     Vector3 gn = cross3(p[1] - p[0], p[2] - p[0]);
@@ -265,12 +285,15 @@ namespace pip3D
                     t.gn = gn;
                     t.albedo = baseCol;
                     t.tex = meshTex;
-                    t.tu0 = vd[mc->indices[i * 3 + 0]].tu;
-                    t.tv0 = vd[mc->indices[i * 3 + 0]].tv;
-                    t.tu1 = vd[mc->indices[i * 3 + 1]].tu;
-                    t.tv1 = vd[mc->indices[i * 3 + 1]].tv;
-                    t.tu2 = vd[mc->indices[i * 3 + 2]].tu;
-                    t.tv2 = vd[mc->indices[i * 3 + 2]].tv;
+                    const UV2 &uv0 = mc->localUV[mc->attrIndices[i * 3 + 0]];
+                    const UV2 &uv1 = mc->localUV[mc->attrIndices[i * 3 + 1]];
+                    const UV2 &uv2 = mc->localUV[mc->attrIndices[i * 3 + 2]];
+                    t.tu0 = uv0.u;
+                    t.tv0 = uv0.v;
+                    t.tu1 = uv1.u;
+                    t.tv1 = uv1.v;
+                    t.tu2 = uv2.u;
+                    t.tv2 = uv2.v;
                     t.area = gl * 0.5f;
                     worldTris.push_back(t);
                 }

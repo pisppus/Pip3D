@@ -291,6 +291,15 @@ namespace pip3D
         bs.lmSampling = static_cast<uint8_t>(lmSampling_);
         bs.probes = bakedProbes_.valid() ? &bakedProbes_ : nullptr;
 
+        const uint32_t bakedKey = static_cast<uint32_t>(bs.mode) |
+                                  (static_cast<uint32_t>(bs.lmSampling) << 8) |
+                                  (static_cast<uint32_t>(reinterpret_cast<uintptr_t>(bs.probes) >> 4) << 16);
+        if (bakedKey != Rasterizer::g_bakedStateKey)
+        {
+            Rasterizer::g_bakedStateKey = bakedKey;
+            ++Rasterizer::g_bakedStateVersion;
+        }
+
         {
             const Camera &cam = cameras[activeCameraIndex];
             const float camNear = cam.nearPlane;
@@ -588,7 +597,7 @@ namespace pip3D
                 continue;
             }
 
-            const float rPix = Culling::computeScreenRadius(radius, zEye, projScale);
+            const float rPix = Culling::computeScreenRadius(radius, zEye - radius, projScale);
             if (rPix < 0.5f)
                 continue;
 

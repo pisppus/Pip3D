@@ -49,12 +49,8 @@ namespace pip3D
               uint8_t segments = 48, uint8_t tubeSegments = 8,
               float uvScaleU = 1.0f, float uvScaleV = 1.0f,
               float tubeRadius = -1.0f)
-            : Mesh(static_cast<uint16_t>(((segments ? segments : 3) + 1) *
-                                             ((tubeSegments ? tubeSegments : 3)) +
-                                         2),
-                   static_cast<uint16_t>(((segments ? segments : 3) *
-                                          (tubeSegments ? tubeSegments : 3) * 2) +
-                                         (tubeSegments ? tubeSegments : 3) * 2))
+            : Mesh(FromInterleavedTag{}, static_cast<const Vertex *>(nullptr), 0,
+                   static_cast<const Face16 *>(nullptr), 0, false, true, true)
         {
             const uint8_t segs = (segments == 0) ? 3 : (segments > 128 ? 128 : segments);
             const uint8_t tubeSegs = (tubeSegments == 0) ? 3 : (tubeSegments > 32 ? 32 : tubeSegments);
@@ -67,8 +63,15 @@ namespace pip3D
             const float boundR = boundSq * FastMath::fastInvSqrt(boundSq) + tubeR;
             const float size = boundR * 2.0f;
             autoScale(size);
-            if (unlikely(!vertices_ || !faces_))
+
+            const uint32_t vertCap = (static_cast<uint32_t>(segs) + 1) * tubeSegs + 2u;
+            const uint32_t faceCap = static_cast<uint32_t>(segs) * tubeSegs * 2u + tubeSegs * 2u;
+            Vertex *verts = static_cast<Vertex *>(MemUtils::allocData(vertCap * sizeof(Vertex), 16));
+            Face16 *faces = static_cast<Face16 *>(MemUtils::allocData(faceCap * sizeof(Face16), 4));
+            if (unlikely(!verts || !faces))
             {
+                MemUtils::freeData(verts);
+                MemUtils::freeData(faces);
                 LOGE(::pip3D::Debug::LOG_MODULE_RESOURCES, "Helix: base alloc failed");
                 return;
             }
@@ -132,7 +135,7 @@ namespace pip3D
                 frames[i].B = frames[i].T.cross(frames[i].N);
             }
 
-            Vertex *PIP3D_RESTRICT vPtr = vertices_;
+            Vertex *PIP3D_RESTRICT vPtr = verts;
             const float invQ = (qScale_ > 1e-6f)
                                    ? FastMath::fastReciprocal(qScale_)
                                    : 1.0f;
@@ -213,9 +216,9 @@ namespace pip3D
 
             MemUtils::freeData(block);
 
-            vertexCount_ = static_cast<uint16_t>(vPtr - vertices_);
+            const uint32_t vCount = static_cast<uint32_t>(vPtr - verts);
 
-            Face *PIP3D_RESTRICT fPtr = faces_;
+            Face16 *PIP3D_RESTRICT fPtr = faces;
             const uint16_t pitch = tubeSegs;
 
             for (uint8_t i = 0; i < segs; ++i)
@@ -232,8 +235,8 @@ namespace pip3D
                     const uint16_t c = rowNext + jNext;
                     const uint16_t d = rowCurr + jNext;
 
-                    fPtr[0] = Face(a, c, b);
-                    fPtr[1] = Face(a, d, c);
+                    fPtr[0] = Face16(a, c, b);
+                    fPtr[1] = Face16(a, d, c);
                     fPtr += 2;
                 }
             }
@@ -242,7 +245,7 @@ namespace pip3D
             {
                 const uint16_t rim0 = j;
                 const uint16_t rim1 = static_cast<uint16_t>((j + 1) % tubeSegs);
-                fPtr[0] = Face(cap0CenterIdx, rim1, rim0);
+                fPtr[0] = Face16(cap0CenterIdx, rim1, rim0);
                 fPtr += 1;
             }
 
@@ -252,16 +255,17 @@ namespace pip3D
                 {
                     const uint16_t rim0 = lastRow + j;
                     const uint16_t rim1 = lastRow + static_cast<uint16_t>((j + 1) % tubeSegs);
-                    fPtr[0] = Face(cap1CenterIdx, rim0, rim1);
+                    fPtr[0] = Face16(cap1CenterIdx, rim0, rim1);
                     fPtr += 1;
                 }
             }
 
-            faceCount_ = static_cast<uint16_t>(fPtr - faces_);
+            buildFromInterleaved(verts, vCount, faces,
+                                 static_cast<uint32_t>(fPtr - faces), false, true, true);
+            MemUtils::freeData(verts);
+            MemUtils::freeData(faces);
 
-            finalizeGeometry(vertexCount_, faceCount_,
-                             Vector3(0.0f, 0.0f, 0.0f),
-                             boundR);
+            finalizeBounds(Vector3(0.0f, 0.0f, 0.0f), boundR);
             bindDeleter<Helix>();
         }
     };

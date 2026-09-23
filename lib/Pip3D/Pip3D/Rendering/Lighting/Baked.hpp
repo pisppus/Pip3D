@@ -504,5 +504,7 @@ namespace pip3D
         };
 
         inline BakedLightState g_bakedState PIP3D_FAST_DATA;
+        inline uint32_t g_bakedStateVersion = 0;
+        inline uint32_t g_bakedStateKey = 0;
     }
 }

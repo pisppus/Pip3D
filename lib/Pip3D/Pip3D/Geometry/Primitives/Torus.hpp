@@ -21,18 +21,23 @@ namespace pip3D
         Torus(float majorRadius = 1.0f, float minorRadius = 0.3f,
               uint8_t segments = 16, uint8_t tubeSegments = 8,
               float uvScaleU = 1.0f, float uvScaleV = 1.0f)
-            : Mesh(static_cast<uint16_t>((segments ? segments : 3)) *
-                       static_cast<uint16_t>((tubeSegments ? tubeSegments : 3)),
-                   static_cast<uint16_t>((segments ? segments : 3) *
-                                         (tubeSegments ? tubeSegments : 3) * 2))
+            : Mesh(FromInterleavedTag{}, static_cast<const Vertex *>(nullptr), 0,
+                   static_cast<const Face16 *>(nullptr), 0, false, true, true)
         {
             const uint8_t segs = (segments == 0) ? 3 : (segments > 64 ? 64 : segments);
             const uint8_t tubeSegs = (tubeSegments == 0) ? 3 : (tubeSegments > 64 ? 64 : tubeSegments);
 
             const float size = (majorRadius + minorRadius) * 2.0f;
             autoScale(size);
-            if (unlikely(!vertices_ || !faces_))
+
+            const uint32_t vertCap = static_cast<uint32_t>(segs) * tubeSegs;
+            const uint32_t faceCap = vertCap * 2u;
+            Vertex *verts = static_cast<Vertex *>(MemUtils::allocData(vertCap * sizeof(Vertex), 16));
+            Face16 *faces = static_cast<Face16 *>(MemUtils::allocData(faceCap * sizeof(Face16), 4));
+            if (unlikely(!verts || !faces))
             {
+                MemUtils::freeData(verts);
+                MemUtils::freeData(faces);
                 LOGE(::pip3D::Debug::LOG_MODULE_RESOURCES, "Torus: alloc failed");
                 return;
             }
@@ -56,7 +61,7 @@ namespace pip3D
             const float invSegs = FastMath::fastReciprocal(static_cast<float>(segs));
             const float invTubeSegs = FastMath::fastReciprocal(static_cast<float>(tubeSegs));
 
-            Vertex *PIP3D_RESTRICT vPtr = vertices_;
+            Vertex *PIP3D_RESTRICT vPtr = verts;
 
             for (uint8_t i = 0; i < segs; ++i)
             {
@@ -89,7 +94,7 @@ namespace pip3D
                 }
             }
 
-            Face *PIP3D_RESTRICT fPtr = faces_;
+            Face16 *PIP3D_RESTRICT fPtr = faces;
             const uint16_t pitch = tubeSegs;
             for (uint8_t i = 0; i < segs; ++i)
             {
@@ -106,17 +111,18 @@ namespace pip3D
                     const uint16_t c = rowNext + jNext;
                     const uint16_t d = rowCurr + jNext;
 
-                    fPtr[0] = Face(a, c, b);
-                    fPtr[1] = Face(a, d, c);
+                    fPtr[0] = Face16(a, c, b);
+                    fPtr[1] = Face16(a, d, c);
                     fPtr += 2;
                 }
             }
 
-            const float boundRadius = majorRadius + minorRadius;
-            finalizeGeometry(static_cast<uint16_t>(vPtr - vertices_),
-                             static_cast<uint16_t>(fPtr - faces_),
-                             Vector3(0.0f, 0.0f, 0.0f),
-                             boundRadius);
+            buildFromInterleaved(verts, static_cast<uint32_t>(vPtr - verts), faces,
+                                 static_cast<uint32_t>(fPtr - faces), false, true, true);
+            MemUtils::freeData(verts);
+            MemUtils::freeData(faces);
+
+            finalizeBounds(Vector3(0.0f, 0.0f, 0.0f), majorRadius + minorRadius);
             bindDeleter<Torus>();
         }
     };

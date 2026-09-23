@@ -158,6 +158,9 @@ namespace pip3D
         void drawMeshInstanceShadow(MeshInstance *instance);
         void prepareFrameState(bool incrementFrameStamp);
 
+        MeshInstance *placementInstance_ = nullptr;
+        MeshInstance *acquirePlacementInstance();
+
         PIP3D_ALWAYS_INLINE inline float ensureHfovCached()
         {
             if (likely(hfovCacheValid_))
@@ -396,6 +399,7 @@ namespace pip3D
         float getFogFar() const { return fogFar; }
 
         void draw(MeshInstance *instance);
+        void drawPlacements(const PlacementSet &set);
         void flushQueue();
         const std::vector<MeshInstance *> &getEmissiveQueue() const { return emissiveQueue_; }
 

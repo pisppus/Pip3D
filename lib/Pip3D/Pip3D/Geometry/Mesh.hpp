@@ -1,9 +1,13 @@
 #pragma once
 
+#include <cstdint>
+#include <cmath>
+#include <cstring>
+
 #include "Math/Algebra.hpp"
 #include "Math/Quant.hpp"
-#include "Core/Memory.hpp"
 #include "Core/Color.hpp"
+#include "Core/Memory.hpp"
 
 namespace pip3D
 {
@@ -30,46 +34,49 @@ namespace pip3D
         constexpr Face16(uint16_t a, uint16_t b, uint16_t c) : v0(a), v1(b), v2(c) {}
     };
     static_assert(sizeof(Face16) == 6);
-    using Face = Face16;
 
-    struct alignas(4) Face32
+    enum MeshChunkFlags : uint8_t
     {
-        uint32_t v0, v1, v2;
-        constexpr Face32() : v0(0), v1(0), v2(0) {}
-        constexpr Face32(uint32_t a, uint32_t b, uint32_t c) : v0(a), v1(b), v2(c) {}
+        kChunkPosDelta8 = 1u << 0,
     };
-    static_assert(sizeof(Face32) == 12);
 
     struct alignas(4) MeshChunk
     {
         int16_t minX, minY, minZ;
         int16_t maxX, maxY, maxZ;
-        uint32_t vOffset;
+        uint32_t dataOffset;
         uint32_t faceOffset;
-        uint16_t vCount;
-        uint16_t faceCount;
-        int16_t normX, normY, normZ;
-        int16_t coneDot;
+        uint8_t posCount;
+        uint8_t attrCount;
+        uint8_t faceCount;
+        uint8_t flags;
+        uint16_t coneNormal;
+        uint8_t coneSin;
+        uint8_t posShift;
     };
-    static_assert(sizeof(MeshChunk) == 32, "MeshChunk layout changed — sync with Convert.py!");
+    static_assert(sizeof(MeshChunk) == 28, "MeshChunk layout changed — sync with Convert.py!");
 
-    struct SubMesh
+    struct Face
     {
-        uint16_t faceOffset;
-        uint16_t faceCount;
-        Color color;
+        uint8_t p0, p1, p2;
+        uint8_t a0, a1, a2;
     };
-    static_assert(sizeof(SubMesh) == 6, "SubMesh layout changed — sync with Convert.py!");
-    static_assert(alignof(SubMesh) == 2, "SubMesh alignment drift");
+    static_assert(sizeof(Face) == 6, "Face layout changed — sync with Convert.py!");
 
-    struct SubMesh32
+    struct alignas(4) SubMesh
     {
         uint32_t faceOffset;
         uint32_t faceCount;
         Color color;
     };
-    static_assert(sizeof(SubMesh32) == 12, "SubMesh32 layout changed — sync with Convert.py!");
-    static_assert(alignof(SubMesh32) == 4, "SubMesh32 alignment drift");
+    static_assert(sizeof(SubMesh) == 12, "SubMesh layout changed — sync with Convert.py!");
+    static_assert(alignof(SubMesh) == 4, "SubMesh alignment drift");
+
+    struct ChunkPosDecode
+    {
+        float baseX, baseY, baseZ;
+        float k;
+    };
 
     class Mesh
     {
@@ -80,16 +87,24 @@ namespace pip3D
             kFlagSingleColorLighting = 1u << 1,
             kFlagStaticStorage = 1u << 2,
             kFlagBoundsValid = 1u << 3,
-            kFlagIndex32 = 1u << 4,
+            kFlagHasUV = 1u << 4,
             kFlagHasSubMeshes = 1u << 5,
             kFlagWantsTexture = 1u << 6,
-            kFlagSubMesh32 = 1u << 7,
+            kFlagHasNormals = 1u << 7,
         };
 
         static constexpr float kQScaleFactor = 0.5f * (1.0f / 32767.0f);
 
+        mutable uint8_t flags_;
+
+        float uvMinU_ = 0.0f, uvKU_ = 1.0f / 65535.0f;
+        float uvMinV_ = 0.0f, uvKV_ = 1.0f / 65535.0f;
+
+        mutable uint16_t maxChunkPosCache_ = 0xFFFF;
+        mutable uint16_t maxChunkAttrCache_ = 0xFFFF;
+
         PIP3D_COLD void calculateBoundingSphere() const;
-        PIP3D_COLD void recomputeHalfExtentsFromVertices() const;
+        PIP3D_COLD void recomputeHalfExtents() const;
 
         PIP3D_FORCE_INLINE void initSubMeshes(const SubMesh *sub, uint32_t count) noexcept
         {
@@ -98,125 +113,97 @@ namespace pip3D
                 flags_ |= kFlagHasSubMeshes;
         }
 
-        PIP3D_FORCE_INLINE void initSubMeshes(const SubMesh32 *sub, uint32_t count) noexcept
-        {
-            subMeshes32_ = sub;
-            if (count > 0)
-                flags_ |= kFlagHasSubMeshes | kFlagSubMesh32;
-        }
-
         PIP3D_COLD void cleanup()
         {
-            if (!(flags_ & kFlagStaticStorage) && vertices_)
-                MemUtils::freeData(vertices_);
-            vertices_ = nullptr;
-            faces_ = nullptr;
+            if (!(flags_ & kFlagStaticStorage) && heapBlock_)
+                MemUtils::freeData(heapBlock_);
+            heapBlock_ = nullptr;
             chunks_ = nullptr;
+            faces_ = nullptr;
+            stream_ = nullptr;
             subMeshes_ = nullptr;
         }
 
+        PIP3D_FORCE_INLINE static uint8_t baseFlags(bool staticStorage, bool hasUV,
+                                                    bool hasNormals) noexcept
+        {
+            return static_cast<uint8_t>(kFlagCastShadows |
+                                        (staticStorage ? static_cast<uint8_t>(kFlagStaticStorage) : 0u) |
+                                        (hasUV ? static_cast<uint8_t>(kFlagHasUV) : 0u) |
+                                        (hasNormals ? static_cast<uint8_t>(kFlagHasNormals) : 0u));
+        }
+
+        PIP3D_FORCE_INLINE explicit Mesh(uint8_t flags) noexcept
+            : flags_(flags),
+              chunks_(nullptr), faces_(nullptr), stream_(nullptr),
+              subMeshes_(nullptr), heapBlock_(nullptr),
+              chunkCount_(0), subMeshCount_(0),
+              qScale_(1.0f), vertexCount_(0), attrCount_(0), faceCount_(0),
+              boundsCenter_(0.0f, 0.0f, 0.0f), boundsRadius_(0.0f),
+              boundsHalfExtents_(0.0f, 0.0f, 0.0f),
+              meshTexture_(nullptr), deleter_(&defaultDeleter)
+        {
+        }
+
     protected:
-        Vertex *PIP3D_RESTRICT vertices_;
-        union
-        {
-            Face16 *faces_;
-            Face16 *faces16_;
-            Face32 *faces32_;
-            void *facesRaw_;
-        };
         const MeshChunk *chunks_;
-        union
-        {
-            const SubMesh *subMeshes_;
-            const SubMesh32 *subMeshes32_;
-        };
+        const Face *faces_;
+        const uint8_t *stream_;
+        const SubMesh *subMeshes_;
+        void *heapBlock_;
         uint32_t chunkCount_;
         uint32_t subMeshCount_;
         float qScale_;
         uint32_t vertexCount_;
+        uint32_t attrCount_;
         uint32_t faceCount_;
-        mutable uint8_t flags_;
         mutable Vector3 boundsCenter_;
         mutable float boundsRadius_;
         mutable Vector3 boundsHalfExtents_;
         const Texture *meshTexture_;
-        uint32_t maxVertices_;
-        uint32_t maxFaces_;
         void (*deleter_)(Mesh *);
+
+        PIP3D_COLD void buildFromInterleaved(const Vertex *verts, uint32_t vertCount,
+                                             const Face16 *faces, uint32_t faceCount,
+                                             bool staticStorage, bool hasUV, bool hasNormals,
+                                             uint32_t maxTrisPerChunk = 64);
+
+        struct FromInterleavedTag
+        {
+        };
 
         ~Mesh() { cleanup(); }
 
     public:
-        explicit Mesh(uint32_t maxVerts, uint32_t maxFaces)
-            : vertices_(nullptr), faces_(nullptr), chunks_(nullptr),
-              subMeshes_(nullptr), chunkCount_(0), subMeshCount_(0),
-              qScale_(1.0f),
-              vertexCount_(0), faceCount_(0),
-              flags_(kFlagCastShadows),
-              boundsCenter_(0.0f, 0.0f, 0.0f),
-              boundsRadius_(0.0f),
-              boundsHalfExtents_(0.0f, 0.0f, 0.0f),
-              meshTexture_(nullptr),
-              maxVertices_(maxVerts), maxFaces_(maxFaces),
-              deleter_(&defaultDeleter)
+        Mesh(const MeshChunk *chunks, uint32_t chunkCount,
+             const uint8_t *stream, const Face *faces, uint32_t faceCountIn,
+             bool hasUV, bool hasNormals,
+             bool staticStorage = true,
+             const SubMesh *extSubMeshes = nullptr, uint32_t subMeshCountIn = 0)
+            : Mesh(baseFlags(staticStorage, hasUV, hasNormals))
         {
-            const size_t vBytes = static_cast<size_t>(maxVerts) * sizeof(Vertex);
-            const size_t fBytes = static_cast<size_t>(maxFaces) * sizeof(Face16);
-            Vertex *buf = static_cast<Vertex *>(MemUtils::allocData(vBytes + fBytes, 16));
-            vertices_ = buf;
-            faces_ = (buf != nullptr) ? reinterpret_cast<Face16 *>(buf + maxVerts) : nullptr;
+            chunkCount_ = chunkCount;
+            faceCount_ = faceCountIn;
+            chunks_ = chunks;
+            faces_ = faces;
+            stream_ = stream;
+            initSubMeshes(extSubMeshes, subMeshCountIn);
+            for (uint32_t i = 0; i < chunkCount_; ++i)
+            {
+                vertexCount_ += chunks_[i].posCount;
+                attrCount_ += chunks_[i].attrCount;
+            }
         }
 
-        template <typename SubMeshT = SubMesh>
-        Mesh(const Vertex *extVerts, uint32_t vertCount,
-             const Face16 *extFaces, uint32_t faceCountIn,
-             bool staticStorage = true,
-             const MeshChunk *extChunks = nullptr, uint32_t chunkCountIn = 0,
-             const SubMeshT *extSubMeshes = nullptr, uint32_t subMeshCountIn = 0)
-            : vertices_(const_cast<Vertex *>(extVerts)),
-              faces_(const_cast<Face16 *>(extFaces)),
-              chunks_(extChunks),
-              subMeshes_(nullptr),
-              chunkCount_(chunkCountIn),
-              subMeshCount_(subMeshCountIn),
-              qScale_(1.0f),
-              vertexCount_(vertCount), faceCount_(faceCountIn),
-              flags_(static_cast<uint8_t>(kFlagCastShadows |
-                                          (staticStorage ? static_cast<uint8_t>(kFlagStaticStorage) : 0u))),
-              boundsCenter_(0.0f, 0.0f, 0.0f),
-              boundsRadius_(0.0f),
-              boundsHalfExtents_(0.0f, 0.0f, 0.0f),
-              meshTexture_(nullptr),
-              maxVertices_(vertCount), maxFaces_(faceCountIn),
-              deleter_(&defaultDeleter)
+        Mesh(FromInterleavedTag, const Vertex *verts, uint32_t vertCount,
+             const Face16 *faces, uint32_t faceCountIn,
+             bool staticStorage, bool hasUV, bool hasNormals,
+             uint32_t maxTrisPerChunk = 64)
+            : Mesh(baseFlags(staticStorage, hasUV, hasNormals))
         {
-            initSubMeshes(extSubMeshes, subMeshCountIn);
-        }
-
-        template <typename SubMeshT = SubMesh>
-        Mesh(const Vertex *extVerts, uint32_t vertCount,
-             const Face32 *extFaces, uint32_t faceCountIn,
-             bool staticStorage = true,
-             const MeshChunk *extChunks = nullptr, uint32_t chunkCountIn = 0,
-             const SubMeshT *extSubMeshes = nullptr, uint32_t subMeshCountIn = 0)
-            : vertices_(const_cast<Vertex *>(extVerts)),
-              faces32_(const_cast<Face32 *>(extFaces)),
-              chunks_(extChunks),
-              subMeshes_(nullptr),
-              chunkCount_(chunkCountIn),
-              subMeshCount_(subMeshCountIn),
-              qScale_(1.0f),
-              vertexCount_(vertCount), faceCount_(faceCountIn),
-              flags_(static_cast<uint8_t>(kFlagCastShadows | kFlagIndex32 |
-                                          (staticStorage ? static_cast<uint8_t>(kFlagStaticStorage) : 0u))),
-              boundsCenter_(0.0f, 0.0f, 0.0f),
-              boundsRadius_(0.0f),
-              boundsHalfExtents_(0.0f, 0.0f, 0.0f),
-              meshTexture_(nullptr),
-              maxVertices_(vertCount), maxFaces_(faceCountIn),
-              deleter_(&defaultDeleter)
-        {
-            initSubMeshes(extSubMeshes, subMeshCountIn);
+            faceCount_ = faceCountIn;
+            buildFromInterleaved(verts, vertCount, faces, faceCountIn,
+                                 staticStorage, hasUV, hasNormals, maxTrisPerChunk);
         }
 
         Mesh(const Mesh &) = delete;
@@ -242,40 +229,62 @@ namespace pip3D
             flags_ &= ~kFlagBoundsValid;
         }
 
-        PIP3D_COLD void finalizeGeometry(uint32_t vCount, uint32_t fCount,
-                                         const Vector3 &boundCenter, float boundRadius)
+        PIP3D_FORCE_INLINE void finalizeBounds(const Vector3 &boundCenter, float boundRadius)
         {
-            vertexCount_ = vCount;
-            faceCount_ = fCount;
             boundsCenter_ = boundCenter;
             boundsRadius_ = boundRadius;
             flags_ |= kFlagBoundsValid;
         }
 
+        PIP3D_COLD void finalizeGeometry(uint32_t vCount, uint32_t fCount,
+                                         const Vector3 &boundCenter, float boundRadius)
+        {
+            vertexCount_ = vCount;
+            faceCount_ = fCount;
+            finalizeBounds(boundCenter, boundRadius);
+        }
+
         [[nodiscard]] PIP3D_FORCE_INLINE uint32_t numFaces() const noexcept { return faceCount_; }
         [[nodiscard]] PIP3D_FORCE_INLINE uint32_t numVertices() const noexcept { return vertexCount_; }
+        [[nodiscard]] PIP3D_FORCE_INLINE uint32_t numAttrs() const noexcept { return attrCount_; }
         [[nodiscard]] PIP3D_FORCE_INLINE uint32_t numChunks() const noexcept { return chunkCount_; }
         [[nodiscard]] PIP3D_FORCE_INLINE uint32_t numSubMeshes() const noexcept { return subMeshCount_; }
 
-        [[nodiscard]] PIP3D_FORCE_INLINE bool isIndex32() const noexcept { return (flags_ & kFlagIndex32) != 0; }
-        [[nodiscard]] PIP3D_FORCE_INLINE const Vertex *vertexData() const noexcept { return vertices_; }
-        [[nodiscard]] PIP3D_FORCE_INLINE const Face16 *faceData16() const noexcept { return faces16_; }
-        [[nodiscard]] PIP3D_FORCE_INLINE const Face32 *faceData32() const noexcept { return faces32_; }
-        [[nodiscard]] PIP3D_FORCE_INLINE const Face16 *faceData() const noexcept { return faces_; }
+        [[nodiscard]] PIP3D_FORCE_INLINE bool hasUV() const noexcept { return (flags_ & kFlagHasUV) != 0; }
+        [[nodiscard]] PIP3D_FORCE_INLINE bool hasNormals() const noexcept { return (flags_ & kFlagHasNormals) != 0; }
+
+        [[nodiscard]] PIP3D_FORCE_INLINE uint32_t attrRecordSize() const noexcept
+        {
+            return (hasUV() ? 4u : 0u) + (hasNormals() ? 2u : 0u);
+        }
+
         [[nodiscard]] PIP3D_FORCE_INLINE const MeshChunk *chunkData() const noexcept { return chunks_; }
         [[nodiscard]] PIP3D_FORCE_INLINE const MeshChunk &getChunk(uint32_t i) const noexcept { return chunks_[i]; }
+        [[nodiscard]] PIP3D_FORCE_INLINE const Face *faceData() const noexcept { return faces_; }
+
+        [[nodiscard]] PIP3D_FORCE_INLINE static uint32_t posRecordSize(const MeshChunk &c) noexcept
+        {
+            return (c.flags & kChunkPosDelta8) ? 3u : 6u;
+        }
+        [[nodiscard]] PIP3D_FORCE_INLINE const uint8_t *chunkPositions(const MeshChunk &c) const noexcept
+        {
+            return stream_ + c.dataOffset;
+        }
+        [[nodiscard]] PIP3D_FORCE_INLINE const uint8_t *chunkAttrs(const MeshChunk &c) const noexcept
+        {
+            const uint32_t posBytes = static_cast<uint32_t>(c.posCount) * posRecordSize(c);
+            return stream_ + c.dataOffset + posBytes + (posBytes & 1u);
+        }
+
         [[nodiscard]] PIP3D_FORCE_INLINE bool hasSubMeshes() const noexcept { return (flags_ & kFlagHasSubMeshes) != 0 && subMeshCount_ > 0; }
 
         [[nodiscard]] PIP3D_FORCE_INLINE uint32_t subMeshFaceEnd(uint32_t i) const noexcept
         {
-            if (flags_ & kFlagSubMesh32)
-                return subMeshes32_[i].faceOffset + subMeshes32_[i].faceCount;
-            return static_cast<uint32_t>(subMeshes_[i].faceOffset) +
-                   static_cast<uint32_t>(subMeshes_[i].faceCount);
+            return subMeshes_[i].faceOffset + subMeshes_[i].faceCount;
         }
         [[nodiscard]] PIP3D_FORCE_INLINE Color subMeshColor(uint32_t i) const noexcept
         {
-            return (flags_ & kFlagSubMesh32) ? subMeshes32_[i].color : subMeshes_[i].color;
+            return subMeshes_[i].color;
         }
         [[nodiscard]] PIP3D_FORCE_INLINE bool wantsTexture() const noexcept { return (flags_ & kFlagWantsTexture) != 0; }
         PIP3D_FORCE_INLINE void setWantsTexture(bool e) noexcept
@@ -287,66 +296,168 @@ namespace pip3D
         }
         [[nodiscard]] PIP3D_FORCE_INLINE float getQScale() const noexcept { return qScale_; }
 
-        [[nodiscard]] PIP3D_FORCE_INLINE uint16_t maxChunkVertexCount() const noexcept
+        [[nodiscard]] PIP3D_FORCE_INLINE uint32_t maxChunkPosCount() const noexcept
         {
-            if (chunkCount_ == 0)
-                return static_cast<uint16_t>(vertexCount_ > 65535 ? 65535 : vertexCount_);
-            uint16_t m = 0;
-            for (uint32_t i = 0; i < chunkCount_; ++i)
+            uint32_t m = maxChunkPosCache_;
+            if (m == 0xFFFFu)
             {
-                const uint16_t c = chunks_[i].vCount;
-                if (c > m)
-                    m = c;
+                m = 0;
+                for (uint32_t i = 0; i < chunkCount_; ++i)
+                    if (chunks_[i].posCount > m)
+                        m = chunks_[i].posCount;
+                maxChunkPosCache_ = static_cast<uint16_t>(m);
+            }
+            return m;
+        }
+        [[nodiscard]] PIP3D_FORCE_INLINE uint32_t maxChunkAttrCount() const noexcept
+        {
+            uint32_t m = maxChunkAttrCache_;
+            if (m == 0xFFFFu)
+            {
+                m = 0;
+                for (uint32_t i = 0; i < chunkCount_; ++i)
+                    if (chunks_[i].attrCount > m)
+                        m = chunks_[i].attrCount;
+                maxChunkAttrCache_ = static_cast<uint16_t>(m);
             }
             return m;
         }
 
-        [[nodiscard]] PIP3D_FORCE_INLINE Vector3 decodePosition(const Vertex &v) const noexcept
+        [[nodiscard]] PIP3D_FORCE_INLINE uint32_t faceStride() const noexcept
         {
-            return Vector3(static_cast<float>(v.px) * qScale_,
-                           static_cast<float>(v.py) * qScale_,
-                           static_cast<float>(v.pz) * qScale_);
+            return (hasUV() || hasNormals()) ? 6u : 3u;
         }
 
-        PIP3D_HOT void decodePositions(Vector3 *PIP3D_RESTRICT out, uint32_t count) const
+        [[nodiscard]] PIP3D_FORCE_INLINE static ChunkPosDecode chunkPosDecode(const MeshChunk &c, float qScale) noexcept
         {
-            const Vertex *PIP3D_RESTRICT src = vertices_;
-            const float s = qScale_;
-            for (uint32_t i = 0; i < count; ++i)
+            ChunkPosDecode d;
+            d.baseX = static_cast<float>(c.minX) * qScale;
+            d.baseY = static_cast<float>(c.minY) * qScale;
+            d.baseZ = static_cast<float>(c.minZ) * qScale;
+            d.k = qScale * static_cast<float>(1u << c.posShift);
+            return d;
+        }
+
+        [[nodiscard]] PIP3D_FORCE_INLINE static Vector3 chunkPosition(const MeshChunk &c,
+                                                                      const ChunkPosDecode &d,
+                                                                      const uint8_t *rec) noexcept
+        {
+            if (c.flags & kChunkPosDelta8)
             {
-                out[i].x = static_cast<float>(src[i].px) * s;
-                out[i].y = static_cast<float>(src[i].py) * s;
-                out[i].z = static_cast<float>(src[i].pz) * s;
+                return Vector3(d.baseX + static_cast<float>(rec[0]) * d.k,
+                               d.baseY + static_cast<float>(rec[1]) * d.k,
+                               d.baseZ + static_cast<float>(rec[2]) * d.k);
             }
+            uint16_t rx, ry, rz;
+            memcpy(&rx, rec, 2);
+            memcpy(&ry, rec + 2, 2);
+            memcpy(&rz, rec + 4, 2);
+            return Vector3(d.baseX + static_cast<float>(rx) * d.k,
+                           d.baseY + static_cast<float>(ry) * d.k,
+                           d.baseZ + static_cast<float>(rz) * d.k);
+        }
+
+        PIP3D_FORCE_INLINE void attrUV(const uint8_t *rec, float &u, float &v) const noexcept
+        {
+            uint16_t ru, rv;
+            memcpy(&ru, rec, 2);
+            memcpy(&rv, rec + 2, 2);
+            u = uvMinU_ + static_cast<float>(ru) * uvKU_;
+            v = uvMinV_ + static_cast<float>(rv) * uvKV_;
+        }
+
+        PIP3D_FORCE_INLINE void finalizeUVRange(float minU, float spanU,
+                                                float minV, float spanV) noexcept
+        {
+            uvMinU_ = minU;
+            uvKU_ = spanU * (1.0f / 65535.0f);
+            uvMinV_ = minV;
+            uvKV_ = spanV * (1.0f / 65535.0f);
+        }
+
+        [[nodiscard]] PIP3D_FORCE_INLINE Vector3 attrNormal(const uint8_t *rec) const noexcept
+        {
+            uint16_t oct;
+            memcpy(&oct, rec + (hasUV() ? 4 : 0), 2);
+            return PackedNormal(oct).get();
+        }
+
+        template <typename Fn>
+        void forEachPosition(Fn &&fn) const
+        {
+            for (uint32_t ci = 0; ci < chunkCount_; ++ci)
+            {
+                const MeshChunk &c = chunks_[ci];
+                const ChunkPosDecode d = chunkPosDecode(c, qScale_);
+                const uint8_t *rec = chunkPositions(c);
+                const uint32_t recSize = posRecordSize(c);
+                for (uint32_t i = 0; i < c.posCount; ++i, rec += recSize)
+                    fn(chunkPosition(c, d, rec));
+            }
+        }
+
+        template <typename Fn>
+        void forEachFace(Fn &&fn) const
+        {
+            const uint32_t stride = faceStride();
+            const uint8_t *PIP3D_RESTRICT fb = reinterpret_cast<const uint8_t *>(faces_);
+            uint32_t posBase = 0, attrBase = 0;
+            for (uint32_t ci = 0; ci < chunkCount_; ++ci)
+            {
+                const MeshChunk &c = chunks_[ci];
+                const uint8_t *f = fb + static_cast<size_t>(c.faceOffset) * stride;
+                if (stride == 6)
+                {
+                    for (uint32_t i = 0; i < c.faceCount; ++i, f += 6)
+                    {
+                        fn(c.faceOffset + i,
+                           posBase + f[0], posBase + f[1], posBase + f[2],
+                           attrBase + f[3], attrBase + f[4], attrBase + f[5]);
+                    }
+                }
+                else
+                {
+                    for (uint32_t i = 0; i < c.faceCount; ++i, f += 3)
+                    {
+                        fn(c.faceOffset + i,
+                           posBase + f[0], posBase + f[1], posBase + f[2],
+                           attrBase, attrBase, attrBase);
+                    }
+                }
+                posBase += c.posCount;
+                attrBase += c.attrCount;
+            }
+        }
+
+        PIP3D_FORCE_INLINE void ensureBounds() const
+        {
+            if (unlikely(!(flags_ & kFlagBoundsValid)))
+                calculateBoundingSphere();
         }
 
         PIP3D_FORCE_INLINE void getBounds(Vector3 &outCenter, float &outRadius) const
         {
-            if (unlikely(!(flags_ & kFlagBoundsValid)))
-                calculateBoundingSphere();
+            ensureBounds();
             outCenter = boundsCenter_;
             outRadius = boundsRadius_;
         }
 
         PIP3D_FORCE_INLINE void getLocalExtents(Vector3 &outHalfExtents) const
         {
-            if (unlikely(!(flags_ & kFlagBoundsValid)))
-                calculateBoundingSphere();
+            ensureBounds();
             if (boundsHalfExtents_.x == 0.0f && boundsHalfExtents_.y == 0.0f && boundsHalfExtents_.z == 0.0f && boundsRadius_ > 1e-4f)
-                recomputeHalfExtentsFromVertices();
+                recomputeHalfExtents();
             outHalfExtents = boundsHalfExtents_;
         }
 
         [[nodiscard]] PIP3D_FORCE_INLINE const Vector3 &center() const
         {
-            if (unlikely(!(flags_ & kFlagBoundsValid)))
-                calculateBoundingSphere();
+            ensureBounds();
             return boundsCenter_;
         }
         [[nodiscard]] PIP3D_FORCE_INLINE float radius() const
         {
-            if (unlikely(!(flags_ & kFlagBoundsValid)))
-                calculateBoundingSphere();
+            ensureBounds();
             return boundsRadius_;
         }
 
@@ -372,115 +483,4 @@ namespace pip3D
         PIP3D_FORCE_INLINE void setTexture(const Texture *t) noexcept { meshTexture_ = t; }
         [[nodiscard]] PIP3D_FORCE_INLINE bool isTextured() const noexcept { return meshTexture_ != nullptr; }
     };
-
-    PIP3D_COLD inline void Mesh::calculateBoundingSphere() const
-    {
-        if (unlikely(!vertices_ || vertexCount_ == 0))
-        {
-            boundsCenter_ = Vector3(0.0f, 0.0f, 0.0f);
-            boundsRadius_ = 0.0f;
-            boundsHalfExtents_ = Vector3(0.0f, 0.0f, 0.0f);
-            flags_ |= kFlagBoundsValid;
-            return;
-        }
-
-        const Vertex *PIP3D_RESTRICT vPtr = vertices_;
-        const uint32_t vN = vertexCount_;
-        const float scale = qScale_;
-
-        float minX = 1e30f, maxX = -1e30f;
-        float minY = 1e30f, maxY = -1e30f;
-        float minZ = 1e30f, maxZ = -1e30f;
-
-        uint32_t iMinX = 0, iMaxX = 0;
-        uint32_t iMinY = 0, iMaxY = 0;
-        uint32_t iMinZ = 0, iMaxZ = 0;
-        for (uint32_t i = 0; i < vN; ++i)
-        {
-            const int16_t x = vPtr[i].px;
-            const int16_t y = vPtr[i].py;
-            const int16_t z = vPtr[i].pz;
-            const float fx = float(x) * scale;
-            const float fy = float(y) * scale;
-            const float fz = float(z) * scale;
-
-            if (i > 0)
-            {
-                if (x < vPtr[iMinX].px)
-                    iMinX = i;
-                if (x > vPtr[iMaxX].px)
-                    iMaxX = i;
-                if (y < vPtr[iMinY].py)
-                    iMinY = i;
-                if (y > vPtr[iMaxY].py)
-                    iMaxY = i;
-                if (z < vPtr[iMinZ].pz)
-                    iMinZ = i;
-                if (z > vPtr[iMaxZ].pz)
-                    iMaxZ = i;
-            }
-
-            if (fx < minX)
-                minX = fx;
-            if (fx > maxX)
-                maxX = fx;
-            if (fy < minY)
-                minY = fy;
-            if (fy > maxY)
-                maxY = fy;
-            if (fz < minZ)
-                minZ = fz;
-            if (fz > maxZ)
-                maxZ = fz;
-        }
-        boundsHalfExtents_ = Vector3((maxX - minX) * 0.5f, (maxY - minY) * 0.5f, (maxZ - minZ) * 0.5f);
-
-        const Vector3 p1(float(vPtr[iMinX].px) * scale, float(vPtr[iMinY].py) * scale, float(vPtr[iMinZ].pz) * scale);
-        const Vector3 p2(float(vPtr[iMaxX].px) * scale, float(vPtr[iMaxY].py) * scale, float(vPtr[iMaxZ].pz) * scale);
-
-        Vector3 center = (p1 + p2) * 0.5f;
-        float maxDistSq = 0.0f;
-        for (uint32_t i = 0; i < vN; ++i)
-        {
-            const float dx = float(vPtr[i].px) * scale - center.x;
-            const float dy = float(vPtr[i].py) * scale - center.y;
-            const float dz = float(vPtr[i].pz) * scale - center.z;
-            const float dSq = dx * dx + dy * dy + dz * dz;
-            if (dSq > maxDistSq)
-                maxDistSq = dSq;
-        }
-
-        boundsCenter_ = center;
-        boundsRadius_ = sqrtf(maxDistSq);
-        flags_ |= kFlagBoundsValid;
-    }
-
-    PIP3D_COLD inline void Mesh::recomputeHalfExtentsFromVertices() const
-    {
-        if (!vertices_ || vertexCount_ == 0)
-            return;
-        const float scale = qScale_;
-        float minX = 1e30f, maxX = -1e30f;
-        float minY = 1e30f, maxY = -1e30f;
-        float minZ = 1e30f, maxZ = -1e30f;
-        for (uint32_t i = 0; i < vertexCount_; ++i)
-        {
-            const float px = float(vertices_[i].px) * scale;
-            const float py = float(vertices_[i].py) * scale;
-            const float pz = float(vertices_[i].pz) * scale;
-            if (px < minX)
-                minX = px;
-            if (px > maxX)
-                maxX = px;
-            if (py < minY)
-                minY = py;
-            if (py > maxY)
-                maxY = py;
-            if (pz < minZ)
-                minZ = pz;
-            if (pz > maxZ)
-                maxZ = pz;
-        }
-        boundsHalfExtents_ = Vector3((maxX - minX) * 0.5f, (maxY - minY) * 0.5f, (maxZ - minZ) * 0.5f);
-    }
 }

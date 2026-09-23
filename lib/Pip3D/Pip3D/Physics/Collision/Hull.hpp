@@ -13,17 +13,14 @@ namespace pip3D
     inline Vector3 pickExtremeVertex(const Mesh &mesh, const Vector3 &dir,
                                      const Vector3 &center, const Vector3 &scale)
     {
-        const uint16_t n = mesh.numVertices();
-        if (n == 0)
+        if (mesh.numVertices() == 0)
             return Vector3(0, 0, 0);
 
-        const Vertex *v = mesh.vertexData();
         float bestDot = -FLT_MAX;
         Vector3 bestPos(0, 0, 0);
 
-        for (uint16_t i = 0; i < n; ++i)
-        {
-            const Vector3 p = mesh.decodePosition(v[i]);
+        mesh.forEachPosition([&](const Vector3 &p)
+                             {
             const Vector3 sp(p.x * scale.x, p.y * scale.y, p.z * scale.z);
             const Vector3 d = sp - center;
             const float dp = d.dot(dir);
@@ -31,8 +28,7 @@ namespace pip3D
             {
                 bestDot = dp;
                 bestPos = sp;
-            }
-        }
+            } });
         return bestPos;
     }
 
@@ -40,24 +36,22 @@ namespace pip3D
                                       const Vector3 &hullOrigin,
                                       Vector3 *outVerts, int *outCount, int maxVerts)
     {
-        const uint16_t n = mesh.numVertices();
-        if (n == 0 || maxVerts <= 0)
+        if (mesh.numVertices() == 0 || maxVerts <= 0)
         {
             *outCount = 0;
             return;
         }
 
-        const Vertex *v = mesh.vertexData();
         constexpr int kMaxWorkVerts = 256;
-        const uint16_t workN = (n > kMaxWorkVerts) ? kMaxWorkVerts : n;
 
         Vector3 work[kMaxWorkVerts];
         int workCount = 0;
         const float kDedupEpsSq = 1e-6f;
 
-        for (uint16_t i = 0; i < workN; ++i)
-        {
-            Vector3 p = mesh.decodePosition(v[i]);
+        mesh.forEachPosition([&](const Vector3 &p)
+                             {
+            if (workCount >= kMaxWorkVerts)
+                return;
             Vector3 sp(p.x * scale.x - hullOrigin.x,
                        p.y * scale.y - hullOrigin.y,
                        p.z * scale.z - hullOrigin.z);
@@ -72,9 +66,8 @@ namespace pip3D
                     break;
                 }
             }
-            if (!dup && workCount < kMaxWorkVerts)
-                work[workCount++] = sp;
-        }
+            if (!dup)
+                work[workCount++] = sp; });
 
         if (workCount == 0)
         {
@@ -151,22 +144,19 @@ namespace pip3D
     inline void extractConvexVertices(const Mesh &mesh, const Vector3 &scale,
                                       Vector3 *outVerts, int *outCount, int maxVerts)
     {
-        const uint16_t n = mesh.numVertices();
+        const uint32_t n = mesh.numVertices();
         if (n == 0 || maxVerts <= 0)
         {
             *outCount = 0;
             return;
         }
 
-        const Vertex *v = mesh.vertexData();
         Vector3 sum(0, 0, 0);
-        for (uint16_t i = 0; i < n; ++i)
-        {
-            const Vector3 p = mesh.decodePosition(v[i]);
+        mesh.forEachPosition([&](const Vector3 &p)
+                             {
             sum.x += p.x * scale.x;
             sum.y += p.y * scale.y;
-            sum.z += p.z * scale.z;
-        }
+            sum.z += p.z * scale.z; });
         const Vector3 center = sum * (1.0f / float(n));
 
         static const Vector3 kAxisDirs[6] = {
