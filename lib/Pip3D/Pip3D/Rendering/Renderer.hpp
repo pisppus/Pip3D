@@ -25,6 +25,7 @@
 #include "Rendering/Pipeline/Billboard.hpp"
 #include "Rendering/Pipeline/Telemetry.hpp"
 #include "Rendering/Effects/Glow.hpp"
+#include "Rendering/Effects/LensFlare.hpp"
 #include "Rendering/UI/Font.hpp"
 #include "Rendering/UI/HUD.hpp"
 
@@ -147,6 +148,10 @@ namespace pip3D
         Color sunColor = Color::WHITE;
         float sunIntensity = 1.0f;
         Vector3 sunWorldDir = Vector3(0.0f, 1.0f, 0.0f);
+        LensFlare lensFlare_;
+
+        Vector3 sunWorldPosition() const;
+        float sunDiskScreenRadius() const;
 
         bool shouldRenderShadowForBounds(const Vector3 &center, float radius) const;
         void drawWaterTriangleInternal(const Vector3 &v0, const Vector3 &v1, const Vector3 &v2,
@@ -198,7 +203,6 @@ namespace pip3D
         void drawSkyboxBackground();
 
         void fillSkyGradient();
-        void drawCloudsAfterGeometry();
 
         Vector3 project(const Vector3 &v);
 
@@ -412,7 +416,6 @@ namespace pip3D
         static constexpr uint16_t reflectHeight() { return REFLECT_HEIGHT; }
         uint16_t *getReflectBuffer() const { return reflectBuffer; }
 
-        void drawSunSprite(const Vector3 &worldPos, const Color &color, float glow, float sizeScale = 1.0f);
         void setSunEnabled(bool enabled) { sunEnabled = enabled; }
         bool isSunEnabled() const { return sunEnabled; }
         void updateSun(const Vector3 &dir, const Color &color, float intensity, bool visible)
@@ -424,6 +427,11 @@ namespace pip3D
         }
         bool isSunVisible() const { return sunVisible; }
         Vector3 getSunWorldDir() const { return sunWorldDir; }
+
+        LensFlare &lensFlare() { return lensFlare_; }
+        const LensFlare &lensFlare() const { return lensFlare_; }
+        void drawLensFlare();
+
         void drawSky();
         void drawBillboardQuads(const BillboardQuad *quads, size_t count);
 

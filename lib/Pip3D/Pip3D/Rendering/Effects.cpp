@@ -4,7 +4,6 @@
 #include "Rendering/Pipeline/Billboard.hpp"
 #include "Rendering/Pipeline/Rasterizer/Water.hpp"
 #include "Rendering/Resources/Texture.hpp"
-#include "Rendering/Resources/Textures/Sun.hpp"
 #include "Math/Algebra.hpp"
 #include "Debug/Logging.hpp"
 
@@ -197,18 +196,34 @@ namespace pip3D
 
     void Renderer::drawSky()
     {
-        if (!sunEnabled || !sunVisible)
-            return;
-
         const Camera &cam = cameras[activeCameraIndex];
-        const float skyDist = cam.farPlane * 0.85f;
-        const Vector3 sunPos = cam.position + sunWorldDir * skyDist;
+        const Vector3 fwd = cam.forward();
 
-        const Vector3 toSun = sunPos - cam.position;
-        if (toSun.dot(cam.forward()) <= 0.0f)
-            return;
+        if (sunEnabled && sunVisible)
+        {
+            const Vector3 sunPos = sunWorldPosition();
 
-        drawSunSprite(sunPos, sunColor, sunIntensity, 1.0f);
+            const Vector3 toSun = sunPos - cam.position;
+            if (toSun.dot(fwd) > 0.0f)
+            {
+                const Vector3 sunScreen = project(sunPos);
+                if (sunScreen.z > 0.0f && sunScreen.z < static_cast<float>(Z_DEPTH_MAX))
+                {
+                    SunDisc::draw(framebuffer.getBuffer(), sunScreen,
+                                  sunDiskScreenRadius(),
+                                  g_bandOffsetY,
+                                  static_cast<int16_t>(g_bandOffsetY + g_bandHeight),
+                                  sunColor, clamp(sunIntensity, 0.0f, 1.0f));
+                }
+            }
+        }
+
+        if (framebuffer.getClouds().isReady())
+        {
+            framebuffer.drawClouds<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>(
+                cam.position, fwd, cam.right(), cam.upVec(),
+                cam.fov * kDegToRad, ensureHfovCached());
+        }
     }
 
     void Renderer::drawBillboardQuads(const BillboardQuad *quads, size_t count)
@@ -230,50 +245,66 @@ namespace pip3D
             true);
     }
 
-    void Renderer::drawSunSprite(const Vector3 &worldPos, const Color &color, float glow, float sizeScale)
+    namespace
+    {
+        float sunSpriteDiameterPx(float minDim, float glow, float sizeScale)
+        {
+            if (sizeScale < 0.2f)
+                sizeScale = 0.2f;
+            if (sizeScale > 3.0f)
+                sizeScale = 3.0f;
+
+            float extra = glow;
+            if (extra < 0.0f)
+                extra = 0.0f;
+            if (extra > 1.0f)
+                extra = 1.0f;
+
+            return 2.0f * minDim * 0.065f * sizeScale * (0.85f + extra * 0.35f);
+        }
+    }
+
+    Vector3 Renderer::sunWorldPosition() const
+    {
+        const Camera &cam = cameras[activeCameraIndex];
+        return cam.position + sunWorldDir * (cam.farPlane * 0.85f);
+    }
+
+    float Renderer::sunDiskScreenRadius() const
     {
         const int16_t minDim = viewport.width < viewport.height ? viewport.width : viewport.height;
-        if (minDim <= 0)
+        return 0.5f * sunSpriteDiameterPx(static_cast<float>(minDim), sunIntensity, 1.0f);
+    }
+
+    void Renderer::drawLensFlare()
+    {
+        const int16_t bandTop = g_bandOffsetY;
+        const int16_t bandBottom = static_cast<int16_t>(bandTop + g_bandHeight);
+
+        if (!sunEnabled || !sunVisible)
+        {
+            lensFlare_.notifySunLost();
             return;
-
-        if (sizeScale < 0.2f)
-            sizeScale = 0.2f;
-        if (sizeScale > 3.0f)
-            sizeScale = 3.0f;
-
-        float extra = glow;
-        if (extra < 0.0f)
-            extra = 0.0f;
-        if (extra > 1.0f)
-            extra = 1.0f;
-
-        const float diameter = 2.0f * minDim * 0.065f * sizeScale * (0.85f + extra * 0.35f);
-        if (diameter < 2.0f)
-            return;
-
-        const uint8_t intensityByte = static_cast<uint8_t>(extra * COLOR_BYTE_MAX_F);
-        if (intensityByte == 0)
-            return;
+        }
 
         const Camera &cam = cameras[activeCameraIndex];
-        BillboardFrameContext ctx = makeBillboardFrameContext(
-            cam, viewport, viewProjMatrix, frustum);
-
-        BillboardQuad q = {};
-        q.texture = &g_sunTexture;
-        q.chromaKey = 0x0000;
-        q.alpha = intensityByte;
-        q.blend = static_cast<uint8_t>(BB_BLEND_ADDITIVE);
-        q.lit = false;
-
-        if (!buildBillboardQuadGeometry(
-                worldPos, diameter, diameter,
-                BB_SCREEN_ALIGNED, 0.0f,
-                true, color,
-                ctx, q))
+        const Vector3 sunPos = sunWorldPosition();
+        const Vector3 toSun = sunPos - cam.position;
+        if (toSun.dot(cam.forward()) <= 0.0f)
+        {
+            lensFlare_.notifySunLost();
             return;
+        }
 
-        drawBillboardQuads(&q, 1);
+        const Vector3 sunScreen = project(sunPos);
+        if (sunScreen.z <= 0.0f || sunScreen.z >= static_cast<float>(Z_DEPTH_MAX))
+        {
+            lensFlare_.notifySunLost();
+            return;
+        }
+
+        lensFlare_.render(framebuffer.getBuffer(), zBuffer, sunScreen,
+                          sunDiskScreenRadius(), bandTop, bandBottom);
     }
 
     void Renderer::drawWaterTriangleInternal(const Vector3 &v0,

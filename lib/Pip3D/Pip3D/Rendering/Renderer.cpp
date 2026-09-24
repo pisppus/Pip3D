@@ -530,21 +530,6 @@ namespace pip3D
         framebuffer.fillBackground<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>(pitchShiftRows);
     }
 
-    void Renderer::drawCloudsAfterGeometry()
-    {
-        if (!framebuffer.getClouds().isReady())
-            return;
-
-        const Camera &cam = cameras[activeCameraIndex];
-        const Vector3 &fwd = cam.forward();
-        const float vfov = cam.fov * kDegToRad;
-        const float hfov = ensureHfovCached();
-
-        framebuffer.drawCloudsZTested<SCREEN_WIDTH, SCREEN_BAND_HEIGHT>(
-            cam.position, fwd, cam.right(), cam.upVec(), vfov, hfov,
-            zBuffer.data());
-    }
-
     Vector3 Renderer::project(const Vector3 &v)
     {
         return CameraController::project(v, viewProjMatrix, viewport);
