@@ -20,12 +20,12 @@ CACHE_VERSION = 3
 CACHE_PATH    = os.path.join(project_dir, ".pio", "pip3d_assetdb.json")
 
 CHUNK_SUFFIX            = "_chunk"
+NOTILE_SUFFIX           = "_notile"
 BUILTIN_ENGINE_MODELS   = {"suzanne", "teapot", "bunny"}
-BUILTIN_ENGINE_TEXTURES = {"barrier", "concrete", "gravel", "sun", "tile", "missing"}
+BUILTIN_ENGINE_TEXTURES = {"barrier", "concrete", "gravel", "tile", "missing"}
 
 GEN_DEPS = {
     "textures": ["PIL"],
-    "sun":      ["PIL", "numpy"],
     "sky":      ["numpy", "PIL"],
     "audio":    ["numpy", "miniaudio"],
 }
@@ -166,10 +166,19 @@ def touch(path):
 
 def parse_model_asset_name(raw_name):
     name = os.path.splitext(raw_name)[0]
-    if name.lower().endswith(CHUNK_SUFFIX):
-        clean = name[:-len(CHUNK_SUFFIX)]
-        return clean if clean else name
+    for suffix in (CHUNK_SUFFIX, NOTILE_SUFFIX):
+        if name.lower().endswith(suffix):
+            clean = name[:-len(suffix)]
+            return clean if clean else name
     return name
+
+
+def iter_asset_files(root, exts):
+    """Recursively list asset files under root (subfolders are categories)."""
+    for dirpath, _, filenames in os.walk(root):
+        for fn in sorted(filenames):
+            if fn.lower().endswith(exts) and not fn.startswith("_"):
+                yield os.path.join(dirpath, fn)
 
 
 def parse_tex_asset_name(raw_name):
@@ -245,10 +254,9 @@ expected_app_models    = {}
 pending_models         = []
 
 if os.path.isdir(obj_sources_dir):
-    for file in os.listdir(obj_sources_dir):
-        if file.lower().endswith(".obj"):
-            obj_path   = os.path.join(obj_sources_dir, file)
-            clean_name = parse_model_asset_name(file)
+    for obj_path in iter_asset_files(obj_sources_dir, (".obj",)):
+        file = os.path.basename(obj_path)
+        clean_name = parse_model_asset_name(file)
 
             is_engine = clean_name.lower() in BUILTIN_ENGINE_MODELS
             dest_dir  = engine_models_dir if is_engine else app_models_dir
@@ -314,12 +322,10 @@ pending_textures         = []
 
 if os.path.isdir(tex_sources_dir):
     claims = {}
-    for file in sorted(os.listdir(tex_sources_dir)):
-        if file.startswith("_"):
-            continue
-        if file.lower().endswith((".png", ".jpg", ".jpeg")):
-            clean_name, _ = parse_tex_asset_name(file)
-            claims.setdefault(clean_name, []).append(file)
+    for img_path in iter_asset_files(tex_sources_dir, (".png", ".jpg", ".jpeg")):
+        file = os.path.basename(img_path)
+        clean_name, _ = parse_tex_asset_name(file)
+        claims.setdefault(clean_name, []).append(img_path)
 
     for clean_name, sources in claims.items():
         is_engine = clean_name.lower() in BUILTIN_ENGINE_TEXTURES
@@ -332,11 +338,10 @@ if os.path.isdir(tex_sources_dir):
             expected_app_textures[os.path.basename(hpp_path)] = True
 
         if len(sources) > 1:
-            chosen   = sorted(sources)[-1]
-            img_path = os.path.join(tex_sources_dir, chosen)
-            print(_tag(ANSI_YELLOW, f"Name collision for '{clean_name}': {sources} -> using '{chosen}'"))
+            img_path = sorted(sources)[-1]
+            print(_tag(ANSI_YELLOW, f"Name collision for '{clean_name}': {[os.path.basename(s) for s in sources]} -> using '{os.path.basename(img_path)}'"))
         else:
-            img_path = os.path.join(tex_sources_dir, sources[0])
+            img_path = sources[0]
 
         key = "tex:" + clean_name
         fingerprint = make_fingerprint([textures_convert_py], [img_path], "png2tex")
@@ -353,18 +358,6 @@ if pending_textures:
     run_convert(textures_convert_py, batch_args)
     for _, hpp_path, key, fingerprint in pending_textures:
         asset_mark_built(key, fingerprint, hpp_path)
-
-sun_hpp_path = os.path.join(engine_textures_dir, "Sun.hpp")
-sungen_path = os.path.join(textures_dir, "Sungen.py")
-if os.path.isfile(sungen_path):
-    expected_engine_textures["Sun.hpp"] = True
-    sun_key = "sungen:sun"
-    sun_fingerprint = make_fingerprint([sungen_path])
-    if not asset_is_current(sun_key, sun_fingerprint, sun_hpp_path):
-        print(_tag(ANSI_GREEN, f"Building sun texture: Sungen.py -> Sun.hpp"))
-        ensure_pip_packages(GEN_DEPS["sun"])
-        run_convert(sungen_path, [sun_hpp_path])
-        asset_mark_built(sun_key, sun_fingerprint, sun_hpp_path)
 
 missing_hpp_path = os.path.join(engine_textures_dir, "Missing.hpp")
 missinggen_path  = os.path.join(textures_dir, "Missinggen.py")

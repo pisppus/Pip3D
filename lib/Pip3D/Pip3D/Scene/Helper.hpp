@@ -84,22 +84,6 @@ namespace pip3D
         MeshInstance *getGroundInstance() const { return groundInstance; }
         Plane *getGroundMesh() const { return groundMesh; }
 
-        void renderSun(float glowIntensity, float temperature)
-        {
-            if (!renderer || !hasSun)
-                return;
-
-            Light *mainLight = renderer->getLight(0);
-            if (!mainLight)
-                return;
-
-            Vector3 sunDir = mainLight->direction;
-            Vector3 sunPos = sunDir * -20.0f;
-            Color sunColor = Color::fromTemperature(temperature);
-
-            renderer->drawSunSprite(sunPos, sunColor, glowIntensity);
-        }
-
         void setSunPosition(float x, float y, float z)
         {
             if (!renderer)
