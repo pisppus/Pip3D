@@ -174,7 +174,6 @@ def parse_model_asset_name(raw_name):
 
 
 def iter_asset_files(root, exts):
-    """Recursively list asset files under root (subfolders are categories)."""
     for dirpath, _, filenames in os.walk(root):
         for fn in sorted(filenames):
             if fn.lower().endswith(exts) and not fn.startswith("_"):
@@ -258,29 +257,47 @@ if os.path.isdir(obj_sources_dir):
         file = os.path.basename(obj_path)
         clean_name = parse_model_asset_name(file)
 
-            is_engine = clean_name.lower() in BUILTIN_ENGINE_MODELS
-            dest_dir  = engine_models_dir if is_engine else app_models_dir
-            hpp_path  = os.path.join(dest_dir, clean_name + ".hpp")
+        is_engine = clean_name.lower() in BUILTIN_ENGINE_MODELS
+        dest_dir  = engine_models_dir if is_engine else app_models_dir
+        hpp_path  = os.path.join(dest_dir, clean_name + ".hpp")
 
-            if is_engine:
-                expected_engine_models[os.path.basename(hpp_path)] = True
-            else:
-                expected_app_models[os.path.basename(hpp_path)] = True
+        if is_engine:
+            expected_engine_models[os.path.basename(hpp_path)] = True
+        else:
+            expected_app_models[os.path.basename(hpp_path)] = True
 
-            key = "model:" + file
-            fingerprint = make_fingerprint(models_tool_scripts,
-                                           [obj_path] + obj_material_deps(obj_path), "obj2mesh")
-            if not asset_is_current(key, fingerprint, hpp_path):
-                dest_label = "Engine (Geometry/Models)" if is_engine else "App (src/Models)"
-                print(_tag(ANSI_GREEN, f"Building model: {file} -> {dest_label}/{clean_name}.hpp"))
-                pending_models.append((obj_path, hpp_path, key, fingerprint))
+        chunk_path = os.path.splitext(obj_path)[0] + ".chunksize"
+        chunk_extra = ""
+        chunk_args = []
+        if os.path.isfile(chunk_path):
+            chunk_val = open(chunk_path).read().strip()
+            chunk_extra = "chunk=" + chunk_val
+            chunk_args = ["--chunk-size", chunk_val]
+
+        key = "model:" + file
+        fingerprint = make_fingerprint(models_tool_scripts,
+                                       [obj_path] + obj_material_deps(obj_path),
+                                       "obj2mesh" + chunk_extra)
+        if not asset_is_current(key, fingerprint, hpp_path):
+            dest_label = "Engine (Geometry/Models)" if is_engine else "App (src/Models)"
+            print(_tag(ANSI_GREEN, f"Building model: {file} -> {dest_label}/{clean_name}.hpp"))
+            pending_models.append((obj_path, hpp_path, key, fingerprint, chunk_args))
 
 if pending_models:
-    batch_args = []
-    for obj_path, hpp_path, _, _ in pending_models:
-        batch_args += [obj_path, hpp_path]
-    run_convert(models_convert_py, batch_args)
-    for _, hpp_path, key, fingerprint in pending_models:
+    groups = {}
+    order = []
+    for item in pending_models:
+        cv = item[4][1] if item[4] else ""
+        if cv not in groups:
+            groups[cv] = []
+            order.append(cv)
+        groups[cv].append(item)
+    for cv in order:
+        batch_args = (["--chunk-size", cv] if cv else [])
+        for obj_path, hpp_path, _, _, _ in groups[cv]:
+            batch_args += [obj_path, hpp_path]
+        run_convert(models_convert_py, batch_args)
+    for _, hpp_path, key, fingerprint, _ in pending_models:
         asset_mark_built(key, fingerprint, hpp_path)
 
 if os.path.isdir(engine_models_dir):

@@ -736,7 +736,7 @@ def convert_obj(obj_path, force_output_path=None, center_y=False,
                      chunk_size=DEFAULT_CHUNK_SIZE,
                      default_color_565=DEFAULT_COLOR_565,
                      store_normals=True, pos_snap=POS_SUB_GRID,
-                     uv_mode="auto", normals_mode="auto"):
+                     uv_mode="auto", normals_mode="auto", no_tiles=False):
     if not os.path.exists(obj_path):
         print(_err(f"Source file '{obj_path}' not found!"))
         sys.exit(1)
@@ -745,8 +745,17 @@ def convert_obj(obj_path, force_output_path=None, center_y=False,
     file_stem = os.path.splitext(src_basename)[0]
 
     CHUNK_SUFFIX = "_chunk"
+    NOTILE_SUFFIX = "_notile"
     meshlet_mode = file_stem.lower().endswith(CHUNK_SUFFIX)
-    clean_stem = file_stem[:-len(CHUNK_SUFFIX)] if meshlet_mode else file_stem
+    no_tiles_mode = file_stem.lower().endswith(NOTILE_SUFFIX)
+    if meshlet_mode:
+        clean_stem = file_stem[:-len(CHUNK_SUFFIX)]
+    elif no_tiles_mode:
+        clean_stem = file_stem[:-len(NOTILE_SUFFIX)]
+    else:
+        clean_stem = file_stem
+    if no_tiles_mode:
+        no_tiles = True
 
     raw_vertices, raw_normals, raw_texcoords, parsed_triangles, has_uv, materials, primary_texture = parse_obj(obj_path)
 
@@ -776,7 +785,8 @@ def convert_obj(obj_path, force_output_path=None, center_y=False,
         print(_tag(f"  Normals dropped: identical to the geometric face "
                    f"normals (hard-edged geometry); saves 2 bytes per corner"))
 
-    props, consumed = detect_instances(parsed_triangles, raw_vertices, materials, clean_stem)
+    props, consumed = ({}, set()) if no_tiles else detect_instances(
+        parsed_triangles, raw_vertices, materials, clean_stem)
 
     sanitized_name = sanitize_asset_name(clean_stem)
     if not sanitized_name:
@@ -869,6 +879,8 @@ if __name__ == "__main__":
                         help="Store UV coordinates even when no texture hint is present in the materials")
     parser.add_argument("--no-uv", action="store_true",
                         help="Never store UV coordinates, even when a texture hint is present")
+    parser.add_argument("--no-tiles", action="store_true",
+                        help="Disable automatic repeated-instance (tile) detection; keep the mesh whole")
     parser.add_argument("--placements", nargs=2, metavar=("IN", "OUT"),
                         help="Placement list txt -> flash-resident placement header")
     args = parser.parse_args()
@@ -908,4 +920,5 @@ if __name__ == "__main__":
                          store_normals=not args.no_normals,
                          pos_snap=pos_snap,
                          uv_mode=uv_mode,
-                         normals_mode=normals_mode)
+                         normals_mode=normals_mode,
+                         no_tiles=args.no_tiles)

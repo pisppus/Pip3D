@@ -756,6 +756,10 @@ namespace pip3D
             for (const MeshCacheEntry *e : meshOrder)
             {
                 os << "        alignas(4) static constexpr LMUVQuant lmuv_m" << e->meshKey << "[] = {\n";
+                if (e->uv2Mesh.empty())
+                {
+                    os << "            { 0, 0 },\n";
+                }
                 for (size_t i = 0; i + 2 < e->uv2Mesh.size(); i += 3)
                 {
                     os << "            "

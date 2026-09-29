@@ -23,22 +23,21 @@ namespace pip3D
         if (!frustum.testSphere(center, radius))
             return;
 
-        const uint16_t faceCount = mesh->numFaces();
-        if (faceCount == 0)
+        if (mesh->numFaces() == 0)
             return;
 
-        const uint16_t vertexCountUsed = mesh->numVertices();
+        const uint32_t vertexCountUsed = mesh->numVertices();
+        if (vertexCountUsed == 0 || vertexCountUsed > 0xFFFFu)
+            return;
 
         DrawCache *cache = &instance->drawCache();
-        if (!cache->ensureCapacity(vertexCountUsed))
+        if (!cache->ensureCapacity(static_cast<uint16_t>(vertexCountUsed), 0))
             return;
 
         Vector3 *worldVerts = cache->worldVerts();
         Vector3 *screenVerts = cache->screenVerts();
 
         const Matrix4x4 &worldTransform = instance->transform();
-
-        const Vertex *PIP3D_RESTRICT vbase = mesh->vertexData();
 
         const uint32_t frameStamp = g_frameStamp;
         const uint32_t instanceVersion = instance->version();
@@ -52,21 +51,20 @@ namespace pip3D
             cache->beginProjection(frameStamp, instanceVersion);
         if (projState == DrawCache::ProjState::NeedsTransformAndProject)
         {
-
-            for (uint16_t i = 0; i < vertexCountUsed; ++i)
-            {
-                const Vector3 local = mesh->decodePosition(vbase[i]);
+            uint32_t vi = 0;
+            mesh->forEachPosition([&](const Vector3 &local)
+                                  {
                 const Vector3 world = worldTransform.transformNoDiv(local);
-                worldVerts[i] = world;
-                screenVerts[i] = CameraController::project(world, viewProjMatrix,
-                                                           viewportHalfWidth, viewportHalfHeight,
-                                                           viewport.x, viewport.y);
-            }
+                worldVerts[vi] = world;
+                screenVerts[vi] = CameraController::project(world, viewProjMatrix,
+                                                            viewportHalfWidth, viewportHalfHeight,
+                                                            viewport.x, viewport.y);
+                ++vi; });
             cache->commitProjection(frameStamp, instanceVersion);
         }
         else if (projState == DrawCache::ProjState::NeedsReproject)
         {
-            for (uint16_t i = 0; i < vertexCountUsed; ++i)
+            for (uint32_t i = 0; i < vertexCountUsed; ++i)
             {
                 screenVerts[i] = CameraController::project(worldVerts[i], viewProjMatrix,
                                                            viewportHalfWidth, viewportHalfHeight,
@@ -76,7 +74,7 @@ namespace pip3D
         }
 
         float waterYGlobal = screenVerts[0].y;
-        for (uint16_t i = 1; i < vertexCountUsed; ++i)
+        for (uint32_t i = 1; i < vertexCountUsed; ++i)
         {
             if (screenVerts[i].y < waterYGlobal)
                 waterYGlobal = screenVerts[i].y;
@@ -84,14 +82,9 @@ namespace pip3D
 
         const DisplayConfig &framebufferConfig = framebuffer.getConfig();
 
-        const Face *PIP3D_RESTRICT fbase = mesh->faceData();
-        for (uint16_t i = 0; i < faceCount; ++i)
-        {
-            const Face &face = fbase[i];
-            const uint16_t i0 = face.v0;
-            const uint16_t i1 = face.v1;
-            const uint16_t i2 = face.v2;
-
+        mesh->forEachFace([&](uint32_t, uint32_t i0, uint32_t i1, uint32_t i2,
+                              uint32_t, uint32_t, uint32_t)
+                          {
             const Vector3 &p0 = screenVerts[i0];
             const Vector3 &p1 = screenVerts[i1];
             const Vector3 &p2 = screenVerts[i2];
@@ -99,12 +92,12 @@ namespace pip3D
             const float minY = fminf(p0.y, fminf(p1.y, p2.y));
             const float maxY = fmaxf(p0.y, fmaxf(p1.y, p2.y));
             if (maxY < bandTop || minY >= bandBottom)
-                continue;
+                return;
 
             const float minX = fminf(p0.x, fminf(p1.x, p2.x));
             const float maxX = fmaxf(p0.x, fmaxf(p1.x, p2.x));
             if (maxX < 0.0f || minX >= viewportWidth)
-                continue;
+                return;
 
             Vector3 lp0 = p0;
             Vector3 lp1 = p1;
@@ -125,8 +118,7 @@ namespace pip3D
                                           bandTop,
                                           reflectBuffer,
                                           REFLECT_WIDTH,
-                                          REFLECT_HEIGHT);
-        }
+                                          REFLECT_HEIGHT); });
     }
 
     void Renderer::drawWater(float yLevel, float size, Color color, float alpha, float time)

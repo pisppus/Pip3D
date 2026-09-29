@@ -6,6 +6,7 @@
 #include "Core/Platform.hpp"
 #include "Core/Color.hpp"
 #include "Math/Algebra.hpp"
+#include "Math/Simd.hpp"
 #include "Rendering/Environment/Sky.hpp"
 #include "Rendering/Environment/Clouds.hpp"
 
@@ -175,6 +176,29 @@ namespace pip3D
 
                 const DitherStep *PIP3D_RESTRICT dRow = &kDither[(globalY & 7u) * 8u];
 
+                uint16_t *row = buf + static_cast<size_t>(y) * WIDTH;
+
+#if PIP3D_SIMD
+
+                alignas(16) static uint32_t s_dr32[64];
+                alignas(16) static uint32_t s_dg32[64];
+                static bool s_ditherInit = false;
+                if (unlikely(!s_ditherInit))
+                {
+                    for (uint32_t r8 = 0; r8 < 8; ++r8)
+                        for (uint32_t k = 0; k < 8; ++k)
+                        {
+                            s_dr32[r8 * 8 + k] = kDither[r8 * 8 + k].dr;
+                            s_dg32[r8 * 8 + k] = kDither[r8 * 8 + k].dg;
+                        }
+                    s_ditherInit = true;
+                }
+                Simd::fillSkyRow128(row, WIDTH >> 3, R8, G8, B8,
+                                    &s_dr32[(globalY & 7u) * 8u],
+                                    &s_dg32[(globalY & 7u) * 8u]);
+                continue;
+#endif
+
                 const uint16_t p0 = pack565Dithered(R8, G8, B8, dRow[0].dr, dRow[0].dg);
                 const uint16_t p1 = pack565Dithered(R8, G8, B8, dRow[1].dr, dRow[1].dg);
                 const uint16_t p2 = pack565Dithered(R8, G8, B8, dRow[2].dr, dRow[2].dg);
@@ -190,7 +214,7 @@ namespace pip3D
                 const uint32_t lut3 = (static_cast<uint32_t>(p7) << 16) | p6;
 
                 uint32_t *__restrict__ row32 =
-                    reinterpret_cast<uint32_t *>(buf + static_cast<size_t>(y) * WIDTH);
+                    reinterpret_cast<uint32_t *>(row);
 
                 constexpr uint16_t UNROLL = 4;
                 for (uint16_t x = 0; x < widthHalf; x += UNROLL)
@@ -218,6 +242,12 @@ namespace pip3D
 
             for (uint16_t y = 0; y < HEIGHT; ++y)
             {
+#if PIP3D_SIMD
+
+                Simd::fillSpan16(buf + static_cast<size_t>(y) * WIDTH,
+                                 WIDTH >> 3, static_cast<uint16_t>(fill));
+                continue;
+#endif
                 uint32_t *__restrict__ row32 =
                     reinterpret_cast<uint32_t *>(buf + static_cast<size_t>(y) * WIDTH);
 
@@ -378,19 +408,6 @@ namespace pip3D
         {
             clouds.drawClouds<WIDTH, HEIGHT>(storage[activeSlot], g_bandOffsetY,
                                              camPos, fwd, right, up, vfovRad, hfovRad);
-        }
-
-        template <uint16_t WIDTH, uint16_t HEIGHT>
-        PIP3D_ALWAYS_INLINE_HOT inline void
-        drawCloudsZTested(const Vector3 &camPos,
-                          const Vector3 &fwd, const Vector3 &right, const Vector3 &up,
-                          float vfovRad, float hfovRad,
-                          const uint16_t *zBuf) noexcept
-        {
-            clouds.drawCloudsZTested<WIDTH, HEIGHT>(storage[activeSlot], zBuf,
-                                                    g_bandOffsetY,
-                                                    camPos, fwd, right, up,
-                                                    vfovRad, hfovRad);
         }
 
         PIP3D_ALWAYS_INLINE inline void

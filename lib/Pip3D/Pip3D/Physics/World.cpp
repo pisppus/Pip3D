@@ -772,10 +772,26 @@ namespace pip3D
             newPending = maxAccum;
         pendingFrameDelta_ = newPending;
         __sync_synchronize();
+
 #if PIP3D_TARGET_ESP32
         if (physicsTask_)
+        {
             xTaskNotifyGive(physicsTask_);
+            return;
+        }
 #endif
+        int steps = 0;
+        while (pendingFrameDelta_ >= fixedTimeStep &&
+               steps < PhysicsConfig::MAX_SUBSTEPS)
+        {
+            processPendingCommands();
+            applyKinematicTargets();
+            runStepJob(fixedTimeStep);
+            pendingFrameDelta_ -= fixedTimeStep;
+            ++steps;
+        }
+        if (steps > 0)
+            snapshotRenderTransforms();
     }
 
     void PhysicsWorld::runStepJob(float deltaTime)

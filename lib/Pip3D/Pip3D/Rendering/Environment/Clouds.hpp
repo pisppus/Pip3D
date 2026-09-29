@@ -304,10 +304,34 @@ namespace pip3D
                     u_fp += du_fp2;
                     v_fp += dv_fp2;
 
+                    const uint32_t ti4 = (((uint32_t)v_fp >> 8) & 0xFF00u) | (((uint32_t)u_fp >> 16) & 0xFFu);
+                    const uint8_t a8_4 = alphaBase[ti4];
+                    u_fp += du_fp2;
+                    v_fp += dv_fp2;
+
+                    const uint32_t ti5 = (((uint32_t)v_fp >> 8) & 0xFF00u) | (((uint32_t)u_fp >> 16) & 0xFFu);
+                    const uint8_t a8_5 = alphaBase[ti5];
+                    u_fp += du_fp2;
+                    v_fp += dv_fp2;
+
+                    const uint32_t ti6 = (((uint32_t)v_fp >> 8) & 0xFF00u) | (((uint32_t)u_fp >> 16) & 0xFFu);
+                    const uint8_t a8_6 = alphaBase[ti6];
+                    u_fp += du_fp2;
+                    v_fp += dv_fp2;
+
+                    const uint32_t ti7 = (((uint32_t)v_fp >> 8) & 0xFF00u) | (((uint32_t)u_fp >> 16) & 0xFFu);
+                    const uint8_t a8_7 = alphaBase[ti7];
+                    u_fp += du_fp2;
+                    v_fp += dv_fp2;
+
                     const uint32_t a5_0 = (static_cast<uint32_t>(a8_0) * rowAlphaMul32 + 127u) >> 8;
                     const uint32_t a5_1 = (static_cast<uint32_t>(a8_1) * rowAlphaMul32 + 127u) >> 8;
                     const uint32_t a5_2 = (static_cast<uint32_t>(a8_2) * rowAlphaMul32 + 127u) >> 8;
                     const uint32_t a5_3 = (static_cast<uint32_t>(a8_3) * rowAlphaMul32 + 127u) >> 8;
+                    const uint32_t a5_4 = (static_cast<uint32_t>(a8_4) * rowAlphaMul32 + 127u) >> 8;
+                    const uint32_t a5_5 = (static_cast<uint32_t>(a8_5) * rowAlphaMul32 + 127u) >> 8;
+                    const uint32_t a5_6 = (static_cast<uint32_t>(a8_6) * rowAlphaMul32 + 127u) >> 8;
+                    const uint32_t a5_7 = (static_cast<uint32_t>(a8_7) * rowAlphaMul32 + 127u) >> 8;
 
                     if (a5_0 > 0u)
                     {
@@ -336,6 +360,34 @@ namespace pip3D
                         const uint16_t px = (a5_3 >= 32u) ? sh
                                                           : blend565(static_cast<uint16_t>(fbRow32[x2 + 3]), sh, a5_3);
                         fbRow32[x2 + 3] = static_cast<uint32_t>(px) | (static_cast<uint32_t>(px) << 16);
+                    }
+                    if (a5_4 > 0u)
+                    {
+                        const uint16_t sh = lutPtr[shadeBase[ti4]];
+                        const uint16_t px = (a5_4 >= 32u) ? sh
+                                                          : blend565(static_cast<uint16_t>(fbRow32[x2 + 4]), sh, a5_4);
+                        fbRow32[x2 + 4] = static_cast<uint32_t>(px) | (static_cast<uint32_t>(px) << 16);
+                    }
+                    if (a5_5 > 0u)
+                    {
+                        const uint16_t sh = lutPtr[shadeBase[ti5]];
+                        const uint16_t px = (a5_5 >= 32u) ? sh
+                                                          : blend565(static_cast<uint16_t>(fbRow32[x2 + 5]), sh, a5_5);
+                        fbRow32[x2 + 5] = static_cast<uint32_t>(px) | (static_cast<uint32_t>(px) << 16);
+                    }
+                    if (a5_6 > 0u)
+                    {
+                        const uint16_t sh = lutPtr[shadeBase[ti6]];
+                        const uint16_t px = (a5_6 >= 32u) ? sh
+                                                          : blend565(static_cast<uint16_t>(fbRow32[x2 + 6]), sh, a5_6);
+                        fbRow32[x2 + 6] = static_cast<uint32_t>(px) | (static_cast<uint32_t>(px) << 16);
+                    }
+                    if (a5_7 > 0u)
+                    {
+                        const uint16_t sh = lutPtr[shadeBase[ti7]];
+                        const uint16_t px = (a5_7 >= 32u) ? sh
+                                                          : blend565(static_cast<uint16_t>(fbRow32[x2 + 7]), sh, a5_7);
+                        fbRow32[x2 + 7] = static_cast<uint32_t>(px) | (static_cast<uint32_t>(px) << 16);
                     }
                 }
 

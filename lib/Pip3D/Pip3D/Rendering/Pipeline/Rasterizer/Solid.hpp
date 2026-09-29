@@ -6,6 +6,7 @@
 
 #include "Core/Platform.hpp"
 #include "Math/Algebra.hpp"
+#include "Math/Simd.hpp"
 #include "Rendering/Buffers/ZBuffer.hpp"
 #include "Rendering/Lighting/Baked.hpp"
 #include "Rendering/Lighting/Fog.hpp"
@@ -18,12 +19,12 @@ namespace pip3D
         {
 
             PIP3D_ALWAYS_INLINE_HOT static inline void IRAM_ATTR
-            fillScanlinePlain(uint16_t *__restrict__ buf,
-                              uint16_t *__restrict__ fb,
-                              uint32_t count,
-                              int32_t depthStart,
-                              int32_t depthStep,
-                              uint16_t color) noexcept
+            fillScanlinePlainScalar(uint16_t *__restrict__ buf,
+                                    uint16_t *__restrict__ fb,
+                                    uint32_t count,
+                                    int32_t depthStart,
+                                    int32_t depthStep,
+                                    uint16_t color) noexcept
             {
                 int32_t depth = depthStart;
 
@@ -84,6 +85,85 @@ namespace pip3D
                     --count;
                 }
             }
+
+#if PIP3D_SIMD
+
+            static void IRAM_ATTR
+            fillScanlinePlain(uint16_t *__restrict__ buf,
+                              uint16_t *__restrict__ fb,
+                              uint32_t count,
+                              int32_t depthStart,
+                              int32_t depthStep,
+                              uint16_t color) noexcept
+            {
+
+                const uintptr_t misBytes =
+                    reinterpret_cast<uintptr_t>(buf) & 15u;
+                uint32_t head = misBytes ? (16u - misBytes) >> 1 : 0u;
+                if (head > count)
+                    head = count;
+
+                int32_t depth = depthStart;
+                for (uint32_t i = 0; i < head; ++i)
+                {
+                    const uint16_t d =
+                        static_cast<uint16_t>(depth >> kZDepthShift);
+                    const uint16_t c = buf[i] & Z_DEPTH_MASK;
+                    if (d > c)
+                    {
+                        buf[i] = d;
+                        fb[i] = color;
+                    }
+                    depth += depthStep;
+                }
+
+                buf += head;
+                fb += head;
+                count -= head;
+
+                const uint32_t n8 = count >> 3;
+                if (n8)
+                {
+
+                    const int32_t depthEnd =
+                        depth + depthStep *
+                                    (static_cast<int32_t>(n8) * 8 - 1);
+                    const uint16_t dFirst =
+                        static_cast<uint16_t>(depth >> kZDepthShift);
+                    const uint16_t dLast =
+                        static_cast<uint16_t>(depthEnd >> kZDepthShift);
+                    const uint16_t dMin = dFirst < dLast ? dFirst : dLast;
+
+                    if (Simd::scanSpanMaxZ(buf, n8) <
+                        static_cast<int16_t>(dMin))
+                        Simd::fillSpanZ8Pass(buf, fb, n8, depth, depthStep,
+                                             color);
+                    else
+                        Simd::fillSpanZ8(buf, fb, n8, depth, depthStep,
+                                         color);
+
+                    const uint32_t done = n8 * 8;
+                    buf += done;
+                    fb += done;
+                    count -= done;
+                    depth += depthStep * static_cast<int32_t>(done);
+                }
+
+                fillScanlinePlainScalar(buf, fb, count, depth, depthStep,
+                                        color);
+            }
+#else
+            PIP3D_ALWAYS_INLINE_HOT static inline void IRAM_ATTR
+            fillScanlinePlain(uint16_t *__restrict__ buf,
+                              uint16_t *__restrict__ fb,
+                              uint32_t count,
+                              int32_t depthStart,
+                              int32_t depthStep,
+                              uint16_t color) noexcept
+            {
+                fillScanlinePlainScalar(buf, fb, count, depthStart, depthStep, color);
+            }
+#endif
 
             PIP3D_ALWAYS_INLINE_HOT static inline void IRAM_ATTR
             fillScanlineFog(uint16_t *__restrict__ buf,
