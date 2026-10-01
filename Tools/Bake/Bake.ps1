@@ -18,7 +18,7 @@ $WARN = "$ESC[33m[!]$ESC[0m"
 
 $dir = (Resolve-Path (Split-Path $PSScriptRoot -Parent)).Path
 while ($true) {
-  if (Test-Path -LiteralPath (Join-Path $dir "platformio.ini")) { break }
+  if (Test-Path -LiteralPath (Join-Path $dir "Pip3D\idf_component.yml")) { break }
   $parent = Split-Path $dir -Parent
   if ($parent -eq $dir) { $dir = $PSScriptRoot; break }
   $dir = $parent
@@ -30,9 +30,9 @@ if (-not $env:PIP3D_BAKE_OUT) {
   $env:PIP3D_BAKE_OUT = "Tools/Bake/Output"
 }
 $sceneName = if ($env:PIP3D_BAKE_SCENE -and $env:PIP3D_BAKE_SCENE.Trim() -ne "") { $env:PIP3D_BAKE_SCENE } else { "Scene" }
-$bakedHpp = Join-Path $root "src\Lighting\Baked$sceneName.hpp"
+$bakedHpp = Join-Path $root "main\Lighting\Baked$sceneName.hpp"
 if ($sceneName -eq "Scene" -and -not (Test-Path -LiteralPath $bakedHpp)) {
-  $bakedHpp = Join-Path $root "src\Lighting\BakedScene.hpp"
+  $bakedHpp = Join-Path $root "main\Lighting\BakedScene.hpp"
 }
 
 function Test-SafeBakeOutDir([string]$p, [string]$r) {
@@ -46,11 +46,11 @@ function Test-SafeBakeOutDir([string]$p, [string]$r) {
 }
 if (-not (Test-SafeBakeOutDir $outDir $root)) { throw "Refusing to clean unsafe outDir: $outDir" }
 
-$buildDir = Join-Path $root "Tools\Bake\Build"
+$buildDir = Join-Path $root "Tools\Bake\.build"
 $stampDir = Join-Path $buildDir ".vsenv"
 $envCache = Join-Path $stampDir "vsenv.ps1"
 $bakeCachePath = Join-Path $buildDir "bake_cache.json"
-$pioCachePath = Join-Path $root ".pio\pip3d_assetdb.json"
+$pioCachePath = Join-Path $root "Tools\.build\pip3d_assetdb.json"
 
 function Get-FileHashSafe([string]$path) {
   try {
@@ -62,14 +62,16 @@ function Get-FileHashSafe([string]$path) {
 
 function Get-ScreenDefines {
   $w = "480"; $h = "320"; $band = "4"
-  $pioIni = Join-Path $root "platformio.ini"
-  if (Test-Path -LiteralPath $pioIni) {
-    $flags = Get-Content -LiteralPath $pioIni -Raw -ErrorAction SilentlyContinue
-    if ($flags -match "-DPIP3D_SCREEN_WIDTH\s*=\s*(\d+)") { $w = $Matches[1] }
-    if ($flags -match "-DPIP3D_SCREEN_HEIGHT\s*=\s*(\d+)") { $h = $Matches[1] }
-    if ($flags -match "-DPIP3D_SCREEN_BAND_COUNT\s*=\s*(\d+)") { $band = $Matches[1] }
-  }
-  return @($w, $h, $band)
+  $sdkconfig = Join-Path $root "sdkconfig"
+  if (Test-Path -LiteralPath $sdkconfig) {
+    $cfg = Get-Content -LiteralPath $sdkconfig -ErrorAction SilentlyContinue
+    foreach ($line in $cfg) {
+      if ($line -match "^CONFIG_PIP3D_SCREEN_WIDTH=(\d+)") { $w = $Matches[1] }
+    elseif ($line -match "^CONFIG_PIP3D_SCREEN_HEIGHT=(\d+)") { $h = $Matches[1] }
+  elseif ($line -match "^CONFIG_PIP3D_SCREEN_BAND_COUNT=(\d+)") { $band = $Matches[1] }
+}
+}
+return @($w, $h, $band)
 }
 
 function Get-BakeFingerprint([string]$rootPath) {
@@ -80,12 +82,12 @@ function Get-BakeFingerprint([string]$rootPath) {
     $files += Get-ChildItem -LiteralPath $bakeSrcDir -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in @(".cpp",".hpp",".comp",".py") -or $_.Name -eq "CMakeLists.txt" }
   }
   $files += Get-Item -LiteralPath (Join-Path $rootPath "Tools\Bake\Bake.ps1") -ErrorAction SilentlyContinue
-  $srcDir = Join-Path $rootPath "src"
+  $srcDir = Join-Path $rootPath "main"
   if (Test-Path -LiteralPath $srcDir) {
     $files += Get-ChildItem -LiteralPath $srcDir -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in @(".cpp",".hpp",".c",".h") -and $_.FullName -notlike "*\Lighting\Baked*.hpp" }
   }
 
-  $engineDir = Join-Path $rootPath "lib\Pip3D"
+  $engineDir = Join-Path $rootPath "Pip3D"
   if (Test-Path -LiteralPath $engineDir) {
     $files += Get-ChildItem -LiteralPath $engineDir -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in @(".cpp",".hpp",".c",".h") }
   }
@@ -148,9 +150,9 @@ if (-not $Clean -and -not $NoRun -and (Test-Path -LiteralPath $bakedHpp) -and (T
   }
 }
 if ($skipBuildAndRun) {
-  $srcMain = Join-Path $root "src\main.cpp"
+  $srcMain = Join-Path $root "main\main.cpp"
   if ((Test-Path -LiteralPath $srcMain) -and (Test-Path -LiteralPath $bakedHpp) -and (Get-Item -LiteralPath $srcMain).LastWriteTime -gt (Get-Item -LiteralPath $bakedHpp).LastWriteTime) {
-    Write-Host "$TAG src/main.cpp newer than $bakedHpp, forcing rebuild"
+    Write-Host "$TAG main/main.cpp newer than $bakedHpp, forcing rebuild"
     $skipBuildAndRun = $false
   }
 }
@@ -224,7 +226,7 @@ if (-not (Test-Path -LiteralPath $buildNinja)) { $needConfigure = $true } else {
   if ((Test-Path -LiteralPath $cmakeLists) -and (Get-Item -LiteralPath $cmakeLists).LastWriteTime -gt $ninjaTime) { $needConfigure = $true } else {
     $latestSrc = Get-ChildItem -LiteralPath (Join-Path $root "Tools\Bake\Source") -Recurse -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if ($latestSrc -and $latestSrc.LastWriteTime -gt $ninjaTime) { $needConfigure = $true }
-    $latestSrc2 = Get-ChildItem -LiteralPath (Join-Path $root "src") -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in @(".cpp",".hpp",".c",".h") } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    $latestSrc2 = Get-ChildItem -LiteralPath (Join-Path $root "main") -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in @(".cpp",".hpp",".c",".h") } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if (-not $needConfigure -and $latestSrc2 -and $latestSrc2.LastWriteTime -gt $ninjaTime) { $needConfigure = $true }
   }
 }
@@ -306,7 +308,7 @@ if ($py -and (Test-Path -LiteralPath (Join-Path $outDir "Sparse.png"))) {
 try {
   New-Item -ItemType Directory -Force -Path (Split-Path $bakeCachePath -Parent) | Out-Null
   $outHash2 = Get-FileHashSafe $bakedHpp
-  $altHpp = Join-Path $root "src\Lighting\BakedScene.hpp"
+  $altHpp = Join-Path $root "main\Lighting\BakedScene.hpp"
   if ($altHpp -ne $bakedHpp -and (Test-Path -LiteralPath $altHpp)) { $outHash2 = Get-FileHashSafe $altHpp }
   $cacheObj = [ordered]@{ version = 1; fingerprint = $fpBeforeRun; output_hash = $outHash2; built_at = (Get-Date).ToString("o") }
   $tmpCache = "$bakeCachePath.tmp"

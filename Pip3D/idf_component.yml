@@ -1,0 +1,9 @@
+version: "0.3.0"
+description: "Pip3D - software 3D renderer, physics and particle engine for ESP32-S3 (no PSRAM), built on top of the PipCore kernel."
+url: "https://github.com/pisppus/pip3D"
+license: "MIT"
+targets:
+  - esp32s3
+dependencies:
+  idf: ">=6.0"
+  pisppus/PipCore: "^2.0.0"

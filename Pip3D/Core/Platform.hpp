@@ -1,0 +1,222 @@
+#pragma once
+
+#include "Config.hpp"
+
+#include <cstdint>
+#include <cstdlib>
+#include <cmath>
+#include <algorithm>
+
+#if defined(ARDUINO_ARCH_ESP32) || defined(ESP_PLATFORM)
+#define PIP3D_TARGET_ESP32 1
+#define PIP3D_TARGET_PC 0
+#else
+#define PIP3D_TARGET_ESP32 0
+#define PIP3D_TARGET_PC 1
+#endif
+
+#if PIP3D_TARGET_ESP32
+
+#include <esp_attr.h>
+#include <esp_timer.h>
+#include <esp_random.h>
+#else
+
+using SemaphoreHandle_t = void *;
+using TaskHandle_t = void *;
+using BaseType_t = long;
+using UBaseType_t = unsigned long;
+using TickType_t = uint32_t;
+
+#ifndef portMAX_DELAY
+#define portMAX_DELAY 0xFFFFFFFFUL
+#endif
+#ifndef pdTRUE
+#define pdTRUE 1
+#endif
+#ifndef pdFALSE
+#define pdFALSE 0
+#endif
+#ifndef pdPASS
+#define pdPASS 1
+#endif
+#ifndef pdFAIL
+#define pdFAIL 0
+#endif
+#ifndef pdMS_TO_TICKS
+#define pdMS_TO_TICKS(ms) (ms)
+#endif
+
+inline void vSemaphoreDelete(SemaphoreHandle_t) {}
+inline SemaphoreHandle_t xSemaphoreCreateBinary() { return reinterpret_cast<SemaphoreHandle_t>(1); }
+inline SemaphoreHandle_t xSemaphoreCreateMutex() { return reinterpret_cast<SemaphoreHandle_t>(1); }
+inline SemaphoreHandle_t xSemaphoreCreateCounting(unsigned long, unsigned long) { return reinterpret_cast<SemaphoreHandle_t>(1); }
+inline BaseType_t xSemaphoreTake(SemaphoreHandle_t, TickType_t) { return pdTRUE; }
+inline BaseType_t xSemaphoreGive(SemaphoreHandle_t) { return pdTRUE; }
+
+inline void vTaskDelay(TickType_t) {}
+inline void vTaskDelete(TaskHandle_t) {}
+inline void taskYIELD() {}
+inline void xTaskNotifyGive(TaskHandle_t) {}
+inline uint32_t ulTaskNotifyTake(BaseType_t, TickType_t) { return 1; }
+#endif
+
+#include "Debug/Logging.hpp"
+
+#if defined(_MSC_VER)
+#include <intrin.h>
+
+#define PIP3D_FORCE_INLINE __forceinline
+#define PIP3D_FLATTEN __forceinline
+#define PIP3D_NOINLINE __declspec(noinline)
+#define PIP3D_RESTRICT __restrict
+
+#ifndef __restrict__
+#define __restrict__ __restrict
+#endif
+#ifndef __attribute__
+#define __attribute__(x)
+#endif
+#ifndef __builtin_expect
+#define __builtin_expect(x, v) (x)
+#endif
+#ifndef __builtin_prefetch
+#define __builtin_prefetch(ptr, ...) ((void)0)
+#endif
+#ifndef __builtin_inff
+#define __builtin_inff() (1e30f)
+#endif
+#ifndef __sync_synchronize
+#define __sync_synchronize() _ReadWriteBarrier()
+#endif
+
+#elif defined(__GNUC__) || defined(__clang__)
+#define PIP3D_FORCE_INLINE inline __attribute__((always_inline))
+#define PIP3D_FLATTEN __attribute__((flatten))
+#define PIP3D_NOINLINE __attribute__((noinline))
+#define PIP3D_RESTRICT __restrict__
+#else
+#define PIP3D_FORCE_INLINE inline
+#define PIP3D_FLATTEN
+#define PIP3D_NOINLINE
+#define PIP3D_RESTRICT
+#endif
+
+#if defined(__GNUC__) || defined(__clang__)
+#define PIP3D_HOT __attribute__((hot))
+#define PIP3D_COLD __attribute__((cold))
+#define PIP3D_ALWAYS_INLINE __attribute__((always_inline))
+#define PIP3D_ALWAYS_INLINE_HOT __attribute__((always_inline, hot))
+#define PIP3D_NOINLINE_HOT __attribute__((noinline, hot))
+#else
+#define PIP3D_HOT
+#define PIP3D_COLD
+#define PIP3D_ALWAYS_INLINE
+#define PIP3D_ALWAYS_INLINE_HOT
+#define PIP3D_NOINLINE_HOT
+#endif
+
+#ifndef IRAM_ATTR
+#define IRAM_ATTR
+#endif
+#ifndef DRAM_ATTR
+#define DRAM_ATTR
+#endif
+
+#if PIP3D_TARGET_ESP32
+#define PIP3D_FAST_DATA DRAM_ATTR
+#else
+#define PIP3D_FAST_DATA
+#endif
+
+#define PIP3D_CACHELINE_SIZE 32
+
+#if defined(__GNUC__) || defined(__clang__)
+#define PIP3D_PREFETCH_R(ptr) __builtin_prefetch((ptr), 0, 0)
+#define PIP3D_PREFETCH_W(ptr) __builtin_prefetch((ptr), 1, 0)
+#else
+#define PIP3D_PREFETCH_R(ptr) ((void)0)
+#define PIP3D_PREFETCH_W(ptr) ((void)0)
+#endif
+
+#if defined(__GNUC__) || defined(__clang__)
+#ifndef likely
+#define likely(x) __builtin_expect(!!(x), 1)
+#endif
+#ifndef unlikely
+#define unlikely(x) __builtin_expect(!!(x), 0)
+#endif
+#else
+#ifndef likely
+#define likely(x) (x)
+#endif
+#ifndef unlikely
+#define unlikely(x) (x)
+#endif
+#endif
+
+inline long random(long minVal, long maxVal)
+{
+    if (maxVal <= minVal)
+        return minVal;
+    const unsigned long range = static_cast<unsigned long>(maxVal - minVal);
+#if PIP3D_TARGET_ESP32
+    return minVal + static_cast<long>(esp_random() % range);
+#else
+    return minVal + static_cast<long>(std::rand() % range);
+#endif
+}
+
+namespace pip3D
+{
+    template <typename T, typename MinT, typename MaxT>
+    PIP3D_FORCE_INLINE constexpr T clamp(T value, MinT min_val, MaxT max_val)
+    {
+        return (value < static_cast<T>(min_val)) ? static_cast<T>(min_val) : ((value > static_cast<T>(max_val)) ? static_cast<T>(max_val) : value);
+    }
+
+    inline constexpr uint16_t SCREEN_WIDTH = PIP3D_SCREEN_WIDTH;
+    inline constexpr uint16_t SCREEN_HEIGHT = PIP3D_SCREEN_HEIGHT;
+    inline constexpr uint16_t SCREEN_BAND_COUNT = PIP3D_SCREEN_BAND_COUNT;
+    inline constexpr uint16_t SCREEN_BAND_HEIGHT = SCREEN_HEIGHT / SCREEN_BAND_COUNT;
+
+    inline int16_t g_bandOffsetY = 0;
+    inline int16_t g_bandHeight = static_cast<int16_t>(SCREEN_HEIGHT);
+    inline uint32_t g_frameStamp = 0;
+
+    inline float g_wBufferScale = 1.0f;
+    inline float g_wBufferInvScale = 1.0f;
+
+    struct Display
+    {
+        uint16_t width = PIP3D_SCREEN_WIDTH;
+        uint16_t height = PIP3D_SCREEN_HEIGHT;
+        int8_t cs = 10;
+        int8_t dc = 9;
+        int8_t rst = 8;
+        int8_t bl = -1;
+        int8_t mosi = 11;
+        int8_t sclk = 12;
+        uint8_t rotation = 1;
+        uint32_t spi_freq = 80000000;
+
+        Display() = default;
+        Display(uint16_t w, uint16_t h) : width(w), height(h) {}
+        Display(uint16_t w, uint16_t h, int8_t cs_, int8_t dc_, int8_t rst_)
+            : width(w), height(h), cs(cs_), dc(dc_), rst(rst_) {}
+    };
+    using DisplayConfig = Display;
+
+    struct Viewport
+    {
+        int16_t x = 0;
+        int16_t y = 0;
+        uint16_t width = SCREEN_WIDTH;
+        uint16_t height = SCREEN_HEIGHT;
+
+        Viewport() = default;
+        Viewport(int16_t x_, int16_t y_, uint16_t w_, uint16_t h_)
+            : x(x_), y(y_), width(w_), height(h_) {}
+        Viewport(uint16_t w_, uint16_t h_) : width(w_), height(h_) {}
+    };
+}

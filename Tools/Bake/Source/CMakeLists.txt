@@ -11,7 +11,7 @@ if(NOT DEFINED BAKE_ROOT)
     get_filename_component(BAKE_ROOT "${BAKE_ROOT}" DIRECTORY)
 endif()
 
-set(PIP3D_SOURCE_DIR "${BAKE_ROOT}/lib/Pip3D")
+set(PIP3D_SOURCE_DIR "${BAKE_ROOT}/Pip3D")
 
 set(PIP3D_SCREEN_WIDTH "480" CACHE STRING "Screen width the bake previews render at")
 set(PIP3D_SCREEN_HEIGHT "320" CACHE STRING "Screen height the bake previews render at")
@@ -26,18 +26,13 @@ set(BAKE_SHIMS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Platform")
 file(GLOB_RECURSE BAKE_ENGINE_SOURCES CONFIGURE_DEPENDS
     "${PIP3D_SOURCE_DIR}/*.cpp"
 )
-if(EXISTS "${BAKE_ROOT}/src/main.cpp")
-    list(APPEND BAKE_ENGINE_SOURCES "${BAKE_ROOT}/src/main.cpp")
-else()
-    message(WARNING "src/main.cpp not found — bake may miss scene definition")
-endif()
 
-list(FILTER BAKE_ENGINE_SOURCES EXCLUDE REGEX ".*/Platforms/Desktop/Host\\.cpp$")
-list(FILTER BAKE_ENGINE_SOURCES EXCLUDE REGEX ".*/Platforms/Desktop/Runtime\\.cpp$")
-list(FILTER BAKE_ENGINE_SOURCES EXCLUDE REGEX ".*/Platforms/Desktop/Platform\\.cpp$")
-list(FILTER BAKE_ENGINE_SOURCES EXCLUDE REGEX ".*/Platforms/Desktop/Audio\\.cpp$")
-list(FILTER BAKE_ENGINE_SOURCES EXCLUDE REGEX ".*/Displays/Simulator/Display\\.cpp$")
-list(FILTER BAKE_ENGINE_SOURCES EXCLUDE REGEX ".*/Platforms/ESP32/.*$")
+set(PIP3D_BAKE_APP "homes" CACHE STRING "Demo the bake tool compiles via PIP3D_APP_DEMO (main.cpp -> Examples/<name>.cpp)")
+set(BAKE_APP_CPP "${BAKE_ROOT}/main/main.cpp")
+if(NOT EXISTS "${BAKE_APP_CPP}")
+    message(FATAL_ERROR "Bake app not found: ${BAKE_APP_CPP}\nThe bake tool compiles main/main.cpp as the scene source.")
+endif()
+list(APPEND BAKE_ENGINE_SOURCES "${BAKE_APP_CPP}")
 
 list(LENGTH BAKE_ENGINE_SOURCES BAKE_SOURCES_COUNT)
 message(STATUS "Pip3D bake: engine .cpp sources: ${BAKE_SOURCES_COUNT} files")
@@ -70,6 +65,7 @@ target_compile_definitions(bake PRIVATE
     PIP3D_PC=1
     PIP3D_TARGET_PC=1
     PIP3D_BAKE=1
+    PIP3D_APP_DEMO=${PIP3D_BAKE_APP}
     PIP3D_SCREEN_WIDTH=${PIP3D_SCREEN_WIDTH}
     PIP3D_SCREEN_HEIGHT=${PIP3D_SCREEN_HEIGHT}
     PIP3D_SCREEN_BAND_COUNT=${PIP3D_SCREEN_BAND_COUNT}
@@ -100,18 +96,17 @@ endif()
 
 target_include_directories(bake PRIVATE
     ${BAKE_SHIMS_DIR}
-    ${PIP3D_SOURCE_DIR}
-    ${PIP3D_SOURCE_DIR}/Pip3D
-    ${PIP3D_SOURCE_DIR}/PipCore
-    ${BAKE_ROOT}/src
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${PIP3D_SOURCE_DIR}
+    ${BAKE_ROOT}
+    ${BAKE_ROOT}/main
     ${CMAKE_CURRENT_SOURCE_DIR}/external/vulkan/include
 )
 
 set_target_properties(bake PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${BAKE_ROOT}/Tools/Bake/Build"
-    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${BAKE_ROOT}/Tools/Bake/Build"
-    RUNTIME_OUTPUT_DIRECTORY_DEBUG "${BAKE_ROOT}/Tools/Bake/Build"
+    RUNTIME_OUTPUT_DIRECTORY "${BAKE_ROOT}/Tools/Bake/.build"
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${BAKE_ROOT}/Tools/Bake/.build"
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG "${BAKE_ROOT}/Tools/Bake/.build"
 )
 
 if(MSVC)

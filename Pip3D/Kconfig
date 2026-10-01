@@ -1,0 +1,79 @@
+menu "Pip3D"
+
+    config PIP3D_SCREEN_WIDTH
+        int "Render width (pixels)"
+        range 16 2048
+        default 480
+        help
+            Logical framebuffer width. The panel driver sees the transposed
+            resolution (height x width) because the engine renders in
+            rotated space.
+
+    config PIP3D_SCREEN_HEIGHT
+        int "Render height (pixels)"
+        range 16 2048
+        default 320
+
+    config PIP3D_SCREEN_BAND_COUNT
+        int "Horizontal bands per frame"
+        range 1 32
+        default 8
+        help
+            The framebuffer is split into this many bands rendered and
+            flushed one by one, trading CPU spikes for a small band buffer.
+
+    config PIP3D_DISPLAY_ROTATION
+        int "Panel rotation passed to PipCore (0-3)"
+        range 0 3
+        default 1
+
+    config PIP3D_DISPLAY_ORDER
+        int "Panel color order (0=RGB, 1=BGR)"
+        range 0 1
+        default 1
+
+    config PIP3D_DISPLAY_INVERT
+        bool "Invert panel colors"
+        default y
+
+    config PIP3D_DISPLAY_SWAP
+        bool "Swap framebuffer bytes for the panel"
+        default y
+        help
+            The engine framebuffer holds native (little-endian) RGB565
+            pixels, while SPI panels take big-endian bytes. PipCore swaps
+            on the way out only when this is set - the old vendored driver
+            always swapped, so this must stay on.
+
+    config PIP3D_SIMD
+        bool "SIMD render paths (Xtensa S3 'ee' DSP instructions)"
+        depends on IDF_TARGET_ESP32S3
+        default y
+        help
+            Hand-written 'ee.*' DSP assembly for span fills and the sky
+            gradient. Inflates IRAM (less free heap); scalar fallbacks
+            cover every call site when disabled.
+
+    menu "Debug"
+
+        config PIP3D_ENABLE_LOGGING
+            bool "Engine logging"
+            default y
+
+        config PIP3D_LOG_DEFAULT_LEVEL
+            int "Engine log level (0=off ... 5=verbose)"
+            range 0 5
+            default 1
+            depends on PIP3D_ENABLE_LOGGING
+
+        config PIP3D_ENABLE_GIZMOS
+            bool "Debug gizmos (lines, spheres, AABB)"
+            default y
+
+        config PIP3D_ENABLE_DRAW_TELEMETRY
+            bool "Draw-call telemetry"
+            default n
+
+    endmenu
+
+endmenu

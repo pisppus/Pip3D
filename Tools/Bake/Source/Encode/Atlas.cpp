@@ -561,8 +561,8 @@ namespace pip3D
                               const ProbeBake &probes)
         {
 
-            pip3d_fs::create_directories("src/Lighting");
-            const std::string path = std::string("src/Lighting/Baked") + sceneName + ".hpp";
+            pip3d_fs::create_directories("main/Lighting");
+            const std::string path = std::string("main/Lighting/Baked") + sceneName + ".hpp";
             std::ofstream os(path, std::ios::binary);
             if (!os || !atlas.encoded())
                 return;

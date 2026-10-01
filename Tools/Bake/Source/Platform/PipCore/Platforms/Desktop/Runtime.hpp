@@ -1,7 +1,6 @@
 #pragma once
 
-#include <PipCore/Features.hpp>
-#include <PipCore/Platform.hpp>
+#include <Platform.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -67,6 +66,7 @@ namespace pipcore::desktop
         void pinModeInput(uint8_t) noexcept {}
         [[nodiscard]] bool digitalRead(uint8_t) const noexcept { return false; }
         [[nodiscard]] int16_t analogRead(uint8_t) const noexcept { return 0; }
+        [[nodiscard]] bool screenPressed() const noexcept { return false; }
 
         void serialWrite(const char *s) noexcept;
         void serialWrite(const char *s, size_t n) noexcept;

@@ -129,7 +129,7 @@ if __name__ == "__main__":
         target_dir = None
         curr = script_dir
         for _ in range(4):
-            test_path = os.path.join(curr, "lib", "Pip3D", "Pip3D", "Rendering", "Resources", "Textures")
+            test_path = os.path.join(curr, "Pip3D", "Rendering", "Resources", "Textures")
             if os.path.exists(test_path):
                 target_dir = test_path
                 break
@@ -139,5 +139,5 @@ if __name__ == "__main__":
             out_path = os.path.join(target_dir, "Missing.hpp")
             write_missing_texture(out_path, args.size, args.min_mip)
         else:
-            print(_err("Could not locate lib/Pip3D/.../Textures/. Pass explicit output path."))
+            print(_err("Could not locate Pip3D/Rendering/Resources/Textures/. Pass explicit output path."))
             sys.exit(1)

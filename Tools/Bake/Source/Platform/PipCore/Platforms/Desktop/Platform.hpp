@@ -1,11 +1,10 @@
 #pragma once
 
-#include <PipCore/Features.hpp>
+#include <Platform.hpp>
 
 #if PIPCORE_TARGET_DESKTOP
 
-#include <PipCore/Display.hpp>
-#include <PipCore/Platform.hpp>
+#include <Display.hpp>
 #include <PipCore/Platforms/Desktop/Runtime.hpp>
 
 namespace pipcore::desktop

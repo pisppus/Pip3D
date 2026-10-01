@@ -161,3 +161,12 @@ namespace pipcore::desktop
     Display *Platform::display() noexcept { return nullptr; }
 
 }
+
+namespace pipcore
+{
+    Platform *GetPlatform() noexcept
+    {
+        static desktop::Platform instance;
+        return &instance;
+    }
+}
