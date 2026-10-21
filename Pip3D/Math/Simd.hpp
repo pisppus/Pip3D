@@ -54,6 +54,49 @@ namespace pip3D
                 : "memory", "a6", "a7");
         }
 
+        PIP3D_FORCE_INLINE static void IRAM_ATTR gainSpan565(
+            uint16_t *__restrict__ px,
+            uint32_t n8,
+            uint32_t gain8) noexcept
+        {
+            alignas(16) uint16_t gain = static_cast<uint16_t>(gain8);
+            alignas(16) uint16_t maskB = 0x001Fu;
+            alignas(16) uint16_t maskG = 0x07E0u;
+            alignas(16) uint16_t maskR = 0x00F8u;
+            uint32_t savedSar;
+
+            asm volatile(
+                "rsr           %[saved], sar\n"
+                "ee.vldbc.16   q4, %[pB]\n"
+                "ee.vldbc.16   q5, %[pG]\n"
+                "ee.vldbc.16   q6, %[pR]\n"
+                "ee.vldbc.16   q7, %[pK]\n"
+                "wsr.sar       %[s8]\n"
+                "loopnez       %[n], 1f\n"
+                "ee.vld.128.ip q0, %[px], 0\n"
+                "ee.vsr.32     q1, q0\n"
+                "ee.andq       q2, q0, q5\n"
+                "ee.andq       q3, q0, q4\n"
+                "ee.andq       q1, q1, q6\n"
+                "ee.vmul.u16   q2, q2, q7\n"
+                "ee.vmul.u16   q3, q3, q7\n"
+                "ee.vmul.u16   q1, q1, q7\n"
+                "ee.vmin.s16   q2, q2, q5\n"
+                "ee.vmin.s16   q3, q3, q4\n"
+                "ee.vmin.s16   q1, q1, q6\n"
+                "ee.andq       q2, q2, q5\n"
+                "ee.andq       q1, q1, q6\n"
+                "ee.vsl.32     q1, q1\n"
+                "ee.orq        q2, q2, q3\n"
+                "ee.orq        q2, q2, q1\n"
+                "ee.vst.128.ip q2, %[px], 16\n"
+                "1:\n"
+                "wsr.sar       %[saved]\n"
+                : [px] "+&r"(px), [saved] "=&r"(savedSar)
+                : [n] "r"(n8), [s8] "r"(8), [pB] "r"(&maskB), [pG] "r"(&maskG), [pR] "r"(&maskR), [pK] "r"(&gain)
+                : "memory");
+        }
+
         PIP3D_FORCE_INLINE static int16_t IRAM_ATTR
         scanSpanMaxZ(const uint16_t *__restrict__ zb, uint32_t n8) noexcept
         {

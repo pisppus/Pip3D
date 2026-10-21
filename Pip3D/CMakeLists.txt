@@ -6,6 +6,7 @@ set(srcs
     "Physics/Collision/Raycast.cpp"
     "Physics/World.cpp"
     "Rendering/Effects.cpp"
+    "Rendering/Effects/Exposure.cpp"
     "Rendering/Lighting/Shadow.cpp"
     "Rendering/Pipeline/DrawCache.cpp"
     "Rendering/Pipeline/Pipeline.cpp"

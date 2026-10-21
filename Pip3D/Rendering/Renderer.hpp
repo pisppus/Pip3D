@@ -26,6 +26,7 @@
 #include "Rendering/Pipeline/Telemetry.hpp"
 #include "Rendering/Effects/Glow.hpp"
 #include "Rendering/Effects/LensFlare.hpp"
+#include "Rendering/Effects/Exposure.hpp"
 #include "Rendering/UI/Font.hpp"
 #include "Rendering/UI/HUD.hpp"
 
@@ -147,6 +148,7 @@ namespace pip3D
         float sunIntensity = 1.0f;
         Vector3 sunWorldDir = Vector3(0.0f, 1.0f, 0.0f);
         LensFlare lensFlare_;
+        Exposure exposure_;
 
         Vector3 sunWorldPosition() const;
         float sunDiskScreenRadius() const;
@@ -429,6 +431,10 @@ namespace pip3D
         LensFlare &lensFlare() { return lensFlare_; }
         const LensFlare &lensFlare() const { return lensFlare_; }
         void drawLensFlare();
+
+        Exposure &exposure() { return exposure_; }
+        const Exposure &exposure() const { return exposure_; }
+        void applyExposure();
 
         void drawSky();
         void drawBillboardQuads(const BillboardQuad *quads, size_t count);
